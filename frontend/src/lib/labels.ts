@@ -27,3 +27,15 @@ export const EVENT_STATE: Record<EventKind, JobState> = {
   job_time_limit: "PENDING",
   job_stalled: "FAILED",
 };
+
+/** Distinct colours for runs shown together (compare view). */
+export const RUN_COLORS = [
+  "var(--acc-0)",
+  "var(--acc-1)",
+  "var(--acc-2)",
+  "var(--acc-3)",
+  "var(--acc-4)",
+  "var(--acc-5)",
+];
+
+export const MAX_COMPARE = RUN_COLORS.length;
