@@ -8,7 +8,7 @@
 
 services:
   pulse:
-    image: ${PULSE_IMAGE:-ghcr.io/neecatt/hpc-monitoring-app:latest}
+    image: ${PULSE_IMAGE:-neecat/pulse:latest}
     build: .
     restart: unless-stopped
     env_file: .env

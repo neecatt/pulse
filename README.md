@@ -26,7 +26,7 @@ desktop, with push notifications when something needs you.
 A demo with a simulated cluster, no HPC access needed:
 
 ```sh
-docker run --rm -p 8000:8000 -e PULSE_SLURM_BACKEND=mock ghcr.io/neecatt/hpc-monitoring-app
+docker run --rm -p 8000:8000 -e PULSE_SLURM_BACKEND=mock neecat/pulse
 ```
 
 Open http://localhost:8000 and enter the setup code printed in the container's
@@ -89,6 +89,20 @@ SQLAlchemy) and `frontend/` (React, TanStack, Tailwind). They talk only over the
 HTTP API. [AGENTS.md](AGENTS.md) describes the architecture and conventions, and
 [CONTRIBUTING.md](CONTRIBUTING.md) how to propose changes.
 
+## Images
+
+[`neecat/pulse`](https://hub.docker.com/r/neecat/pulse) on Docker Hub (also mirrored
+to `ghcr.io/neecatt/hpc-monitoring-app`), for amd64 and arm64:
+
+| Tag                      | Contents                                          |
+| ------------------------ | ------------------------------------------------- |
+| `latest`, `1.2`, `1.2.3` | Releases. Pin a version for predictable upgrades  |
+| `edge`                   | The newest code on `main`, untested in production |
+
 ## Security
 
 Please report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE)
