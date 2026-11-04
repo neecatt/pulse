@@ -1,3 +1,10 @@
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+  RegistrationResponseJSON,
+} from "@simplewebauthn/browser";
+
 import { API_URL } from "@/config/env";
 
 import type {
@@ -14,6 +21,8 @@ import type {
   JobUpdate,
   LoginSession,
   Me,
+  Passkey,
+  PasskeyOptions,
   Health,
   Preferences,
   PreferencesUpdate,
@@ -87,6 +96,30 @@ export const api = {
       }),
     sessions: () => request<LoginSession[]>("/auth/sessions"),
     revokeOthers: () => request<void>("/auth/sessions/revoke-others", { method: "POST" }),
+  },
+  passkeys: {
+    list: () => request<Passkey[]>("/auth/passkeys"),
+    registerOptions: () =>
+      request<PasskeyOptions<PublicKeyCredentialCreationOptionsJSON>>(
+        "/auth/passkeys/register/options",
+        { method: "POST" },
+      ),
+    register: (challenge_id: string, credential: RegistrationResponseJSON, name: string) =>
+      request<Passkey>("/auth/passkeys/register/verify", {
+        method: "POST",
+        body: json({ challenge_id, credential, name }),
+      }),
+    remove: (id: number) => request<void>(`/auth/passkeys/${id}`, { method: "DELETE" }),
+    loginOptions: () =>
+      request<PasskeyOptions<PublicKeyCredentialRequestOptionsJSON>>(
+        "/auth/passkeys/login/options",
+        { method: "POST" },
+      ),
+    login: (challenge_id: string, credential: AuthenticationResponseJSON) =>
+      request<Me>("/auth/passkeys/login/verify", {
+        method: "POST",
+        body: json({ challenge_id, credential }),
+      }),
   },
   health: () => request<Health>("/health"),
   setup: () => request<SetupInfo>("/setup"),

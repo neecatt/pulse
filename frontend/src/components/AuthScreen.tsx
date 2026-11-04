@@ -1,7 +1,17 @@
-import { useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
+import { KeyRound } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
 
-import { useAuthStatus, useSignIn } from "@/api/queries";
+import { setSignedIn, useAuthStatus, useSignIn } from "@/api/queries";
 import { PASSWORD_MIN_LENGTH } from "@/config/constants";
+import {
+  isCancelled,
+  passkeyAutofillSupported,
+  passkeyErrorMessage,
+  passkeysSupported,
+  signInWithPasskey,
+} from "@/lib/passkeys";
 
 import { Button } from "./Button";
 
@@ -26,6 +36,7 @@ export function AuthScreen() {
           <h1 className="text-xl font-medium tracking-tight">{TITLES[mode]}</h1>
           <p className="text-sm text-muted-foreground">{HINTS[mode]}</p>
         </div>
+        {status && mode === "login" && <PasskeySignIn />}
         {status && <CredentialsForm key={mode} mode={mode} />}
         {status?.signup_allowed && mode !== "setup" && (
           <p className="text-center text-xs text-muted-foreground">
@@ -97,7 +108,8 @@ function CredentialsForm({ mode }: { mode: Mode }) {
       <input
         required
         autoFocus={mode !== "setup"}
-        autoComplete="username"
+        // "webauthn" lets the browser offer saved passkeys in this field's autofill.
+        autoComplete={mode === "login" ? "username webauthn" : "username"}
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
@@ -123,5 +135,60 @@ function CredentialsForm({ mode }: { mode: Mode }) {
         {signIn.isPending ? "One moment…" : creating ? "Create account" : "Sign in"}
       </Button>
     </form>
+  );
+}
+
+/**
+ * Passkey sign-in: a button, plus a quiet background request so the browser
+ * offers passkeys as soon as you tap the username field.
+ */
+function PasskeySignIn() {
+  const client = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void passkeyAutofillSupported().then((supported) => {
+      if (!supported || !active) return;
+      signInWithPasskey(true)
+        .then((user) => setSignedIn(client, user))
+        .catch((e: unknown) => {
+          if (active && !isCancelled(e)) setError(passkeyErrorMessage(e));
+        });
+    });
+    return () => {
+      active = false;
+      WebAuthnAbortService.cancelCeremony();
+    };
+  }, [client]);
+
+  if (!passkeysSupported()) return null;
+
+  const signIn = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setSignedIn(client, await signInWithPasskey());
+    } catch (e) {
+      if (!isCancelled(e)) setError(passkeyErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <Button onClick={signIn} disabled={busy} className="h-10 w-full">
+        <KeyRound className="size-4" />
+        {busy ? "Waiting for your passkey…" : "Sign in with a passkey"}
+      </Button>
+      {error && <p className="text-xs text-fail">{error}</p>}
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <span className="h-px flex-1 bg-border" />
+        or with your password
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    </div>
   );
 }

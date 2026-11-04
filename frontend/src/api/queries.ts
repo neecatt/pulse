@@ -35,6 +35,7 @@ export const queryKeys = {
   setup: ["setup"] as const,
   authStatus: ["auth-status"] as const,
   loginSessions: ["login-sessions"] as const,
+  passkeys: ["passkeys"] as const,
   health: ["health"] as const,
 };
 
@@ -102,6 +103,10 @@ export function useRevokeOtherSessions() {
     mutationFn: api.auth.revokeOthers,
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.loginSessions }),
   });
+}
+
+export function usePasskeys() {
+  return useQuery({ queryKey: queryKeys.passkeys, queryFn: api.passkeys.list });
 }
 
 export function useAccounts() {
