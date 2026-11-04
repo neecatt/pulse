@@ -1,6 +1,10 @@
 """SshSlurmClient against an in-process SSH server that fakes the Slurm CLI."""
 
+import base64
+import re
+import shlex
 import socket
+import tempfile
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -12,7 +16,10 @@ import pytest
 from pulse.config import Settings
 from pulse.domain import JobState
 from pulse.slurm.base import AccountRef, SlurmError
-from pulse.slurm.ssh import SshSlurmClient
+from pulse.slurm.ssh import CHUNK_MARKER, SshSlurmClient, select_files
+
+WORK_DIR = Path(tempfile.mkdtemp(prefix="pulse-ssh-workdir-"))
+CHUNK_READ = re.compile(r"tail -c \+(\d+) (\S+) \| head -c (\d+) \| base64")
 
 SACCT_OUTPUT = (
     "4242|train|gpu|RUNNING|1|cpu=8,gres/gpu=4|cpu=8,gres/gpu=4|gpu001"
@@ -27,7 +34,22 @@ def fake_slurm(process: asyncssh.SSHServerProcess[str]) -> None:
     elif "sacct -X" in command:
         process.stdout.write(SACCT_OUTPUT)
     elif command.startswith("scontrol show job"):
-        process.stdout.write("JobId=4242 JobName=train StdOut=/scratch/train-4242.out\n")
+        process.stdout.write(
+            f"JobId=4242 JobName=train StdOut=/scratch/train-4242.out WorkDir={WORK_DIR}\n"
+        )
+    elif " find " in f" {command}":
+        # GNU find -printf isn't on macOS; answer from the fake work dir instead.
+        for path in sorted(WORK_DIR.rglob("*"), reverse=True):
+            if path.is_file():
+                process.stdout.write(f"{path.stat().st_mtime}\t{path.stat().st_size}\t{path}\n")
+    elif command.startswith("stat --printf"):
+        for path in shlex.split(command)[3:-1]:
+            if Path(path).exists():
+                process.stdout.write(f"{Path(path).stat().st_size}\t{path}\n")
+    elif CHUNK_MARKER in command:
+        for start, path, limit in CHUNK_READ.findall(command):
+            data = Path(shlex.split(path)[0]).read_bytes()[int(start) - 1 :][: int(limit)]
+            process.stdout.write(f"{CHUNK_MARKER}\n{base64.encodebytes(data).decode()}")
     elif command.startswith("stat -c %Y"):
         process.stdout.write(f"{int(time.time())}\n[step 10] epoch 2/5 loss=0.512\n")
     elif "srun" in command:
@@ -100,7 +122,7 @@ async def test_check_returns_server_host_key(client: SshSlurmClient, cluster: Fa
 async def test_snapshot_parses_jobs_and_telemetry(
     client: SshSlurmClient, cluster: FakeCluster
 ) -> None:
-    snapshot = await client.snapshot(cluster.account())
+    snapshot = await client.snapshot(cluster.account(), {})
 
     (job,) = snapshot.jobs
     assert job.state is JobState.RUNNING
@@ -117,7 +139,7 @@ async def test_connection_is_reused_across_polls(
     client: SshSlurmClient, cluster: FakeCluster
 ) -> None:
     for _ in range(3):
-        await client.snapshot(cluster.account())
+        await client.snapshot(cluster.account(), {})
     assert len(cluster.connections) == 1
 
 
@@ -151,3 +173,33 @@ async def test_connection_errors_are_plain_language(client: SshSlurmClient) -> N
     account = AccountRef(username="alice", host="127.0.0.1", port=port)
     with pytest.raises(SlurmError, match="refused the connection"):
         await client.check(account)
+
+
+async def test_metric_files_are_read_incrementally(
+    client: SshSlurmClient, cluster: FakeCluster
+) -> None:
+    metrics = WORK_DIR / "metrics.jsonl"
+    metrics.write_text('{"step": 1, "loss": 2.0}\n')
+    (WORK_DIR / "hparams.yaml").write_text("lr: 0.1\n")
+    (WORK_DIR / "unrelated.txt").write_text("ignored\n")
+
+    first = (await client.snapshot(cluster.account(), {})).telemetry["4242"].files
+    by_path = {c.path: c for c in first}
+    assert set(by_path) == {str(metrics), str(WORK_DIR / "hparams.yaml")}
+    assert by_path[str(metrics)].data == b'{"step": 1, "loss": 2.0}\n'
+
+    with metrics.open("a") as handle:
+        handle.write('{"step": 2, "loss": 1.0}\n')
+    cursors = {"4242": {c.path: c.size for c in first}}
+    (again,) = (await client.snapshot(cluster.account(), cursors)).telemetry["4242"].files
+    assert again.offset == by_path[str(metrics)].size
+    assert again.data == b'{"step": 2, "loss": 1.0}\n'
+
+
+def test_select_files_keeps_newest_per_kind() -> None:
+    lines = [f"{100 - i}\t10\t/w/run{i}/metrics.jsonl" for i in range(12)]
+    lines += ["50\t5\t/w/hparams.yaml", "49\tx\t/w/bad.jsonl", "48\t3\t/w/readme.md"]
+    picked = select_files("\n".join(lines))
+    assert [p for p, _ in picked][:2] == ["/w/run0/metrics.jsonl", "/w/run1/metrics.jsonl"]
+    assert len(picked) == 8 + 1  # MAX_METRIC_FILES metrics, plus the config
+    assert ("/w/hparams.yaml", 5) in picked

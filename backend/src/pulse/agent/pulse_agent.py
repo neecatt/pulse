@@ -13,6 +13,7 @@ minute at the pace the server asks for.
                                                         (if cron isn't available)
 """
 
+import base64
 import contextlib
 import fcntl
 import json
@@ -29,6 +30,7 @@ VERSION = "1"
 CONFIG_DIR = os.path.expanduser("~/.config/pulse-agent")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 LOCK_PATH = os.path.join(CONFIG_DIR, "lock")
+STATE_PATH = os.path.join(CONFIG_DIR, "state.json")  # file offsets the server has
 CRON_TAG = "# pulse-agent"
 
 RUN_SECONDS = 55  # cron starts the next run a minute later
@@ -58,6 +60,24 @@ SACCT_FIELDS = (
     "ElapsedRaw",
     "ExitCode",
 )
+# Metric file rules: must match pulse.metrics.discovery (the backend tests check this).
+CHUNK_BYTES = 256 * 1024
+CONFIG_MAX_BYTES = 64 * 1024
+MAX_METRIC_FILES = 8
+MAX_CONFIG_FILES = 4
+SEARCH_DEPTH = 4
+PRUNE_DIRS = (".git", "node_modules", "__pycache__", ".venv", "venv", ".cache")
+CONFIG_NAMES = (
+    "hparams.yaml",
+    "hparams.json",
+    "config.yaml",
+    "config.yml",
+    "config.json",
+    "params.json",
+    "args.json",
+)
+DISCOVERY_SECONDS = 60  # walking shared filesystems is slow; don't repeat it often
+
 NVIDIA_SMI = [
     "nvidia-smi",
     "--query-gpu=utilization.gpu,memory.used,memory.total",
@@ -115,7 +135,7 @@ def status() -> int:
 
 def uninstall() -> int:
     remove_cron_entry()
-    for path in (CONFIG_PATH, LOCK_PATH):
+    for path in (CONFIG_PATH, LOCK_PATH, STATE_PATH):
         if os.path.exists(path):
             os.remove(path)
     print("✓ Pulse agent removed.")
@@ -129,12 +149,13 @@ def run(duration: float) -> int:
         return 0  # another run is still going
     deadline = time.monotonic() + duration
     last_gpu_sample = -float("inf")
+    discovered = {}  # type: Dict[str, Tuple[float, List[str]]]
     while True:
         include_gpu = time.monotonic() - last_gpu_sample >= GPU_SAMPLE_SECONDS
         if include_gpu:
             last_gpu_sample = time.monotonic()
         try:
-            interval = report(config, include_gpu)
+            interval = report(config, include_gpu, discovered)
         except AgentError as exc:
             log(str(exc))
             if exc.fatal:
@@ -148,9 +169,14 @@ def run(duration: float) -> int:
 # Reporting
 
 
-def report(config: Dict[str, str], include_gpu: bool) -> int:
+def report(
+    config: Dict[str, str],
+    include_gpu: bool,
+    discovered: Optional[Dict[str, Tuple[float, List[str]]]] = None,
+) -> int:
     """Send one snapshot; returns the server's requested delay before the next."""
-    body = json.dumps(collect(include_gpu)).encode()
+    payload = collect(include_gpu, load_cursors(), {} if discovered is None else discovered)
+    body = json.dumps(payload).encode()
     request = urllib.request.Request(
         config["server"] + "/api/agent/report",
         data=body,
@@ -172,10 +198,16 @@ def report(config: Dict[str, str], include_gpu: bool) -> int:
         raise AgentError("Pulse answered HTTP {}.".format(exc.code)) from exc
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise AgentError("Can't reach Pulse at {}: {}".format(config["server"], exc)) from exc
+    if isinstance(reply.get("cursors"), dict):
+        save_json(STATE_PATH, {"cursors": reply["cursors"]})
     return max(MIN_INTERVAL, int(reply.get("next_report_in", DEFAULT_INTERVAL)))
 
 
-def collect(include_gpu: bool) -> Dict[str, object]:
+def collect(
+    include_gpu: bool,
+    cursors: Dict[str, Dict[str, int]],
+    discovered: Dict[str, Tuple[float, List[str]]],
+) -> Dict[str, object]:
     """Raw Slurm output for the server to parse; the agent stays deliberately dumb."""
     payload = {"agent_version": VERSION, "sacct": "", "jobs": {}, "error": None}  # type: Dict[str, object]
     try:
@@ -199,7 +231,7 @@ def collect(include_gpu: bool) -> Dict[str, object]:
         return payload
     payload["sacct"] = sacct
     payload["jobs"] = {
-        job_id: job_telemetry(job_id, has_gpus and include_gpu)
+        job_id: job_telemetry(job_id, has_gpus and include_gpu, cursors.get(job_id, {}), discovered)
         for job_id, has_gpus in running_jobs(sacct)
     }
     return payload
@@ -219,7 +251,12 @@ def running_jobs(sacct: str) -> List[Tuple[str, bool]]:
     return jobs
 
 
-def job_telemetry(job_id: str, include_gpu: bool) -> Dict[str, object]:
+def job_telemetry(
+    job_id: str,
+    include_gpu: bool,
+    cursors: Dict[str, int],
+    discovered: Dict[str, Tuple[float, List[str]]],
+) -> Dict[str, object]:
     telemetry = {}  # type: Dict[str, object]
     try:
         info = run_command(["scontrol", "show", "job", "-o", job_id])
@@ -230,6 +267,13 @@ def job_telemetry(job_id: str, include_gpu: bool) -> Dict[str, object]:
         lines, mtime = read_tail(stdout_path)
         telemetry["log_tail"] = lines
         telemetry["log_mtime"] = mtime
+    work_dir = scontrol_field(info, "WorkDir")
+    if work_dir:
+        cached = discovered.get(job_id)
+        if cached is None or time.monotonic() - cached[0] >= DISCOVERY_SECONDS:
+            cached = (time.monotonic(), find_metric_files(work_dir))
+            discovered[job_id] = cached
+        telemetry["files"] = read_chunks(cached[1], cursors)
     if include_gpu:
         with contextlib.suppress(AgentError):
             telemetry["nvidia_smi"] = run_command(
@@ -249,6 +293,65 @@ def read_tail(path: str) -> Tuple[List[str], Optional[int]]:
         return text.splitlines()[-LOG_TAIL_LINES:], int(os.stat(path).st_mtime)
     except OSError:
         return [], None
+
+
+def classify(path: str) -> Optional[str]:
+    name = os.path.basename(path).lower()
+    if name.startswith("events.out.tfevents."):
+        return "tfevents"
+    if name.endswith(".jsonl") and "metric" in name:
+        return "jsonl"
+    if name.endswith(".csv") and ("metric" in name or name == "progress.csv"):
+        return "csv"
+    if name in CONFIG_NAMES:
+        return "config"
+    return None
+
+
+def find_metric_files(work_dir: str) -> List[str]:
+    """Newest metric files and config files under the job's working directory."""
+    found = []  # type: List[Tuple[float, str]]
+    base_depth = work_dir.rstrip(os.sep).count(os.sep)
+    for root, dirs, files in os.walk(work_dir):
+        if root.count(os.sep) - base_depth >= SEARCH_DEPTH - 1:
+            dirs[:] = []
+        else:
+            dirs[:] = [d for d in dirs if d not in PRUNE_DIRS]
+        for name in files:
+            path = os.path.join(root, name)
+            if classify(path):
+                with contextlib.suppress(OSError):
+                    found.append((os.path.getmtime(path), path))
+    found.sort(reverse=True)
+    metrics = [p for _, p in found if classify(p) != "config"][:MAX_METRIC_FILES]
+    configs = [p for _, p in found if classify(p) == "config"][:MAX_CONFIG_FILES]
+    return metrics + configs
+
+
+def read_chunks(paths: List[str], cursors: Dict[str, int]) -> List[Dict[str, object]]:
+    """Bytes the server hasn't seen yet, base64-encoded, one entry per file."""
+    chunks = []
+    for path in paths:
+        try:
+            size = os.path.getsize(path)
+            offset = cursors.get(path, 0)
+            if classify(path) == "config":
+                if offset == size:
+                    continue
+                offset, limit = 0, CONFIG_MAX_BYTES
+            else:
+                if offset == size:
+                    continue
+                offset, limit = (0 if offset > size else offset), CHUNK_BYTES
+            with open(path, "rb") as handle:
+                handle.seek(offset)
+                data = handle.read(limit)
+        except OSError:
+            continue
+        chunks.append(
+            {"path": path, "offset": offset, "size": size, "data": base64.b64encode(data).decode()}
+        )
+    return chunks
 
 
 def scontrol_field(output: str, name: str) -> Optional[str]:
@@ -303,10 +406,23 @@ def load_config() -> Dict[str, str]:
 
 
 def save_config(config: Dict[str, str]) -> None:
+    save_json(CONFIG_PATH, config)
+
+
+def load_cursors() -> Dict[str, Dict[str, int]]:
+    try:
+        with open(STATE_PATH) as handle:
+            cursors = json.load(handle).get("cursors", {})  # type: Dict[str, Dict[str, int]]
+            return cursors
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save_json(path: str, data: object) -> None:
     os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
-    fd = os.open(CONFIG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as handle:
-        json.dump(config, handle)
+        json.dump(data, handle)
 
 
 def acquire_lock() -> Optional[object]:

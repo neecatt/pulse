@@ -6,13 +6,24 @@ their time limit, and a new sweep job is submitted every 15 minutes. That is
 enough to exercise the poller, events and push notifications locally.
 """
 
+import json
 import math
 import zlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from pulse.domain import Clock, JobState
-from pulse.slurm.base import AccountRef, AccountSnapshot, JobTelemetry, SlurmError, SlurmJob
+from pulse.metrics.discovery import CHUNK_BYTES
+from pulse.slurm.base import (
+    AccountRef,
+    AccountSnapshot,
+    Cursors,
+    FileChunk,
+    JobTelemetry,
+    SlurmError,
+    SlurmJob,
+)
 
 SWEEP_PERIOD_S = 15 * 60
 LOOKBACK = timedelta(hours=24)
@@ -73,7 +84,7 @@ class MockSlurmClient:
     async def close(self) -> None:
         return None
 
-    async def snapshot(self, account: AccountRef) -> AccountSnapshot:
+    async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
         await self.check(account)
         now = self._clock()
         seed = zlib.crc32(f"{account.username}@{account.host}".encode())
@@ -86,7 +97,8 @@ class MockSlurmClient:
                 continue
             jobs.append(job)
             if job.state is JobState.RUNNING:
-                telemetry[slurm_id] = self._telemetry(script, job, now, seed)
+                files = _metric_files(account, script, job, cursors.get(slurm_id, {}))
+                telemetry[slurm_id] = self._telemetry(script, job, now, seed, files)
         return AccountSnapshot(jobs=jobs, telemetry=telemetry)
 
     def _scripts(self, now: datetime) -> list[_ScriptedJob]:
@@ -132,7 +144,9 @@ class MockSlurmClient:
         )
 
     @staticmethod
-    def _telemetry(s: _ScriptedJob, job: SlurmJob, now: datetime, seed: int) -> JobTelemetry:
+    def _telemetry(
+        s: _ScriptedJob, job: SlurmJob, now: datetime, seed: int, files: list[FileChunk]
+    ) -> JobTelemetry:
         assert job.start_time is not None
         live_s = job.elapsed_s
         if s.log_freezes_after_s is not None:
@@ -155,4 +169,56 @@ class MockSlurmClient:
             gpu_mem=round(72 + 6 * math.cos(live_s / 131), 1) if job.gpus else None,
             log_tail=log_tail,
             log_updated_at=job.start_time + timedelta(seconds=live_s) if frozen else now,
+            files=files,
         )
+
+
+METRIC_INTERVAL_S = 60  # one metrics.jsonl record per simulated minute
+VAL_EVERY = 5
+
+
+def _metric_files(
+    account: AccountRef, s: _ScriptedJob, job: SlurmJob, cursors: Mapping[str, int]
+) -> list[FileChunk]:
+    """A growing metrics.jsonl and a config.yaml, like a real training script writes."""
+    run_dir = f"/scratch/{account.username}/{s.name}"
+    live_s = (
+        job.elapsed_s
+        if s.log_freezes_after_s is None
+        else min(job.elapsed_s, s.log_freezes_after_s)
+    )
+    salt = zlib.crc32(s.name.encode()) % 100 / 100
+    lines = []
+    for k in range(live_s // METRIC_INTERVAL_S + 1):
+        p = k * METRIC_INTERVAL_S / s.run_s
+        record: dict[str, float | int] = {
+            "step": k * 180,
+            "train/loss": round(0.3 + 2.2 * math.exp(-4.5 * p) + 0.04 * math.sin(k / 3 + salt), 4),
+            "train/acc": round(min(0.99, 0.35 + 0.6 * (1 - math.exp(-4 * p))), 4),
+            "lr": round(3e-4 * min(1.0, p * 20) * (0.5 + 0.5 * math.cos(math.pi * p)), 8),
+        }
+        if k % VAL_EVERY == 0:
+            record["val/loss"] = round(0.38 + 2.1 * math.exp(-4 * p) + 0.02 * salt, 4)
+            record["val/acc"] = round(min(0.97, 0.3 + 0.6 * (1 - math.exp(-3.5 * p))), 4)
+        lines.append(json.dumps(record, sort_keys=True))
+    metrics = ("\n".join(lines) + "\n").encode()
+    config = (
+        f"model: {s.name.split('-')[0]}\n"
+        f"optimizer:\n  name: adamw\n  lr: 3.0e-4\n  weight_decay: {0.01 + salt / 10:.3f}\n"
+        f"batch_size: {2 ** (5 + int(salt * 4))}\n"
+        f"seed: {int(salt * 1000)}\n"
+        f"gpus: {s.gpus}\n"
+    ).encode()
+
+    chunks = []
+    for name, data in (("metrics.jsonl", metrics), ("config.yaml", config)):
+        path = f"{run_dir}/{name}"
+        offset = cursors.get(path, 0)
+        if name == "config.yaml":
+            if offset == len(data):
+                continue
+            offset = 0
+        if offset > len(data):
+            offset = 0
+        chunks.append(FileChunk(path, offset, len(data), data[offset : offset + CHUNK_BYTES]))
+    return chunks

@@ -1,7 +1,7 @@
 """HTTP request/response bodies. Mirrored in frontend/src/api/types.ts."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
 
@@ -73,12 +73,20 @@ class AccountCheck(BaseModel):
 # Agent
 
 
+class AgentFile(BaseModel):
+    path: str = Field(max_length=1024)
+    offset: int = Field(ge=0)
+    size: int = Field(ge=0)
+    data: str = Field(max_length=400_000)  # base64 of at most CHUNK_BYTES
+
+
 class AgentJob(BaseModel):
     log_tail: list[Annotated[str, StringConstraints(max_length=4096)]] = Field(
         default=[], max_length=200
     )
     log_mtime: int | None = None
     nvidia_smi: str | None = Field(default=None, max_length=8192)
+    files: list[AgentFile] = Field(default=[], max_length=16)
 
 
 class AgentReport(BaseModel):
@@ -92,6 +100,8 @@ class AgentReport(BaseModel):
 
 class AgentReportAck(BaseModel):
     next_report_in: int
+    # Offsets already ingested per job and file; the agent sends only newer bytes.
+    cursors: dict[str, dict[str, int]] = {}
 
 
 class SetupInfo(BaseModel):
@@ -126,6 +136,8 @@ class JobOut(ORMModel):
     gpu_util: float | None
     gpu_mem: float | None
     loss_trend: list[float] = []
+    primary_metric: str | None
+    tags: list[str]
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -144,7 +156,32 @@ class MetricPoint(BaseModel):
 class JobDetailOut(JobOut):
     log_tail: list[str]
     log_updated_at: datetime | None
-    series: dict[str, list[MetricPoint]] = {}
+    note: str | None
+    hparams: dict[str, Any]
+    series: dict[str, list[MetricPoint]] = {}  # system metrics (gpu_util, gpu_mem)
+
+
+Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32)]
+
+
+class JobUpdate(BaseModel):
+    note: str | None = Field(default=None, max_length=2000)
+    tags: list[Tag] | None = Field(default=None, max_length=20)
+
+
+class StepPoint(BaseModel):
+    s: int | None  # step
+    t: datetime
+    v: float
+
+
+class JobMetrics(BaseModel):
+    """Training metrics of a job, each downsampled for charting."""
+
+    metrics: dict[str, list[StepPoint]]
+    primary: str | None
+    hparams: dict[str, Any]
+    files: list[str]
 
 
 # Events
