@@ -3,6 +3,20 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Railway deployment (`feat/railway`)
+
+- `railway.json`: Dockerfile build, one replica (SQLite and in-memory live
+  updates need a single instance), health check on `/api/health`.
+- Pulse listens on the platform's `PORT` (Railway, Render, Fly, Heroku) unless
+  `PULSE_PORT` is set. Testing caught the image's built-in `PULSE_PORT` default
+  overriding it, which would have failed every Railway deploy; that default is
+  removed.
+- The image starts through an entrypoint that takes ownership of root-owned
+  volumes (as Railway mounts them), then drops to the unprivileged `pulse` user.
+- Verified by running the image as Railway would: `PORT`, a root-owned `/data`,
+  proxied HTTPS giving `Secure` cookies and HSTS.
+- Guide: `docs/deployment.md` → Railway.
+
 ## 2026-11-04 — Self-hosting: image, HTTPS, CI (`feat/deployment`)
 
 - **Container image:** a multi-stage `Dockerfile` (Bun installs and Node builds
