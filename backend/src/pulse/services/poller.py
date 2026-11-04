@@ -13,8 +13,8 @@ from sqlalchemy.orm import selectinload
 
 from pulse.config import Settings
 from pulse.domain import Clock, EventKind, JobState
-from pulse.models import Account, Event, Job, JobMetric, utcnow
-from pulse.schemas import EventOut
+from pulse.models import Account, Event, Job, JobMetric, User, utcnow
+from pulse.schemas import EventOut, Monitoring
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.events import (
     DetectedEvent,
@@ -26,6 +26,10 @@ from pulse.services.notifier import Notifier
 from pulse.slurm import AccountRef, AccountSnapshot, JobTelemetry, SlurmClient, SlurmError, SlurmJob
 
 logger = logging.getLogger(__name__)
+
+# How often the scheduler checks which accounts are due. Bounds the fastest
+# refresh a user can choose.
+TICK_SECONDS = 5
 
 
 @dataclass(slots=True)
@@ -58,24 +62,35 @@ class Poller:
         self._wakeup.set()
 
     async def run_forever(self) -> None:
+        force = True  # poll everything at startup
         while True:
             try:
-                await self.poll_all()
+                await self.poll_all(force=force)
             except Exception:
                 logger.exception("poll cycle failed")
+            force = False
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._wakeup.wait(), self._interval())
+                await asyncio.wait_for(self._wakeup.wait(), TICK_SECONDS)
+                force = True  # trigger(): new account, app opened, settings changed
             self._wakeup.clear()
 
-    def _interval(self) -> int:
-        s = self._settings
-        live = self._broadcaster.has_subscribers
-        return s.poll_interval_live_seconds if live else s.poll_interval_idle_seconds
+    def interval_for(self, user: User) -> int:
+        """Seconds between polls of a user's accounts: fast while they're watching."""
+        monitoring = Monitoring.resolve(user.monitoring_prefs, self._settings)
+        if self._broadcaster.has_subscribers_for(user.id):
+            return monitoring.live_refresh_seconds
+        return monitoring.idle_refresh_seconds
 
-    async def poll_all(self) -> None:
+    async def poll_all(self, *, force: bool = True) -> None:
+        """Poll every direct account that is due (or all of them when forced)."""
+        now = self._clock()
         async with self._sessions() as session:
-            direct = await session.scalars(select(Account.id).where(Account.connection == "direct"))
-            account_ids = list(direct)
+            direct = await session.scalars(
+                select(Account)
+                .where(Account.connection == "direct")
+                .options(selectinload(Account.user))
+            )
+            account_ids = [a.id for a in direct if force or self._is_due(a, now)]
             stale = await self._flag_silent_agents(session)
         limit = asyncio.Semaphore(self._settings.poll_concurrency)
 
@@ -184,11 +199,12 @@ class Poller:
                 await self._notifier.send_events(session, account.user_id, events)
             return result
 
-    def next_report_in(self, user_id: int) -> int:
-        """How soon an agent should report again: fast while its user is watching."""
-        s = self._settings
-        live = self._broadcaster.has_subscribers_for(user_id)
-        return s.poll_interval_live_seconds if live else s.poll_interval_idle_seconds
+    def _is_due(self, account: Account, now: datetime) -> bool:
+        if account.last_polled_at is None:
+            return True
+        # A tick of slack so a 10 s interval doesn't slip to 15 s on a 5 s tick.
+        elapsed = (now - account.last_polled_at).total_seconds()
+        return elapsed + TICK_SECONDS / 2 >= self.interval_for(account.user)
 
     def _apply_snapshot(
         self,
@@ -200,6 +216,7 @@ class Poller:
         announce: bool,
     ) -> list[Event]:
         rows = {job.slurm_id: job for job in account.jobs}
+        monitoring = Monitoring.resolve(account.user.monitoring_prefs, self._settings)
         events: list[Event] = []
         for slurm_job in snapshot.jobs:
             row = rows.get(slurm_job.slurm_id)
@@ -213,7 +230,7 @@ class Poller:
             if telemetry is not None:
                 _record_telemetry(session, row, telemetry, now)
 
-            detected = self._detect(row, slurm_job, previous_state, telemetry, now)
+            detected = self._detect(row, slurm_job, previous_state, telemetry, now, monitoring)
             if announce:
                 events.extend(
                     Event(account=account, job=row, kind=d.kind, message=d.message)
@@ -229,13 +246,14 @@ class Poller:
         previous_state: JobState | None,
         telemetry: JobTelemetry | None,
         now: datetime,
+        monitoring: Monitoring,
     ) -> list[DetectedEvent]:
-        s = self._settings
         detected: list[DetectedEvent] = []
         if change := state_change_event(previous_state, job):
             detected.append(change)
 
-        if not row.warned_time_limit and is_near_time_limit(job, s.time_limit_warning_ratio):
+        warn_ratio = monitoring.time_limit_warning_percent / 100
+        if not row.warned_time_limit and is_near_time_limit(job, warn_ratio):
             row.warned_time_limit = True
             assert job.time_limit_s is not None
             used = round(100 * job.elapsed_s / job.time_limit_s)
@@ -248,13 +266,14 @@ class Poller:
             )
 
         if telemetry is not None and telemetry.log_updated_at is not None:
-            stalled = is_stalled(telemetry, now, timedelta(minutes=s.stall_minutes))
+            stall_minutes = monitoring.stall_minutes
+            stalled = is_stalled(telemetry, now, timedelta(minutes=stall_minutes))
             if stalled and not row.warned_stall:
                 detected.append(
                     DetectedEvent(
                         job.slurm_id,
                         EventKind.JOB_STALLED,
-                        f"{job.name} has written no output for {s.stall_minutes}+ minutes",
+                        f"{job.name} has written no output for {stall_minutes}+ minutes",
                     )
                 )
             row.warned_stall = stalled
