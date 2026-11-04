@@ -187,19 +187,25 @@ def _metric_files(
         if s.log_freezes_after_s is None
         else min(job.elapsed_s, s.log_freezes_after_s)
     )
-    salt = zlib.crc32(s.name.encode()) % 100 / 100
+    # Per account and job, so the same experiment on two accounts differs a little.
+    salt = zlib.crc32(f"{account.username}/{s.name}".encode()) % 100 / 100
+    rate, floor = 3.5 + 2 * salt, 0.2 + 0.25 * salt  # each run learns a bit differently
     lines = []
     for k in range(live_s // METRIC_INTERVAL_S + 1):
         p = k * METRIC_INTERVAL_S / s.run_s
         record: dict[str, float | int] = {
             "step": k * 180,
-            "train/loss": round(0.3 + 2.2 * math.exp(-4.5 * p) + 0.04 * math.sin(k / 3 + salt), 4),
-            "train/acc": round(min(0.99, 0.35 + 0.6 * (1 - math.exp(-4 * p))), 4),
+            "train/loss": round(
+                floor + 2.2 * math.exp(-rate * p) + 0.04 * math.sin(k / 3 + salt), 4
+            ),
+            "train/acc": round(min(0.99, 0.35 + (0.65 - floor / 2) * (1 - math.exp(-rate * p))), 4),
             "lr": round(3e-4 * min(1.0, p * 20) * (0.5 + 0.5 * math.cos(math.pi * p)), 8),
         }
         if k % VAL_EVERY == 0:
-            record["val/loss"] = round(0.38 + 2.1 * math.exp(-4 * p) + 0.02 * salt, 4)
-            record["val/acc"] = round(min(0.97, 0.3 + 0.6 * (1 - math.exp(-3.5 * p))), 4)
+            record["val/loss"] = round(floor + 0.08 + 2.1 * math.exp(-0.9 * rate * p), 4)
+            record["val/acc"] = round(
+                min(0.97, 0.3 + (0.62 - floor / 2) * (1 - math.exp(-0.8 * rate * p))), 4
+            )
         lines.append(json.dumps(record, sort_keys=True))
     metrics = ("\n".join(lines) + "\n").encode()
     config = (
