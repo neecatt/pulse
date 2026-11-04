@@ -1,3 +1,5 @@
+import { API_URL } from "@/config/env";
+
 import type {
   Account,
   AccountCheck,
@@ -17,7 +19,7 @@ import type {
   SetupInfo,
 } from "./types";
 
-const BASE_URL = `${import.meta.env["VITE_API_URL"] ?? ""}/api`;
+const BASE_URL = `${API_URL}/api`;
 export const STREAM_URL = `${BASE_URL}/stream`;
 
 export class ApiError extends Error {

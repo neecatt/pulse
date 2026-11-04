@@ -9,7 +9,7 @@ import { EventItem } from "@/components/EventItem";
 import { JobRow } from "@/components/JobRow";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { Segmented } from "@/components/Segmented";
-import { MAX_COMPARE } from "@/lib/labels";
+import { DAY_MS, HOUR_MS, MAX_COMPARE } from "@/config/constants";
 import { useUiSettings } from "@/lib/ui-settings";
 import { cn } from "@/lib/utils";
 
@@ -19,8 +19,6 @@ export const Route = createFileRoute("/")({
 });
 
 type View = "active" | "all";
-const HOUR_MS = 3600 * 1000;
-const DAY_MS = 24 * HOUR_MS;
 
 function JobsPage() {
   const accounts = useAccounts();

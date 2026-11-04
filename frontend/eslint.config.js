@@ -28,6 +28,20 @@ export default tseslint.config(
     },
   },
   {
+    // Environment variables are read in one place, so they're easy to audit.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/config/env.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "MemberExpression[object.type='MetaProperty'][property.name='env']",
+          message: "Read environment variables through src/config/env.ts.",
+        },
+      ],
+    },
+  },
+  {
     files: ["public/sw.js"],
     languageOptions: { globals: globals.serviceworker },
   },

@@ -8,6 +8,7 @@ import {
   useSetup,
 } from "@/api/queries";
 import type { Account, Connection } from "@/api/types";
+import { useCopy } from "@/hooks/use-copy";
 import { parseSshTarget } from "@/lib/ssh-target";
 import { cn } from "@/lib/utils";
 
@@ -229,16 +230,12 @@ function KeyStep({ publicKey }: { publicKey: string }) {
 }
 
 function CopyInline({ text, children }: { text: string; children: string }) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy();
   return (
     <button
       type="button"
       className="underline underline-offset-2 hover:text-foreground"
-      onClick={async () => {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
+      onClick={() => copy(text)}
     >
       {copied ? "copied" : children}
     </button>
