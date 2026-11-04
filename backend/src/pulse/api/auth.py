@@ -7,16 +7,26 @@ from pulse.config import Settings
 from pulse.constants import SESSION_COOKIE
 from pulse.models import LoginSession, User
 from pulse.schemas import AuthStatus, Credentials, Login, LoginSessionOut, Me, PasswordChange
-from pulse.services.auth import authenticate, revoke_sessions, start_session, user_count
+from pulse.services.auth import (
+    authenticate,
+    resolve_session,
+    revoke_sessions,
+    start_session,
+    user_count,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.get("/status")
-async def auth_status(session: SessionDep, services: ServicesDep) -> AuthStatus:
+async def auth_status(request: Request, session: SessionDep, services: ServicesDep) -> AuthStatus:
+    """Always 200, so a signed-out browser learns what to show without an error."""
+    token = request.cookies.get(SESSION_COOKIE)
+    resolved = await resolve_session(session, token, services.settings) if token else None
     return AuthStatus(
         setup_required=await user_count(session) == 0,
         signup_allowed=services.settings.allow_signup,
+        user=Me.model_validate(resolved[0]) if resolved else None,
     )
 
 
