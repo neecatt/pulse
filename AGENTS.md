@@ -15,11 +15,15 @@ finish, fail, stall, or approach their time limit.
 Every change is judged against these three rules. If a change breaks one,
 redesign it, or raise the trade-off explicitly in the PR.
 
-1. **Lightweight and easy to run.** One process (`make start`), SQLite, no
-   external services (no Redis, brokers, Docker or cloud dependencies) unless
-   there's no alternative. Add a dependency only when it removes more
-   complexity than it adds. Be gentle on clusters: reuse SSH connections, keep
-   Slurm calls few and cheap, and throttle anything that creates job steps.
+1. **Lightweight and easy to self-host.** Pulse is an open-source project that
+   anyone can deploy: one container image (`Dockerfile`, published to GHCR by
+   CI), SQLite in one `/data` volume, configured only through `PULSE_*`
+   environment variables. `make start` runs the same thing without Docker. No
+   additional services (databases, brokers, caches) unless there's no
+   alternative; add a dependency only when it removes more complexity than it
+   adds. No third-party requests from the web app (fonts are bundled). Be
+   gentle on clusters: reuse SSH connections, keep Slurm calls few and cheap,
+   and throttle anything that creates job steps.
 2. **Fast and real-time.** Users see job changes as they happen. The server
    pushes updates over `/api/stream` (Server-Sent Events) right after each
    poll; the UI never waits on a timer to show new data. Polling is adaptive:
@@ -42,7 +46,11 @@ redesign it, or raise the trade-off explicitly in the PR.
 .
 ├── backend/     Python 3.12 · FastAPI · SQLAlchemy (async) · Web Push
 ├── frontend/    TypeScript · React 19 · Vite · TanStack Router/Query · Tailwind v4
-└── docs/        progress.md (running log), architecture.md
+├── deploy/      Caddyfile (HTTPS proxy), pulse.service (systemd)
+├── docs/        progress.md (running log), deployment.md (self-hosting guide)
+├── .github/     CI (checks + image build) and image publishing to GHCR
+├── Dockerfile   one image: web app + API; compose.yaml adds Caddy for HTTPS
+└── .env.example deployment settings for compose (full list: backend/.env.example)
 ```
 
 The two packages are independent: each has its own tooling and dependencies, and
@@ -128,18 +136,24 @@ Run lint, types, and tests for every package you touched before committing.
   parsers consume complete records only. Points are unique per
   (job, metric, step). Discovery rules live in `metrics/discovery.py` and are
   mirrored in the agent (a test keeps them equal).
-- Auth is a single-user stub (`api/deps.py:get_current_user`). Every query is
-  already scoped by `user_id`, so real auth only needs to replace that dependency.
+- Auth (`pulse/auth/`, `services/auth.py`, `api/auth.py`): scrypt passwords,
+  cookie sessions stored as token hashes. `PULSE_ADMIN_USERNAME`/`PASSWORD` are
+  synced on every start and stay authoritative; without them, first-run setup
+  needs the one-time code printed in the log. Every endpoint requires a session
+  except health, `/auth/*` and the agent's token-authenticated routes. Keep
+  `OriginCheckMiddleware` (CSRF) and `SecurityHeadersMiddleware` as plain ASGI,
+  since `BaseHTTPMiddleware` breaks streaming responses.
 
 ## Frontend notes
 
 ```
 src/
 ├── api/          types.ts (mirrors schemas.py), client.ts (fetch), queries.ts (TanStack Query hooks)
-├── components/   small presentational components; layout/AppShell.tsx (top bar + mobile tab bar)
-├── hooks/        use-push.ts (device push state + enable/disable)
-├── lib/          format.ts, labels.ts, push.ts (service worker + PushManager), utils.ts
-└── routes/       / (jobs), /jobs/$jobId, /activity, /accounts, /settings
+├── config/       env.ts (the only reader of import.meta.env), constants.ts (shared limits)
+├── components/   presentational components; layout/AppShell.tsx (top bar + mobile tab bar)
+├── hooks/        use-live-updates.ts (SSE), use-push.ts, use-copy.ts
+├── lib/          pure logic: format, runs, smoothing, ssh-target, ui-settings, push, labels
+└── routes/       / (jobs), /jobs/$jobId, /runs, /compare, /activity, /accounts, /settings
 ```
 
 - File-based routes live in `src/routes/`; `src/routeTree.gen.ts` is generated
