@@ -1,10 +1,10 @@
 from fastapi import APIRouter
 
-from pulse.api import accounts, events, jobs, preferences, push
+from pulse.api import accounts, events, jobs, live, preferences, push
 from pulse.api.deps import ServicesDep
 
 api_router = APIRouter()
-for module in (accounts, jobs, events, preferences, push):
+for module in (accounts, jobs, events, preferences, push, live):
     api_router.include_router(module.router)
 
 

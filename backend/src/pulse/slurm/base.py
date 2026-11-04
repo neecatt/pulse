@@ -12,6 +12,8 @@ class AccountRef:
     username: str
     host: str
     port: int = 22
+    # OpenSSH public key pinned on first successful connect; None = not yet known.
+    host_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +50,7 @@ class JobTelemetry:
 class AccountSnapshot:
     jobs: list[SlurmJob]
     telemetry: dict[str, JobTelemetry] = field(default_factory=dict)  # keyed by slurm_id
+    host_key: str | None = None  # key the server presented, for pinning
 
 
 class SlurmError(Exception):
@@ -55,8 +58,18 @@ class SlurmError(Exception):
 
 
 class SlurmClient(Protocol):
-    async def check(self, account: AccountRef) -> None:
-        """Verify the account is reachable; raise SlurmError otherwise."""
+    @property
+    def public_key(self) -> str | None:
+        """Public key users must authorise on their cluster, if the client uses one."""
+
+    async def check(self, account: AccountRef) -> str | None:
+        """Verify the account is reachable and return the server's host key.
+
+        Raises SlurmError if it isn't reachable.
+        """
 
     async def snapshot(self, account: AccountRef) -> AccountSnapshot:
         """Active and recently finished jobs, plus telemetry for running ones."""
+
+    async def close(self) -> None:
+        """Release connections."""
