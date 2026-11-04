@@ -14,6 +14,7 @@ from types import ModuleType
 import pytest
 import uvicorn
 from httpx import AsyncClient
+from pydantic import SecretStr
 
 from pulse import constants
 from pulse.agent import SCRIPT_PATH
@@ -268,6 +269,8 @@ def live_server(tmp_path: Path) -> Iterator[str]:
     settings = Settings(
         data_dir=tmp_path,
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'live.db'}",
+        admin_username=ADMIN["username"],
+        admin_password=SecretStr(ADMIN["password"]),
         _env_file=None,  # type: ignore[call-arg]
     )
     config = uvicorn.Config(
@@ -290,7 +293,7 @@ def test_install_verifies_connection_and_adds_cron_entry(
     import httpx
 
     with httpx.Client(base_url=live_server) as browser:  # keeps the session cookie
-        assert browser.post("/api/auth/setup", json=ADMIN).status_code == 201
+        assert browser.post("/api/auth/login", json=ADMIN).status_code == 200
         account = browser.post("/api/accounts", json=ACCOUNT).json()
         token = browser.post(f"/api/accounts/{account['id']}/agent-token").json()["token"]
 
