@@ -6,18 +6,19 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
 from pulse import __version__
 from pulse.api import api_router
+from pulse.auth.rate_limit import LoginRateLimiter
 from pulse.config import Settings, get_settings
 from pulse.db import create_engine, create_session_factory, init_db
 from pulse.domain import Clock
-from pulse.models import User, utcnow
+from pulse.middleware import OriginCheckMiddleware
+from pulse.models import utcnow
+from pulse.services.auth import sync_admin_from_env
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.container import Services
 from pulse.services.notifier import Notifier
@@ -42,13 +43,16 @@ def create_app(
         engine = create_engine(settings.database_url)
         await init_db(engine)
         sessions = create_session_factory(engine)
-        await _ensure_default_user(sessions, settings.default_user_email)
+        await sync_admin_from_env(sessions, settings)
 
         slurm = slurm_client or create_slurm_client(settings)
         notifier = Notifier(settings)
         broadcaster = Broadcaster()
         poller = Poller(sessions, slurm, notifier, broadcaster, settings, clock)
-        app.state.services = Services(settings, sessions, slurm, notifier, broadcaster, poller)
+        limiter = LoginRateLimiter(settings.login_max_failures, settings.login_window_seconds)
+        app.state.services = Services(
+            settings, sessions, slurm, notifier, broadcaster, poller, limiter
+        )
 
         task = asyncio.create_task(poller.run_forever()) if run_poller else None
         try:
@@ -68,6 +72,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(OriginCheckMiddleware, allowed_origins=settings.cors_origins)
     app.include_router(api_router, prefix="/api")
     if settings.static_dir is not None:
         # Serve the built web app from the same process: one port, one command.
@@ -85,10 +90,3 @@ class SpaStaticFiles(StaticFiles):
             if exc.status_code != 404 or path.startswith("api/"):
                 raise
             return await super().get_response("index.html", scope)
-
-
-async def _ensure_default_user(sessions: async_sessionmaker[AsyncSession], email: str) -> None:
-    async with sessions() as session:
-        if await session.scalar(select(User.id).where(User.email == email)) is None:
-            session.add(User(email=email))
-            await session.commit()

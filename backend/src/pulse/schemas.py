@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
 
 from pulse.config import Settings
+from pulse.constants import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, USERNAME_PATTERN
 from pulse.domain import EventKind, JobState
 
 Username = Annotated[
@@ -68,6 +69,51 @@ class AgentToken(BaseModel):
 class AccountCheck(BaseModel):
     ok: bool
     error: str | None = None
+
+
+# Auth
+
+AuthUsername = Annotated[str, StringConstraints(strip_whitespace=True, pattern=USERNAME_PATTERN)]
+Password = Annotated[
+    str, StringConstraints(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
+]
+
+
+class Credentials(BaseModel):
+    username: AuthUsername
+    password: Password
+
+
+class Login(BaseModel):
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=PASSWORD_MAX_LENGTH)
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(max_length=PASSWORD_MAX_LENGTH)
+    new_password: Password
+
+
+class Me(ORMModel):
+    id: int
+    username: str
+    is_admin: bool
+    password_from_env: bool
+
+
+class AuthStatus(BaseModel):
+    """What the sign-in screen needs before anyone is signed in."""
+
+    setup_required: bool  # no accounts yet: the first visitor creates the admin
+    signup_allowed: bool
+
+
+class LoginSessionOut(ORMModel):
+    id: int
+    user_agent: str | None
+    created_at: datetime
+    last_seen_at: datetime
+    current: bool = False
 
 
 # Agent
