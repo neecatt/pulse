@@ -208,6 +208,8 @@ export interface AuthStatus {
 export interface Credentials {
   username: string;
   password: string;
+  /** First-run setup only: the one-time code printed in the server log. */
+  setup_code?: string;
 }
 
 export interface LoginSession {
