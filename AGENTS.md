@@ -77,8 +77,23 @@ Run lint, types, and tests for every package you touched before committing.
 - **Typed boundaries.** Backend request/response bodies are Pydantic schemas in
   `pulse/schemas.py`; frontend mirrors them in `src/api/types.ts`. Change both in
   the same branch.
-- **Secrets.** Never commit `.env`, SSH keys, or VAPID private keys. Config comes
-  from environment variables (`PULSE_*`, see `backend/.env.example`).
+- **Configuration, secrets and constants.** Each kind of value has one home:
+
+  | Kind                                                                   | Backend                                 | Frontend                                               |
+  | ---------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------ |
+  | Secrets and deployment values (keys, URLs, paths)                      | `.env` → `pulse/config.py` (`Settings`) | `.env.local` → `src/config/env.ts` (`VITE_*`, public!) |
+  | Tunables an operator may change (timeouts, intervals)                  | `Settings` (env-overridable)            | —                                                      |
+  | Fixed limits and contracts                                             | `pulse/constants.py`                    | `src/config/constants.ts`                              |
+  | Grammar only one parser uses (sacct columns, regexes, protobuf fields) | next to that parser                     | next to that parser                                    |
+  | UI copy (labels, hints)                                                | —                                       | `src/lib/labels.ts` or the component                   |
+
+  Never hardcode or commit secrets; `.env` files are gitignored and every
+  variable is documented in `backend/.env.example` / `frontend/.env.example`.
+  Lint enforces this: `os.environ`/`os.getenv` outside `Settings` (ruff TID251)
+  and `import.meta.env` outside `src/config/env.ts` (ESLint) are errors. The
+  agent script is the one exception: it must stay a standalone file, so it keeps
+  its own copies, and tests keep them equal to the server's.
+
 - **Tests.** Pure logic (Slurm parsing, job-state diffing) gets unit tests. New
   endpoints get an API test.
 - **Docs.** Append to `docs/progress.md` when you finish a meaningful piece of
