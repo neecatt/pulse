@@ -9,7 +9,7 @@ import {
 } from "@/api/queries";
 import type { Account, Connection } from "@/api/types";
 import { useCopy } from "@/hooks/use-copy";
-import { parseSshTarget } from "@/lib/ssh-target";
+import { describeSshTarget, parseSshTarget } from "@/lib/ssh-target";
 import { cn } from "@/lib/utils";
 
 import { AgentInstall } from "./AgentInstall";
@@ -52,8 +52,17 @@ export function AccountForm({ onDone }: { onDone: () => void }) {
     if (account) return account;
     if (!target) return null;
     const saved = await create.mutateAsync({
-      ...target,
+      username: target.username,
+      host: target.host,
+      port: target.port,
       connection,
+      ...(target.jump
+        ? {
+            jump_host: target.jump.host,
+            jump_port: target.jump.port,
+            ...(target.jump.username ? { jump_username: target.jump.username } : {}),
+          }
+        : {}),
       ...(name.trim() ? { cluster: name.trim() } : {}),
     });
     setAccount(saved);
@@ -120,10 +129,10 @@ export function AccountForm({ onDone }: { onDone: () => void }) {
         />
         <p className="min-h-4 font-mono text-xs text-muted-foreground">
           {target
-            ? `${target.username} on ${target.host}${target.port === 22 ? "" : `:${target.port}`}`
+            ? describeSshTarget(target)
             : login
               ? "Enter it like you'd type after ssh, e.g. jdoe@cluster.example.org"
-              : "Paste the same login you use with ssh."}
+              : "Paste the login you use with ssh, e.g. ssh -J gateway.org jdoe@cluster.org with a jump host."}
         </p>
       </div>
 

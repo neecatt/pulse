@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from pulse.db import Base, UTCDateTime
 from pulse.domain import EventKind, JobState
+from pulse.slurm.base import AccountRef, Hop, HostKeys
 
 
 def utcnow() -> datetime:
@@ -94,11 +95,35 @@ class Account(Base):
     last_error: Mapped[str | None] = mapped_column(String(500))
     # Server host key pinned on first successful connect (trust on first use).
     host_key: Mapped[str | None] = mapped_column(String(2048))
+    # Optional jump host (ssh -J / ProxyJump) in front of the login node.
+    jump_host: Mapped[str | None] = mapped_column(String(255))
+    jump_port: Mapped[int] = mapped_column(default=22)
+    jump_username: Mapped[str | None] = mapped_column(String(64))  # None: same as username
+    jump_host_key: Mapped[str | None] = mapped_column(String(2048))
     # "direct": Pulse polls the cluster. "agent": an agent on the login node reports in.
     connection: Mapped[str] = mapped_column(String(16), default="direct")
     agent_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
 
     user: Mapped[User] = relationship(back_populates="accounts")
+
+    def ref(self) -> AccountRef:
+        """How the Slurm client reaches this account."""
+        jump = None
+        if self.jump_host:
+            jump = Hop(
+                self.jump_username or self.username,
+                self.jump_host,
+                self.jump_port,
+                self.jump_host_key,
+            )
+        return AccountRef(self.username, self.host, self.port, self.host_key, jump)
+
+    def pin_host_keys(self, keys: HostKeys) -> None:
+        """Remember host keys the first time they're seen (trust on first use)."""
+        self.host_key = self.host_key or keys.target
+        if self.jump_host:
+            self.jump_host_key = self.jump_host_key or keys.jump
+
     jobs: Mapped[list["Job"]] = relationship(back_populates="account", cascade="all, delete-orphan")
     events: Mapped[list["Event"]] = relationship(
         back_populates="account", cascade="all, delete-orphan"

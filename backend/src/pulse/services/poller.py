@@ -29,7 +29,7 @@ from pulse.services.events import (
     state_change_event,
 )
 from pulse.services.notifier import Notifier
-from pulse.slurm import AccountRef, AccountSnapshot, JobTelemetry, SlurmClient, SlurmError, SlurmJob
+from pulse.slurm import AccountSnapshot, JobTelemetry, SlurmClient, SlurmError, SlurmJob
 from pulse.slurm.base import NodeStats
 from pulse.slurm.parsing import mean_gpu_usage
 
@@ -118,8 +118,10 @@ class Poller:
         results = []
         for account in silent:
             account.last_error = (
-                f"The agent on {account.cluster} stopped reporting. "
-                "Check it with `python3 ~/.pulse-agent.py status` on the login node."
+                f"The agent on {account.cluster} stopped reporting. If the cluster doesn't "
+                "allow cron jobs, nothing keeps the agent running: connect this cluster "
+                "directly instead (with a jump host if needed). Otherwise see "
+                "~/.config/pulse-agent/agent.log on the login node."
             )
             results.append(PollResult(user_id=account.user_id, account_id=account.id))
         await session.commit()
@@ -146,12 +148,7 @@ class Poller:
             account = await session.get(Account, account_id)
             if account is None:
                 return None
-            ref = AccountRef(
-                username=account.username,
-                host=account.host,
-                port=account.port,
-                host_key=account.host_key,
-            )
+            ref = account.ref()
             cursors = await load_cursors(session, account_id)
         try:
             snapshot: AccountSnapshot | SlurmError = await self._client.snapshot(ref, cursors)
@@ -199,7 +196,7 @@ class Poller:
             events = await self._apply_snapshot(session, account, snapshot, now, announce=announce)
             account.last_polled_at = now
             account.last_error = None
-            account.host_key = account.host_key or snapshot.host_key
+            account.pin_host_keys(snapshot.host_keys)
             await session.commit()
 
             result.events = [EventOut.model_validate(e).model_dump(mode="json") for e in events]

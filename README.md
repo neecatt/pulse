@@ -49,10 +49,10 @@ with Tailscale (no domain needed), running without Docker, backups and upgrades.
 In **Accounts → Add account**, paste the login you use with ssh
 (`jdoe@cluster.example.org`) and pick how Pulse connects:
 
-|               | How it works                                                                                                    | Use when                                      |
-| ------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| **Direct**    | Pulse signs in over SSH with its own key and runs read-only Slurm commands. The app shows the key to authorise. | You can `ssh` with a key, without 2FA prompts |
-| **Via agent** | You paste one command on the login node; a small script reports to Pulse from there.                            | The cluster requires 2FA or SSH certificates  |
+|               | How it works                                                                                                                                                | Use when                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| **Direct**    | Pulse signs in over SSH with its own key and runs read-only Slurm commands, through a jump host if needed (`ssh -J …`). The app shows the key to authorise. | You can `ssh` with a key, without 2FA prompts |
+| **Via agent** | You paste one command on the login node; a small script reports to Pulse from there.                                                                        | The cluster requires 2FA or SSH certificates  |
 
 Pulse polls every 10 s while you have it open and every 60 s otherwise; both are
 adjustable. Per-node usage is sampled at most once a minute through a short

@@ -21,6 +21,7 @@ from pulse.slurm.base import (
     Cursors,
     FileChunk,
     GpuStats,
+    HostKeys,
     JobTelemetry,
     NodeStats,
     SlurmError,
@@ -118,10 +119,10 @@ class MockSlurmClient:
 
     public_key: str | None = None
 
-    async def check(self, account: AccountRef) -> str | None:
+    async def check(self, account: AccountRef) -> HostKeys:
         if account.host.endswith(UNREACHABLE_SUFFIX):
             raise SlurmError(f"SSH to {account.host} failed: host unreachable")
-        return None
+        return HostKeys()
 
     async def close(self) -> None:
         return None

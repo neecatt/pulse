@@ -3,6 +3,20 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Jump hosts (`feat/jump-hosts`)
+
+- Direct accounts can go through a jump host (`ssh -J` / `ProxyJump`), as on
+  NHR@FAU's `alex`. Paste `ssh -J gateway user@cluster`; Pulse connects to the
+  gateway, tunnels to the login node, reuses both connections and pins both host
+  keys. Errors say which hop failed.
+- This is the reliable option for clusters without cron, where the agent
+  can't keep running: nothing stays on the cluster.
+- Agent: errors now go to `~/.config/pulse-agent/agent.log` (rotated at 64 KB),
+  since cron discards output; the stale-agent message explains the no-cron case.
+- Tested against two in-process SSH servers (a forwarding jump host and a fake
+  cluster): tunnel used, connections reused, jump host key pinned, unreachable
+  jump host named in the error.
+
 ## 2026-11-04 — Platform-neutral main (`chore/remove-railway`)
 
 - `main` stays generic for open-source self-hosting. Railway-specific setup
