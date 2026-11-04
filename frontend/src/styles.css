@@ -1,8 +1,11 @@
 @import "tailwindcss" source(none);
 @source "../src";
 
+@custom-variant compact (&:where([data-density="compact"] *));
+
 /*
- * Design tokens. Light values on :root, dark values under prefers-color-scheme.
+ * Design tokens. Light values on :root, dark values on [data-theme="dark"]
+ * (set from the user's theme setting, defaulting to the OS preference).
  * Colour is reserved for job state (run/pend/fail) and account identity (acc-*);
  * everything else stays neutral.
  */
@@ -49,26 +52,24 @@
   --acc-5: oklch(0.6 0.17 0);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --background: oklch(0.17 0.003 250);
-    --foreground: oklch(0.95 0 0);
-    --surface: oklch(0.2 0.004 250);
-    --muted: oklch(0.25 0.004 250);
-    --muted-foreground: oklch(0.65 0.006 250);
-    --border: oklch(1 0 0 / 9%);
-    --ring: oklch(0.55 0.01 250);
-    --run: oklch(0.86 0.2 130);
-    --pend: oklch(0.82 0.14 80);
-    --fail: oklch(0.68 0.2 25);
-    --acc-0: oklch(0.86 0.2 130);
-    --acc-1: oklch(0.75 0.13 230);
-    --acc-2: oklch(0.78 0.14 50);
-    --acc-3: oklch(0.74 0.14 300);
-    --acc-4: oklch(0.8 0.11 190);
-    --acc-5: oklch(0.74 0.16 0);
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.17 0.003 250);
+  --foreground: oklch(0.95 0 0);
+  --surface: oklch(0.2 0.004 250);
+  --muted: oklch(0.25 0.004 250);
+  --muted-foreground: oklch(0.65 0.006 250);
+  --border: oklch(1 0 0 / 9%);
+  --ring: oklch(0.55 0.01 250);
+  --run: oklch(0.86 0.2 130);
+  --pend: oklch(0.82 0.14 80);
+  --fail: oklch(0.68 0.2 25);
+  --acc-0: oklch(0.86 0.2 130);
+  --acc-1: oklch(0.75 0.13 230);
+  --acc-2: oklch(0.78 0.14 50);
+  --acc-3: oklch(0.74 0.14 300);
+  --acc-4: oklch(0.8 0.11 190);
+  --acc-5: oklch(0.74 0.16 0);
 }
 
 @layer base {

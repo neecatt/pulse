@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "./client";
-import type { Account, AccountCreate, AccountUpdate, Preferences } from "./types";
+import type { Account, AccountCreate, AccountUpdate, PreferencesUpdate } from "./types";
 
 // Live data arrives over the /api/stream channel (see useLiveUpdates); this is
 // only a safety net in case the stream is down.
@@ -15,6 +15,7 @@ export const queryKeys = {
   preferences: ["preferences"] as const,
   pushConfig: ["push-config"] as const,
   setup: ["setup"] as const,
+  health: ["health"] as const,
 };
 
 export function useAccounts() {
@@ -51,6 +52,10 @@ export function useEvents(limit = 50) {
 
 export function usePreferences() {
   return useQuery({ queryKey: queryKeys.preferences, queryFn: api.preferences.get });
+}
+
+export function useHealth() {
+  return useQuery({ queryKey: queryKeys.health, queryFn: api.health, staleTime: Infinity });
 }
 
 export function useSetup() {
@@ -106,7 +111,7 @@ export function useIssueAgentToken() {
 export function useUpdatePreferences() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: Preferences) => api.preferences.update(body),
+    mutationFn: (body: PreferencesUpdate) => api.preferences.update(body),
     onSuccess: (data) => client.setQueryData(queryKeys.preferences, data),
   });
 }

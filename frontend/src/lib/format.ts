@@ -20,6 +20,14 @@ export function formatAgo(iso: string, now: number = Date.now()): string {
   return `${Math.floor(seconds / DAY)}d`;
 }
 
+/** "14:32" today, "Nov 3, 14:32" otherwise. */
+export function formatClock(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (date.toDateString() === now.toDateString()) return time;
+  return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
+}
+
 export function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString(undefined, {
