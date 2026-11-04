@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     # Where `pulse serve` listens. Behind a reverse proxy keep 127.0.0.1;
     # the container image sets 0.0.0.0.
     host: str = "127.0.0.1"
-    # PULSE_PORT, or PORT as set by hosting platforms (Railway, Render, Fly, Heroku).
+    # PULSE_PORT, or PORT as set by container platforms that choose the port.
     port: int = Field(default=8000, validation_alias=AliasChoices("PULSE_PORT", "PORT"))
 
     # Local state (database, generated SSH key). Created on startup.
