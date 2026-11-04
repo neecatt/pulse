@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     secure_cookies: Literal["auto", "always", "never"] = "auto"
     login_max_failures: int = 10  # per client address and per username...
     login_window_seconds: int = 900  # ...within this window
+    # Public address, e.g. https://pulse.example.org. Optional: it pins the
+    # domain passkeys are bound to; otherwise each request's own address is used.
+    public_url: str | None = None
     # Proxies whose X-Forwarded-For/-Proto headers are trusted ("*" for any).
     trusted_proxies: str = "127.0.0.1"
 
