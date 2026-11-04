@@ -13,6 +13,7 @@ from starlette.types import Scope
 from pulse import __version__
 from pulse.api import api_router
 from pulse.auth.rate_limit import LoginRateLimiter
+from pulse.auth.webauthn import ChallengeStore
 from pulse.config import Settings, get_settings
 from pulse.db import create_engine, create_session_factory, init_db
 from pulse.domain import Clock
@@ -52,7 +53,15 @@ def create_app(
         limiter = LoginRateLimiter(settings.login_max_failures, settings.login_window_seconds)
         setup_code = await make_setup_code(sessions)
         app.state.services = Services(
-            settings, sessions, slurm, notifier, broadcaster, poller, limiter, setup_code
+            settings,
+            sessions,
+            slurm,
+            notifier,
+            broadcaster,
+            poller,
+            limiter,
+            setup_code,
+            ChallengeStore(),
         )
 
         task = asyncio.create_task(poller.run_forever()) if run_poller else None

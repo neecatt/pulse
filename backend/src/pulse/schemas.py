@@ -6,7 +6,12 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
 
 from pulse.config import Settings
-from pulse.constants import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, USERNAME_PATTERN
+from pulse.constants import (
+    PASSKEY_NAME_MAX_LENGTH,
+    PASSWORD_MAX_LENGTH,
+    PASSWORD_MIN_LENGTH,
+    USERNAME_PATTERN,
+)
 from pulse.domain import EventKind, JobState
 
 Username = Annotated[
@@ -111,6 +116,31 @@ class AuthStatus(BaseModel):
     setup_required: bool  # no accounts yet: the first visitor creates the admin
     signup_allowed: bool
     user: Me | None  # who this browser is signed in as, if anyone
+
+
+class PasskeyOut(ORMModel):
+    id: int
+    name: str
+    created_at: datetime
+    last_used_at: datetime | None
+
+
+class PasskeyOptions(BaseModel):
+    """WebAuthn options for the browser, plus the id of the pending challenge."""
+
+    challenge_id: str
+    options: dict[str, Any]
+
+
+class PasskeyRegistration(BaseModel):
+    challenge_id: str = Field(max_length=64)
+    credential: dict[str, Any]  # PublicKeyCredential JSON from the browser
+    name: str | None = Field(default=None, max_length=PASSKEY_NAME_MAX_LENGTH)
+
+
+class PasskeyLogin(BaseModel):
+    challenge_id: str = Field(max_length=64)
+    credential: dict[str, Any]
 
 
 class LoginSessionOut(ORMModel):

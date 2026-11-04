@@ -100,7 +100,7 @@ async def login(
         limiter.record_failure(*keys)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password.")
     limiter.reset(*keys)
-    await _sign_in(user, request, response, session, services.settings)
+    await issue_session_cookie(user, request, response, session, services.settings)
     return Me.model_validate(user)
 
 
@@ -171,13 +171,14 @@ async def _create_and_sign_in(
     user = User(username=body.username, password_hash=hash_password(body.password), is_admin=admin)
     session.add(user)
     await session.flush()
-    await _sign_in(user, request, response, session, settings)
+    await issue_session_cookie(user, request, response, session, settings)
     return Me.model_validate(user)
 
 
-async def _sign_in(
+async def issue_session_cookie(
     user: User, request: Request, response: Response, session: SessionDep, settings: Settings
 ) -> None:
+    """Start a session for ``user`` and set its cookie (password and passkey sign-in)."""
     token = await start_session(session, user, settings, request.headers.get("user-agent"))
     response.set_cookie(
         SESSION_COOKIE,
