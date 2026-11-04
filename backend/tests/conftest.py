@@ -32,7 +32,11 @@ def clock() -> FakeClock:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(database_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}", _env_file=None)  # type: ignore[call-arg]
+    return Settings(
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
+        _env_file=None,  # type: ignore[call-arg]
+    )
 
 
 @pytest.fixture

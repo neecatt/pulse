@@ -45,6 +45,8 @@ class Account(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     last_polled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     last_error: Mapped[str | None] = mapped_column(String(500))
+    # Server host key pinned on first successful connect (trust on first use).
+    host_key: Mapped[str | None] = mapped_column(String(2048))
 
     user: Mapped[User] = relationship(back_populates="accounts")
     jobs: Mapped[list["Job"]] = relationship(back_populates="account", cascade="all, delete-orphan")
