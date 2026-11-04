@@ -74,7 +74,9 @@ class Poller:
 
     async def poll_all(self) -> None:
         async with self._sessions() as session:
-            account_ids = list(await session.scalars(select(Account.id)))
+            direct = await session.scalars(select(Account.id).where(Account.connection == "direct"))
+            account_ids = list(direct)
+            stale = await self._flag_silent_agents(session)
         limit = asyncio.Semaphore(self._settings.poll_concurrency)
 
         async def guarded(account_id: int) -> PollResult | None:
@@ -82,7 +84,27 @@ class Poller:
                 return await self.poll_account(account_id)
 
         results = await asyncio.gather(*(guarded(i) for i in account_ids))
-        self._publish([r for r in results if r is not None])
+        self._publish([r for r in results if r is not None] + stale)
+
+    async def _flag_silent_agents(self, session: AsyncSession) -> list[PollResult]:
+        """Agent accounts don't get polled, so notice when one stops reporting."""
+        cutoff = self._clock() - timedelta(seconds=self._settings.agent_stale_seconds)
+        silent = await session.scalars(
+            select(Account).where(
+                Account.connection == "agent",
+                Account.last_polled_at < cutoff,
+                Account.last_error.is_(None),
+            )
+        )
+        results = []
+        for account in silent:
+            account.last_error = (
+                f"The agent on {account.cluster} stopped reporting. "
+                "Check it with `python3 ~/.pulse-agent.py status` on the login node."
+            )
+            results.append(PollResult(user_id=account.user_id, account_id=account.id))
+        await session.commit()
+        return results
 
     def _publish(self, results: list[PollResult]) -> None:
         """One live update per user per cycle, so clients refetch once."""
@@ -100,6 +122,38 @@ class Poller:
             )
 
     async def poll_account(self, account_id: int) -> PollResult | None:
+        """Fetch a snapshot from the cluster and ingest it."""
+        async with self._sessions() as session:
+            account = await session.get(Account, account_id)
+            if account is None:
+                return None
+            ref = AccountRef(
+                username=account.username,
+                host=account.host,
+                port=account.port,
+                host_key=account.host_key,
+            )
+        try:
+            snapshot: AccountSnapshot | SlurmError = await self._client.snapshot(ref)
+        except SlurmError as exc:
+            logger.info("account %s unreachable: %s", account_id, exc)
+            snapshot = exc
+        return await self.ingest(account_id, snapshot)
+
+    async def ingest_and_publish(
+        self, account_id: int, snapshot: AccountSnapshot | SlurmError
+    ) -> PollResult | None:
+        """Ingest a snapshot pushed by an agent and notify live clients at once."""
+        result = await self.ingest(account_id, snapshot)
+        if result is not None:
+            self._publish([result])
+        return result
+
+    async def ingest(
+        self, account_id: int, snapshot: AccountSnapshot | SlurmError
+    ) -> PollResult | None:
+        """Store a snapshot (or the error that prevented one), record events and
+        send notifications. Shared by polling and agent reports."""
         async with self._sessions() as session:
             account = await session.get(
                 Account,
@@ -110,23 +164,14 @@ class Poller:
                 return None
             now = self._clock()
             result = PollResult(user_id=account.user_id, account_id=account.id)
-            ref = AccountRef(
-                username=account.username,
-                host=account.host,
-                port=account.port,
-                host_key=account.host_key,
-            )
-            try:
-                snapshot = await self._client.snapshot(ref)
-            except SlurmError as exc:
-                logger.info("account %s unreachable: %s", account.id, exc)
-                account.last_error = str(exc)[:500]
+            if isinstance(snapshot, SlurmError):
+                account.last_error = str(snapshot)[:500]
                 account.last_polled_at = now
                 await session.commit()
                 return result
 
-            # The first poll of an account only records its jobs; announcing every
-            # pre-existing job as "started" would flood the user.
+            # The first snapshot of an account only records its jobs; announcing
+            # every pre-existing job as "started" would flood the user.
             announce = account.last_polled_at is not None
             events = self._apply_snapshot(session, account, snapshot, now, announce=announce)
             account.last_polled_at = now
@@ -138,6 +183,12 @@ class Poller:
             if events and account.notify:
                 await self._notifier.send_events(session, account.user_id, events)
             return result
+
+    def next_report_in(self, user_id: int) -> int:
+        """How soon an agent should report again: fast while its user is watching."""
+        s = self._settings
+        live = self._broadcaster.has_subscribers_for(user_id)
+        return s.poll_interval_live_seconds if live else s.poll_interval_idle_seconds
 
     def _apply_snapshot(
         self,
@@ -239,8 +290,9 @@ def _record_telemetry(session: AsyncSession, row: Job, t: JobTelemetry, now: dat
     )
     row.epoch = t.epoch or row.epoch
     row.last_loss = t.loss if t.loss is not None else row.last_loss
-    row.gpu_util = t.gpu_util
-    row.gpu_mem = t.gpu_mem
+    # GPU usage is sampled less often than jobs are polled; keep the last reading.
+    row.gpu_util = t.gpu_util if t.gpu_util is not None else row.gpu_util
+    row.gpu_mem = t.gpu_mem if t.gpu_mem is not None else row.gpu_mem
     if t.log_tail:
         row.log_tail = t.log_tail
     row.log_updated_at = t.log_updated_at

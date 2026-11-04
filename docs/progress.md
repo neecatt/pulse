@@ -3,6 +3,28 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Login-node agent (`feat/login-node-agent`)
+
+- For clusters where Pulse can't sign in unattended (2FA, SSH certificates).
+  When adding an account, choose **Via agent** and the app shows one command
+  to paste on the login node; it switches to "Connected" when the first report
+  arrives.
+- `pulse_agent.py`: one file, Python 3.6+ stdlib only, no root, no daemon.
+  Cron starts it every minute; each run reports for ~55 s at the pace the
+  server returns (10 s while you're watching, 60 s otherwise) under a lock.
+  It samples GPUs at most once a minute, and has `status`, `uninstall` and
+  `loop` commands (`loop` for nodes without cron).
+- Server: per-account agent token (hash stored; reissuing revokes the old one);
+  reports go through the same ingest path as polling, so events, push and live
+  updates are identical. Silent agents get flagged after 3 minutes.
+- Verified end to end: the browser created an agent account, the copied
+  command ran in a sandbox with fake Slurm binaries, and the UI flipped to
+  Connected live.
+
+**Caveats:** the cluster must be able to reach Pulse over HTTP(S), so it needs
+a public address, not `localhost`. Load-balanced login aliases run cron on
+whichever node you installed on.
+
 ## 2026-11-04 — Live updates and quick setup (`feat/live-updates-and-quick-setup`)
 
 - Product principles added to `AGENTS.md`: lightweight, real-time, simple.

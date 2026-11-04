@@ -1,7 +1,7 @@
 """HTTP request/response bodies. Mirrored in frontend/src/api/types.ts."""
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
 
@@ -20,6 +20,7 @@ Hostname = Annotated[
     ),
 ]
 ClusterName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+Connection = Literal["direct", "agent"]
 
 
 class ORMModel(BaseModel):
@@ -36,6 +37,7 @@ class AccountCreate(BaseModel):
     host: Hostname
     port: int = Field(default=22, ge=1, le=65535)
     notify: bool = True
+    connection: Connection = "direct"
 
 
 class AccountUpdate(BaseModel):
@@ -51,13 +53,44 @@ class AccountOut(ORMModel):
     port: int
     color: int
     notify: bool
+    connection: Connection
     last_polled_at: datetime | None
     last_error: str | None
+
+
+class AgentToken(BaseModel):
+    """Shown once: the agent's credential. Only its hash is stored."""
+
+    token: str
 
 
 class AccountCheck(BaseModel):
     ok: bool
     error: str | None = None
+
+
+# Agent
+
+
+class AgentJob(BaseModel):
+    log_tail: list[Annotated[str, StringConstraints(max_length=4096)]] = Field(
+        default=[], max_length=200
+    )
+    log_mtime: int | None = None
+    nvidia_smi: str | None = Field(default=None, max_length=8192)
+
+
+class AgentReport(BaseModel):
+    """Raw Slurm output from the login-node agent; parsed server-side."""
+
+    agent_version: str = Field(max_length=16)
+    sacct: str = Field(max_length=2_000_000)
+    jobs: dict[str, AgentJob] = Field(default={}, max_length=1000)
+    error: str | None = Field(default=None, max_length=500)
+
+
+class AgentReportAck(BaseModel):
+    next_report_in: int
 
 
 class SetupInfo(BaseModel):

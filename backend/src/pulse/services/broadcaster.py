@@ -18,6 +18,9 @@ class Broadcaster:
     def has_subscribers(self) -> bool:
         return any(self._queues.values())
 
+    def has_subscribers_for(self, user_id: int) -> bool:
+        return bool(self._queues.get(user_id))
+
     @asynccontextmanager
     async def subscribe(self, user_id: int) -> AsyncIterator[asyncio.Queue[str]]:
         queue: asyncio.Queue[str] = asyncio.Queue(QUEUE_SIZE)
