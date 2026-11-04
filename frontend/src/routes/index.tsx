@@ -1,122 +1,187 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { accounts, jobs, events, accountOf } from "@/lib/mock";
-import { StateDot, Spark, Bar } from "@/components/ui-bits";
+
+import { useAccountMap, useAccounts, useEvents, useJobs } from "@/api/queries";
+import type { Job } from "@/api/types";
+import { AccountDot } from "@/components/AccountDot";
+import { EventItem } from "@/components/EventItem";
+import { JobRow } from "@/components/JobRow";
+import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "Pulse — Slurm jobs across all your HPC accounts" },
-      {
-        name: "description",
-        content:
-          "Monitor Slurm jobs and training runs across multiple HPC accounts, with alerts on start and stop.",
-      },
-      { property: "og:title", content: "Pulse — HPC job monitor" },
-      { property: "og:description", content: "All your Slurm jobs, every cluster, one glance." },
-    ],
-  }),
-  component: Dashboard,
+  head: () => ({ meta: [{ title: "Jobs — Pulse" }] }),
+  component: JobsPage,
 });
 
-function Dashboard() {
-  const [filter, setFilter] = useState<string>("all");
-  const list = jobs.filter((j) => filter === "all" || j.accountId === filter);
-  const running = jobs.filter((j) => j.state === "RUNNING");
-  const gpus = running.reduce((s, j) => s + j.gpus, 0);
-  const util = Math.round(running.reduce((s, j) => s + j.gpuUtil, 0) / (running.length || 1));
+type View = "active" | "all";
+const DAY_MS = 24 * 3600 * 1000;
 
-  const stats = [
-    { k: "Running", v: running.length },
-    { k: "Pending", v: jobs.filter((j) => j.state === "PENDING").length },
-    { k: "GPUs in use", v: gpus },
-    { k: "Avg GPU util", v: `${util}%` },
-  ];
+function JobsPage() {
+  const accounts = useAccounts();
+  const jobs = useJobs();
+  const events = useEvents(8);
+  const accountMap = useAccountMap();
+  const [accountId, setAccountId] = useState<number | null>(null);
+  const [view, setView] = useState<View>("active");
+
+  if (accounts.data?.length === 0) {
+    return (
+      <EmptyState title="No HPC accounts yet">
+        <Link to="/accounts" className="text-foreground underline underline-offset-4">
+          Link an account
+        </Link>{" "}
+        to start monitoring its Slurm jobs.
+      </EmptyState>
+    );
+  }
+
+  const all = jobs.data ?? [];
+  const scoped = accountId === null ? all : all.filter((j) => j.account_id === accountId);
+  const visible = view === "active" ? scoped.filter(isActive) : scoped;
 
   return (
     <div className="space-y-8">
-      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-4">
-        {stats.map((s) => (
-          <div key={s.k} className="bg-background p-4">
-            <div className="text-xs text-muted-foreground">{s.k}</div>
-            <div className="mt-1 font-mono text-2xl">{s.v}</div>
-          </div>
-        ))}
-      </section>
+      <Stats jobs={jobs.data ? scoped : null} />
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {[
-          { id: "all", label: "All accounts" },
-          ...accounts.map((a) => ({ id: a.id, label: `${a.user}@${a.cluster}` })),
-        ].map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setFilter(f.id)}
-            className={`shrink-0 rounded-full border px-3 py-1 text-xs transition-colors ${filter === f.id ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+          <Chip active={accountId === null} onClick={() => setAccountId(null)}>
+            All accounts
+          </Chip>
+          {accounts.data?.map((a) => (
+            <Chip key={a.id} active={accountId === a.id} onClick={() => setAccountId(a.id)}>
+              <AccountDot color={a.color} />
+              {a.username}@{a.cluster}
+            </Chip>
+          ))}
+        </div>
+        <div className="flex rounded-md border p-0.5 text-xs">
+          {(["active", "all"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={cn(
+                "rounded px-3 py-1 capitalize",
+                view === v ? "bg-muted text-foreground" : "text-muted-foreground",
+              )}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
-        <section className="divide-y rounded-lg border">
-          {list.map((j) => {
-            const a = accountOf(j.accountId);
-            return (
-              <Link
-                key={j.id}
-                to="/jobs/$id"
-                params={{ id: j.id }}
-                className="grid grid-cols-[1fr_auto] items-center gap-4 p-4 transition-colors hover:bg-muted/50 md:grid-cols-[1fr_160px_120px]"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="size-2 shrink-0 rounded-sm" style={{ background: a.color }} />
-                    <span className="truncate font-medium">{j.name}</span>
-                    <span className="font-mono text-xs text-muted-foreground">#{j.id}</span>
-                  </div>
-                  <div className="mt-1 font-mono text-xs text-muted-foreground">
-                    {a.cluster} · {j.partition} · {j.nodes}n/{j.gpus}g · {j.elapsed}
-                  </div>
-                  <div className="mt-2 md:hidden">
-                    <Bar value={j.progress} />
-                  </div>
-                </div>
-                <div className="hidden text-muted-foreground md:block">
-                  <Spark data={j.loss} />
-                </div>
-                <div className="text-right">
-                  <StateDot state={j.state} />
-                </div>
-              </Link>
-            );
-          })}
-        </section>
+        <div>
+          {jobs.error && <ErrorNotice error={jobs.error} />}
+          {jobs.isPending ? (
+            <LoadingRows />
+          ) : visible.length === 0 ? (
+            <EmptyState title={view === "active" ? "Nothing running or queued" : "No jobs"}>
+              Jobs from the last 48 hours appear here.
+            </EmptyState>
+          ) : (
+            <Card className="divide-y overflow-hidden">
+              {visible.map((job) => (
+                <JobRow key={job.id} job={job} account={accountMap.get(job.account_id)} />
+              ))}
+            </Card>
+          )}
+        </div>
 
-        <aside>
-          <h2 className="mb-3 text-xs uppercase tracking-wider text-muted-foreground">
-            Recent events
-          </h2>
-          <ul className="space-y-3">
-            {events.map((e, i) => (
-              <li key={i} className="flex gap-3 text-sm">
-                <span
-                  className="mt-1.5 size-2 shrink-0 rounded-sm"
-                  style={{ background: accountOf(e.accountId).color }}
-                />
-                <div className="flex-1">
-                  <div>{e.text}</div>
-                  <div className="mt-0.5 flex gap-2">
-                    <StateDot state={e.kind} />
-                    <span className="font-mono text-[11px] text-muted-foreground">{e.t} ago</span>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </aside>
+        <Section
+          title="Recent activity"
+          action={
+            <Link to="/activity" className="text-xs text-muted-foreground hover:text-foreground">
+              View all
+            </Link>
+          }
+        >
+          {events.data?.length ? (
+            <ul className="space-y-2">
+              {events.data.map((e) => (
+                <li key={e.id}>
+                  <EventItem event={e} account={accountMap.get(e.account_id)} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No events yet.</p>
+          )}
+        </Section>
       </div>
     </div>
+  );
+}
+
+function isActive(job: Job): boolean {
+  return job.state === "RUNNING" || job.state === "PENDING";
+}
+
+/** Headline counters; `null` while loading so we never show a misleading 0. */
+function Stats({ jobs }: { jobs: Job[] | null }) {
+  if (jobs === null)
+    return <StatGrid stats={STAT_LABELS.map((label) => ({ label, value: "—" }))} />;
+  const running = jobs.filter((j) => j.state === "RUNNING");
+  const since = Date.now() - DAY_MS;
+  const failed = jobs.filter(
+    (j) =>
+      (j.state === "FAILED" || j.state === "TIMEOUT") &&
+      j.end_time !== null &&
+      new Date(j.end_time).getTime() > since,
+  );
+  const [runningLabel, queuedLabel, gpuLabel, failedLabel] = STAT_LABELS;
+  const stats: Stat[] = [
+    { label: runningLabel, value: running.length },
+    { label: queuedLabel, value: jobs.filter((j) => j.state === "PENDING").length },
+    { label: gpuLabel, value: running.reduce((sum, j) => sum + j.gpus, 0) },
+    { label: failedLabel, value: failed.length, alert: failed.length > 0 },
+  ];
+  return <StatGrid stats={stats} />;
+}
+
+const STAT_LABELS = ["Running", "Queued", "GPUs in use", "Failed · 24h"] as const;
+
+interface Stat {
+  label: string;
+  value: number | string;
+  alert?: boolean;
+}
+
+function StatGrid({ stats }: { stats: Stat[] }) {
+  return (
+    <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-4">
+      {stats.map((s) => (
+        <div key={s.label} className="bg-surface p-4">
+          <div className="text-xs text-muted-foreground">{s.label}</div>
+          <div className={cn("mt-1 font-mono text-2xl", s.alert && "text-fail")}>{s.value}</div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
+        active ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
   );
 }
