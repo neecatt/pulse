@@ -21,6 +21,8 @@ Self-hosted monitoring for HPC jobs and training runs, with push alerts when som
 
 [Quick start](#quick-start) · [Deploy](#deploy-it-for-real) · [Connect a cluster](#connecting-clusters) · [Configuration](#configuration) · [Self-hosting guide](docs/deployment.md)
 
+<a href="https://buymeacoffee.com/neecat"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-support%20Pulse-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
+
 </div>
 
 ## Why Pulse
@@ -358,6 +360,16 @@ agent. Much of the code, tests and documentation were drafted in Claude Code ses
   real in-process SSH servers, jump hosts included) and the API are covered by tests that
   run on every pull request.
 - **Pulse itself doesn't use AI.** Nothing in it calls an AI service.
+
+## Support
+
+Pulse is free and stays free: MIT licensed, no paid tier, nothing held back. If it saves you
+a few `ssh … squeue` round trips and you'd like to say thanks, you can buy me a coffee. A
+star, a bug report or a pull request helps just as much.
+
+<a href="https://buymeacoffee.com/neecat" target="_blank">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50" width="181">
+</a>
 
 ## Contributing and security
 
