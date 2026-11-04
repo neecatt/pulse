@@ -47,6 +47,13 @@ class _ScriptedJob:
     reason: str | None = None
     exit_code: int = 0
     log_freezes_after_s: int | None = None  # simulates a hung training loop
+    # Job array task (a sweep): its index and the learning rate it tries.
+    array_task: int | None = None
+    lr: float | None = None
+    # Learning curve (rate, floor); None derives one from the account and name.
+    curve: tuple[float, float] | None = None
+    diverges_at: float | None = None  # progress where the loss blows up...
+    nan_at: float | None = None  # ...and where it becomes NaN
 
 
 _SCRIPT = (
@@ -71,6 +78,38 @@ _SCRIPT = (
     _ScriptedJob(-600, 30, 6 * 3600, 8 * 3600, "rl-ppo", "gpu", 1, 4, log_freezes_after_s=300),
 )
 
+# A learning-rate sweep as a 6-task job array: two tasks still queued, and the
+# highest running learning rate diverges ~5 min after startup, then NaNs at ~15 min.
+_SWEEP_WAIT_S = 60
+_SWEEP = tuple(
+    _ScriptedJob(
+        offset=-started_ago - _SWEEP_WAIT_S if started_ago else -3600,
+        wait_s=_SWEEP_WAIT_S if started_ago else 6 * 3600,
+        run_s=run_s,
+        limit_s=10 * 3600,
+        name="lr-sweep",
+        partition="gpu",
+        nodes=1,
+        gpus=4,
+        array_task=task,
+        lr=lr,
+        curve=curve,
+        diverges_at=0.36 if task == 3 else None,
+        nan_at=0.42 if task == 3 else None,
+    )
+    for task, (lr, curve, started_ago, run_s) in enumerate(
+        [
+            # lr,  (rate, floor),  started seconds ago (0 = queued),  run length
+            (1e-4, (2.0, 0.55), 3 * 3600, 8 * 3600),  # learns too slowly
+            (3e-4, (4.0, 0.33), int(2.5 * 3600), 8 * 3600),
+            (1e-3, (6.0, 0.24), 2 * 3600, 8 * 3600),  # best
+            (3e-3, (7.0, 0.30), 3600, 3 * 3600),  # unstable: diverges, then NaN
+            (1e-2, (7.0, 0.30), 0, 3 * 3600),
+            (3e-2, (7.0, 0.30), 0, 3 * 3600),
+        ]
+    )
+)
+
 
 class MockSlurmClient:
     def __init__(self, clock: Clock | None = None) -> None:
@@ -93,8 +132,12 @@ class MockSlurmClient:
         seed = zlib.crc32(f"{account.username}@{account.host}".encode())
         jobs: list[SlurmJob] = []
         telemetry: dict[str, JobTelemetry] = {}
+        array_base = 1_000_000 + seed % 8_000_000 + 500
         for index, script in enumerate(self._scripts(now)):
-            slurm_id = str(1_000_000 + seed % 8_000_000 + index)
+            if script.array_task is None:
+                slurm_id = str(1_000_000 + seed % 8_000_000 + index)
+            else:
+                slurm_id = f"{array_base}_{script.array_task}"
             job = self._job_at(script, slurm_id, now)
             if job is None:
                 continue
@@ -112,7 +155,7 @@ class MockSlurmClient:
             )
             for n in range(elapsed // SWEEP_PERIOD_S + 1)
         ]
-        return [*_SCRIPT, *sweeps]
+        return [*_SCRIPT, *_SWEEP, *sweeps]
 
     def _job_at(self, s: _ScriptedJob, slurm_id: str, now: datetime) -> SlurmJob | None:
         submit = self._epoch + timedelta(seconds=s.offset)
@@ -135,15 +178,14 @@ class MockSlurmClient:
             reason=s.reason if state.is_terminal else ("Priority" if not started else None),
             nodes=s.nodes,
             gpus=s.gpus,
-            node_list=f"gpu[{int(slurm_id) % 900:03d}-{int(slurm_id) % 900 + s.nodes - 1:03d}]"
-            if started
-            else None,
+            node_list=_node_range(slurm_id, s.nodes) if started else None,
             submit_time=submit,
             start_time=start if started else None,
             end_time=end if state.is_terminal else None,
             time_limit_s=s.limit_s,
             elapsed_s=elapsed,
             exit_code=s.exit_code if state.is_terminal else None,
+            array_id=slurm_id.split("_")[0] if s.array_task is not None else None,
         )
 
     @staticmethod
@@ -160,8 +202,10 @@ class MockSlurmClient:
         epochs = 10
         epoch = f"{min(epochs, 1 + int(progress * epochs))}/{epochs}"
         step = live_s * 3
+        # Sweep tasks log only progress; their loss comes from metrics.jsonl.
+        loss_field = "" if s.array_task is not None else " loss={:.4f}"
         log_tail = [
-            f"[step {step - 30 * i}] epoch {epoch} loss={loss + 0.002 * i:.4f} lr=2.0e-05"
+            f"[step {step - 30 * i}] epoch {epoch}{loss_field.format(loss + 0.002 * i)} lr=2.0e-05"
             for i in reversed(range(8))
         ]
         frozen = s.log_freezes_after_s is not None and job.elapsed_s > s.log_freezes_after_s
@@ -179,9 +223,18 @@ class MockSlurmClient:
         )
 
 
+def _node_base(slurm_id: str) -> int:
+    return zlib.crc32(slurm_id.encode()) % 900
+
+
+def _node_range(slurm_id: str, nodes: int) -> str:
+    first = _node_base(slurm_id)
+    return f"gpu{first:03d}" if nodes == 1 else f"gpu[{first:03d}-{first + nodes - 1:03d}]"
+
+
 def _node_stats(s: _ScriptedJob, job: SlurmJob, live_s: int, frozen: bool) -> dict[str, NodeStats]:
     """Plausible per-node CPU, memory and per-GPU usage; one node runs a bit cooler."""
-    first = int(job.slurm_id) % 900
+    first = _node_base(job.slurm_id)
     gpus_per_node = s.gpus // max(s.nodes, 1)
     nodes: dict[str, NodeStats] = {}
     for n in range(s.nodes):
@@ -218,15 +271,19 @@ def _metric_files(
     )
     # Per account and job, so the same experiment on two accounts differs a little.
     salt = zlib.crc32(f"{account.username}/{s.name}".encode()) % 100 / 100
-    rate, floor = 3.5 + 2 * salt, 0.2 + 0.25 * salt  # each run learns a bit differently
+    # Each run learns a bit differently, unless its curve is scripted.
+    rate, floor = s.curve or (3.5 + 2 * salt, 0.2 + 0.25 * salt)
     lines = []
     for k in range(live_s // METRIC_INTERVAL_S + 1):
         p = k * METRIC_INTERVAL_S / s.run_s
+        train_loss = floor + 2.2 * math.exp(-rate * p) + 0.04 * math.sin(k / 3 + salt)
+        if s.diverges_at is not None and p > s.diverges_at:
+            train_loss += math.exp(40 * (p - s.diverges_at)) - 1
+        if s.nan_at is not None and p > s.nan_at:
+            train_loss = math.nan
         record: dict[str, float | int] = {
             "step": k * 180,
-            "train/loss": round(
-                floor + 2.2 * math.exp(-rate * p) + 0.04 * math.sin(k / 3 + salt), 4
-            ),
+            "train/loss": round(train_loss, 4),
             "train/acc": round(min(0.99, 0.35 + (0.65 - floor / 2) * (1 - math.exp(-rate * p))), 4),
             "lr": round(3e-4 * min(1.0, p * 20) * (0.5 + 0.5 * math.cos(math.pi * p)), 8),
         }
@@ -237,11 +294,12 @@ def _metric_files(
             )
         lines.append(json.dumps(record, sort_keys=True))
     metrics = ("\n".join(lines) + "\n").encode()
+    lr = s.lr if s.lr is not None else 3e-4
     config = (
         f"model: {s.name.split('-')[0]}\n"
-        f"optimizer:\n  name: adamw\n  lr: 3.0e-4\n  weight_decay: {0.01 + salt / 10:.3f}\n"
-        f"batch_size: {2 ** (5 + int(salt * 4))}\n"
-        f"seed: {int(salt * 1000)}\n"
+        f"optimizer:\n  name: adamw\n  lr: {lr:.1e}\n  weight_decay: {0.01 + salt / 10:.3f}\n"
+        f"batch_size: {64 if s.array_task is not None else 2 ** (5 + int(salt * 4))}\n"
+        f"seed: {s.array_task if s.array_task is not None else int(salt * 1000)}\n"
         f"gpus: {s.gpus}\n"
     ).encode()
 

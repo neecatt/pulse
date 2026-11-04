@@ -5,7 +5,7 @@ import math
 from collections.abc import Iterable
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,6 +99,11 @@ async def store_points(
 
 def is_system_metric(name: str) -> bool:
     return name in SYSTEM_METRICS or name.startswith(SYSTEM_PREFIX)
+
+
+def system_metric_filter() -> ColumnElement[bool]:
+    """SQL condition matching system metrics, the counterpart of is_system_metric."""
+    return or_(JobMetric.name.in_(SYSTEM_METRICS), JobMetric.name.startswith(SYSTEM_PREFIX))
 
 
 def choose_primary(names: Iterable[str]) -> str | None:
