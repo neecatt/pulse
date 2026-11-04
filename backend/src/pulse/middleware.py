@@ -2,13 +2,22 @@
 with streaming responses such as the live update stream."""
 
 import json
+import logging
+from urllib.parse import urlsplit
 
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from pulse.constants import CONTENT_SECURITY_POLICY, HSTS_MAX_AGE_SECONDS
 
+logger = logging.getLogger(__name__)
+
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_PROXY_HINT = (
+    "Pulse sees plain HTTP but the browser is on HTTPS: it's behind a proxy whose "
+    "X-Forwarded-Proto header isn't trusted. Set PULSE_TRUSTED_PROXIES (e.g. * when "
+    "the proxy is the only way in)."
+)
 
 
 class SecurityHeadersMiddleware:
@@ -57,10 +66,24 @@ class OriginCheckMiddleware:
         if scope["type"] == "http" and scope["method"] not in SAFE_METHODS:
             headers = dict(scope["headers"])
             origin = headers.get(b"origin", b"").decode()
-            if origin and origin != _own_origin(scope, headers) and origin not in self._allowed:
-                await _forbidden(send)
+            own = _own_origin(scope, headers)
+            if origin and origin != own and origin not in self._allowed:
+                behind_untrusted_proxy = _same_host_upgraded(origin, own)
+                if behind_untrusted_proxy:
+                    logger.warning(_PROXY_HINT)
+                await _forbidden(send, hint=_PROXY_HINT if behind_untrusted_proxy else None)
                 return
         await self._app(scope, receive, send)
+
+
+def _same_host_upgraded(origin: str, own: str) -> bool:
+    """The browser is on https:// for the very host Pulse thinks is http://."""
+    browser, server = urlsplit(origin), urlsplit(own)
+    return (
+        browser.scheme == "https"
+        and server.scheme == "http"
+        and browser.hostname == server.hostname
+    )
 
 
 def _own_origin(scope: Scope, headers: dict[bytes, bytes]) -> str:
@@ -68,8 +91,9 @@ def _own_origin(scope: Scope, headers: dict[bytes, bytes]) -> str:
     return f"{scope.get('scheme', 'http')}://{host}"
 
 
-async def _forbidden(send: Send) -> None:
-    body = json.dumps({"detail": "Cross-site request blocked."}).encode()
+async def _forbidden(send: Send, hint: str | None = None) -> None:
+    detail = "Cross-site request blocked." + (f" {hint}" if hint else "")
+    body = json.dumps({"detail": detail}).encode()
     await send(
         {
             "type": "http.response.start",
