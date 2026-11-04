@@ -3,6 +3,32 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Live updates and quick setup (`feat/live-updates-and-quick-setup`)
+
+- Product principles added to `AGENTS.md`: lightweight, real-time, simple.
+- **Real-time:** Server-Sent Events at `/api/stream`. The poller publishes one
+  update per user per cycle and the UI refreshes in place. A change reaches
+  the browser ~50 ms after a poll completes, measured locally. Polling is
+  adaptive: 10 s while the app is open anywhere, 60 s otherwise, and
+  immediate when the app opens. A pulsing dot in the header shows the live
+  connection.
+- **Efficient over SSH:** one persistent connection per account with
+  keepalives; GPU sampling (which starts a job step) at most once a minute.
+- **Easy setup:** add an account by pasting an SSH login (`jdoe@host`,
+  `ssh -p 2222 jdoe@host`, …). Pulse generates its own ed25519 key and shows
+  a copy-ready `authorized_keys` command, pins the host key on first connect,
+  names the cluster from the hostname, tests the connection immediately, and
+  explains failures in plain language.
+- **One process:** the API can serve the built web app (`PULSE_STATIC_DIR`);
+  `make start` does that. The whole app runs in ~70 MB RAM.
+- The SSH client is now tested against an in-process asyncssh server that
+  fakes the Slurm CLI (auth, reuse, host-key pinning, error messages).
+- 55 backend and 32 frontend tests.
+
+**Caveat:** some centres require MFA or certificate-based SSH (for example
+step-ca with 2FA), which blocks unattended access with a static key. Those need
+a small agent on the login node that pushes to Pulse (not built yet).
+
 ## 2026-11-04 — Frontend dashboard (`feat/frontend-dashboard`)
 
 - Created the private GitHub repo and pushed the history; work now lands via PRs.
