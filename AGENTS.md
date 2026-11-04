@@ -128,6 +128,13 @@ src/
   chrome, colour only for job state (`run`/`pend`/`fail`) and account identity
   (`acc-0`…`acc-5`, matching `PALETTE_SIZE` in the backend).
 - Non-component constants go in `src/lib/` so React fast refresh keeps working.
+- Settings: per-device display preferences (theme, density, time format,
+  default view, history window, sparklines) live in `lib/ui-settings.ts`
+  (localStorage, `useUiSettings()`); `index.html` applies the theme before
+  first paint. Dark mode keys off `[data-theme="dark"]`, and compact density
+  uses the `compact:` variant. Per-user monitoring settings (refresh speeds,
+  alert thresholds) are server-side in `/api/preferences`. Every setting
+  applies immediately, with no Save button.
 - `public/sw.js` is the service worker (push + notification clicks). iOS only
   delivers Web Push to PWAs that were added to the home screen (iOS 16.4+), and
   permission must be requested from a user gesture.
