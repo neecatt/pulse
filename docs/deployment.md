@@ -131,6 +131,9 @@ migration; release notes say when a fresh database is needed.
   unless you want open registration.
 - `.env` readable only by you: `chmod 600 .env`. Or use Docker secrets, where a
   file `/run/secrets/pulse_admin_password` sets `PULSE_ADMIN_PASSWORD`.
+- Behind any proxy, set `PULSE_TRUSTED_PROXIES` to the proxy's address (or `*`
+  when it's the only way in). Otherwise Pulse thinks it's on plain HTTP, and
+  sign-in and other buttons fail with "Cross-site request blocked".
 - Only expose port 8000 through the proxy. Trust forwarded headers
   (`PULSE_TRUSTED_PROXIES`) only from the proxy, or clients could spoof their
   address and slip past the login rate limit.
