@@ -1,0 +1,11 @@
+# HTTPS in front of Pulse. Caddy gets a Let's Encrypt certificate for
+# PULSE_DOMAIN automatically and renews it.
+{$PULSE_DOMAIN} {
+	# Compress everything except the live update stream, which must not be buffered.
+	@compressible not path /api/stream
+	encode @compressible zstd gzip
+
+	reverse_proxy {$PULSE_UPSTREAM:pulse:8000} {
+		flush_interval -1
+	}
+}

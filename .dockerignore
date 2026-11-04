@@ -1,0 +1,16 @@
+# Keep the build context small and free of local state and secrets.
+.git
+.github
+.playwright-mcp
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+backend/data
+docs
