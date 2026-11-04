@@ -28,6 +28,23 @@ make dev        # runs against a simulated cluster, no HPC access needed
 - Don't commit secrets or `.env` files. New settings go into
   `backend/.env.example` with a comment.
 
+## Releasing (maintainers)
+
+Releases are git tags; CI builds and publishes the image.
+
+```sh
+git checkout main && git pull
+git tag -a v0.2.0 -m "Pulse 0.2.0"
+git push origin v0.2.0
+```
+
+This publishes `neecat/pulse:0.2.0`, `:0.2` and `:latest` (from 1.0 on also
+`:1`). A tag with a suffix (`v0.2.0-rc.1`) publishes only that tag, never
+`latest`. Every push to `main` publishes `:edge`.
+
+Bump `version` in `backend/pyproject.toml`, `backend/src/pulse/__init__.py` and
+`frontend/package.json` before tagging, and note changes in `docs/progress.md`.
+
 ## Reporting bugs
 
 Include your Slurm version (`sacct --version`), how Pulse connects (direct or
