@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { STORAGE_KEY, UI_DEFAULTS } from "./ui-settings";
+import { UI_SETTINGS_STORAGE_KEY as STORAGE_KEY } from "@/config/constants";
+
+import { UI_DEFAULTS } from "./ui-settings";
 
 async function freshModule() {
   vi.resetModules();

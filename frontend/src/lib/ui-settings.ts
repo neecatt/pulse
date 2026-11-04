@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 
+import { THEME_COLORS, UI_SETTINGS_STORAGE_KEY as STORAGE_KEY } from "@/config/constants";
+
 /** Per-device display preferences, kept in localStorage. */
 export interface UiSettings {
   theme: "system" | "light" | "dark";
@@ -26,10 +28,6 @@ export const UI_DEFAULTS: UiSettings = {
   chartLogScale: false,
   chartXAxis: "step",
 };
-
-// Keep in sync with the pre-paint theme script in index.html.
-export const STORAGE_KEY = "pulse.ui";
-const THEME_COLORS = { light: "#fcfcfc", dark: "#0e0f10" };
 
 const listeners = new Set<() => void>();
 let current = load();

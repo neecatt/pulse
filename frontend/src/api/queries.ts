@@ -1,5 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { FALLBACK_REFRESH_MS } from "@/config/constants";
+
 import { api } from "./client";
 import type {
   Account,
@@ -9,10 +11,6 @@ import type {
   JobUpdate,
   PreferencesUpdate,
 } from "./types";
-
-// Live data arrives over the /api/stream channel (see useLiveUpdates); this is
-// only a safety net in case the stream is down.
-const FALLBACK_REFRESH_MS = 60_000;
 
 export const queryKeys = {
   accounts: ["accounts"] as const,
