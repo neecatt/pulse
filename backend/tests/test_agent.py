@@ -89,6 +89,7 @@ def agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.setattr(module, "CONFIG_PATH", str(config_dir / "config.json"))
     monkeypatch.setattr(module, "LOCK_PATH", str(config_dir / "lock"))
     monkeypatch.setattr(module, "STATE_PATH", str(config_dir / "state.json"))
+    monkeypatch.setattr(module, "LOG_PATH", str(config_dir / "agent.log"))
     module.crontab_file = crontab_file  # type: ignore[attr-defined]
     module.work_dir = work_dir  # type: ignore[attr-defined]
     return module
@@ -318,3 +319,13 @@ def test_install_verifies_connection_and_adds_cron_entry(
 def test_agent_stays_python_36_compatible() -> None:
     """The agent runs on login nodes with old system Pythons."""
     ast.parse(SCRIPT_PATH.read_text(), feature_version=(3, 6))
+
+
+def test_agent_logs_errors_to_a_file(agent: ModuleType) -> None:
+    agent.log("Can't reach Pulse")
+    log_file = Path(agent.LOG_PATH)
+    assert "Can't reach Pulse" in log_file.read_text()
+    log_file.write_text("x" * (agent.LOG_MAX_BYTES + 1))
+    agent.log("after rotation")
+    assert log_file.read_text().endswith("after rotation\n")
+    assert Path(agent.LOG_PATH + ".1").exists()

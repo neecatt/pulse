@@ -31,6 +31,8 @@ CONFIG_DIR = os.path.expanduser("~/.config/pulse-agent")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 LOCK_PATH = os.path.join(CONFIG_DIR, "lock")
 STATE_PATH = os.path.join(CONFIG_DIR, "state.json")  # file offsets the server has
+LOG_PATH = os.path.join(CONFIG_DIR, "agent.log")  # errors, since cron discards output
+LOG_MAX_BYTES = 64 * 1024
 CRON_TAG = "# pulse-agent"
 
 RUN_SECONDS = 55  # cron starts the next run a minute later
@@ -139,7 +141,7 @@ def status() -> int:
 
 def uninstall() -> int:
     remove_cron_entry()
-    for path in (CONFIG_PATH, LOCK_PATH, STATE_PATH):
+    for path in (CONFIG_PATH, LOCK_PATH, STATE_PATH, LOG_PATH, LOG_PATH + ".1"):
         if os.path.exists(path):
             os.remove(path)
     print("✓ Pulse agent removed.")
@@ -495,7 +497,15 @@ def remove_cron_entry() -> None:
 
 
 def log(message: str) -> None:
-    sys.stderr.write("pulse-agent: {}\n".format(message))
+    """Report a problem on stderr and in agent.log (cron throws stderr away)."""
+    line = "{} pulse-agent: {}\n".format(time.strftime("%Y-%m-%d %H:%M:%S"), message)
+    sys.stderr.write(line)
+    with contextlib.suppress(OSError):
+        os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+        if os.path.exists(LOG_PATH) and os.path.getsize(LOG_PATH) > LOG_MAX_BYTES:
+            os.replace(LOG_PATH, LOG_PATH + ".1")  # keep one old file
+        with open(LOG_PATH, "a") as handle:
+            handle.write(line)
 
 
 if __name__ == "__main__":

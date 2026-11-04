@@ -45,6 +45,10 @@ class AccountCreate(BaseModel):
     port: int = Field(default=22, ge=1, le=65535)
     notify: bool = True
     connection: Connection = "direct"
+    # Jump host (ssh -J / ProxyJump) for login nodes that aren't directly reachable.
+    jump_host: Hostname | None = None
+    jump_port: int = Field(default=22, ge=1, le=65535)
+    jump_username: Username | None = None  # defaults to username
 
 
 class AccountUpdate(BaseModel):
@@ -61,6 +65,9 @@ class AccountOut(ORMModel):
     color: int
     notify: bool
     connection: Connection
+    jump_host: str | None
+    jump_port: int
+    jump_username: str | None
     last_polled_at: datetime | None
     last_error: str | None
 
