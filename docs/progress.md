@@ -3,6 +3,16 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Docker Hub and license (`feat/docker-hub`)
+
+- Images publish to Docker Hub as `neecat/pulse` (GHCR kept as a mirror):
+  version tags plus `latest` for releases (`git tag v1.2.3`), `edge` for every
+  push to `main`; pre-release tags never become `latest`. The Docker Hub
+  description is synced from the README. Docker Hub is skipped until the
+  `DOCKERHUB_TOKEN` secret exists, so forks and PRs don't fail.
+- MIT license (`LICENSE`, image labels, package metadata).
+- Release steps in `CONTRIBUTING.md`.
+
 ## 2026-11-04 — Jump hosts (`feat/jump-hosts`)
 
 - Direct accounts can go through a jump host (`ssh -J` / `ProxyJump`), as on

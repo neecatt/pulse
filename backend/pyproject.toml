@@ -3,6 +3,7 @@ name = "pulse-backend"
 version = "0.1.0"
 description = "API, Slurm poller and push notifier for the Pulse HPC monitor."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
   "aiosqlite>=0.20",
