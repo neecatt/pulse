@@ -27,14 +27,28 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 async def get_current_user(session: SessionDep, services: ServicesDep) -> User:
     # Single-user stub: every request acts as the default user. Replace with real
     # authentication (OIDC / passkeys); all queries are already scoped by user.
-    email = services.settings.default_user_email
-    user = await session.scalar(select(User).where(User.email == email))
+    user = await _load_current_user(session, services)
     if user is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "default user not initialised")
     return user
 
 
+async def get_current_user_id(services: ServicesDep) -> int:
+    """Current user id without holding a DB session, for long-lived responses."""
+    async with services.sessions() as session:
+        user = await _load_current_user(session, services)
+    if user is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "default user not initialised")
+    return user.id
+
+
+async def _load_current_user(session: AsyncSession, services: Services) -> User | None:
+    email = services.settings.default_user_email
+    return await session.scalar(select(User).where(User.email == email))
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentUserId = Annotated[int, Depends(get_current_user_id)]
 
 
 async def get_owned_account(session: AsyncSession, user: User, account_id: int) -> Account:
