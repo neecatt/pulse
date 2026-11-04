@@ -1,0 +1,36 @@
+"""Domain vocabulary shared by the Slurm layer, services and API."""
+
+from collections.abc import Callable, Mapping
+from datetime import datetime
+from enum import StrEnum
+
+Clock = Callable[[], datetime]
+
+
+class JobState(StrEnum):
+    """Normalised Slurm job state. Raw Slurm states are folded into these."""
+
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    TIMEOUT = "TIMEOUT"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self not in (JobState.PENDING, JobState.RUNNING)
+
+
+class EventKind(StrEnum):
+    JOB_STARTED = "job_started"
+    JOB_COMPLETED = "job_completed"
+    JOB_FAILED = "job_failed"
+    JOB_CANCELLED = "job_cancelled"
+    JOB_TIME_LIMIT = "job_time_limit"
+    JOB_STALLED = "job_stalled"
+
+
+def resolve_alerts(stored: Mapping[str, bool]) -> dict[EventKind, bool]:
+    """Alert preferences with every kind present; unset kinds default to enabled."""
+    return {kind: stored.get(kind.value, True) for kind in EventKind}

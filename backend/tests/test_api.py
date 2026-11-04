@@ -1,0 +1,121 @@
+from httpx import AsyncClient
+
+from pulse.services.container import Services
+from tests.conftest import FakeClock
+
+ACCOUNT = {"cluster": "Leonardo", "username": "alice", "host": "login.leonardo.example.org"}
+
+
+async def add_account(client: AsyncClient, **overrides: object) -> dict:  # type: ignore[type-arg]
+    response = await client.post("/api/accounts", json=ACCOUNT | overrides)
+    assert response.status_code == 201, response.text
+    return response.json()  # type: ignore[no-any-return]
+
+
+async def test_health(client: AsyncClient) -> None:
+    response = await client.get("/api/health")
+    assert response.json() == {"status": "ok", "slurm_backend": "mock"}
+
+
+async def test_account_crud(client: AsyncClient) -> None:
+    account = await add_account(client)
+    assert account["color"] == 0
+    assert (await client.post("/api/accounts", json=ACCOUNT)).status_code == 409
+
+    second = await add_account(client, username="alice2")
+    assert second["color"] == 1
+
+    patched = await client.patch(f"/api/accounts/{account['id']}", json={"notify": False})
+    assert patched.json()["notify"] is False
+
+    assert (await client.delete(f"/api/accounts/{account['id']}")).status_code == 204
+    remaining = (await client.get("/api/accounts")).json()
+    assert [a["id"] for a in remaining] == [second["id"]]
+
+
+async def test_account_validation(client: AsyncClient) -> None:
+    bad = await client.post("/api/accounts", json=ACCOUNT | {"username": "alice; rm -rf /"})
+    assert bad.status_code == 422
+
+
+async def test_account_check_reports_unreachable_host(client: AsyncClient) -> None:
+    account = await add_account(client, host="down.invalid")
+    result = (await client.post(f"/api/accounts/{account['id']}/check")).json()
+    assert result["ok"] is False
+    assert "unreachable" in result["error"]
+
+
+async def test_poll_populates_jobs_then_emits_events(
+    client: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    account = await add_account(client)
+
+    await services.poller.poll_account(account["id"])
+    jobs = (await client.get("/api/jobs")).json()
+    assert jobs, "first poll should record jobs"
+    assert jobs[0]["state"] == "RUNNING"  # active jobs sort first
+    assert (await client.get("/api/events")).json() == [], "first poll must not announce"
+
+    # Two steps: gnn-sweep-17 crosses 90% of its time limit, then completes.
+    for seconds in (60, 240):
+        clock.advance(seconds)
+        await services.poller.poll_account(account["id"])
+    events = (await client.get("/api/events")).json()
+    kinds = {e["kind"] for e in events}
+    assert {"job_started", "job_completed", "job_failed", "job_time_limit"} <= kinds
+
+    failed = next(j for j in (await client.get("/api/jobs")).json() if j["name"] == "mixtral-eval")
+    assert failed["state"] == "FAILED"
+    assert failed["reason"] == "OUT_OF_MEMORY"
+
+    running = next(j for j in (await client.get("/api/jobs")).json() if j["name"] == "llama-7b-sft")
+    detail = (await client.get(f"/api/jobs/{running['id']}")).json()
+    assert detail["log_tail"]
+    assert len(detail["series"]["loss"]) == 3
+    assert 0 < detail["time_used"] < 1
+
+
+async def test_poll_records_error_for_unreachable_account(
+    client: AsyncClient, services: Services
+) -> None:
+    account = await add_account(client, host="down.invalid")
+    await services.poller.poll_account(account["id"])
+    stored = (await client.get("/api/accounts")).json()[0]
+    assert "unreachable" in stored["last_error"]
+
+
+async def test_jobs_are_scoped_to_account_filter(client: AsyncClient, services: Services) -> None:
+    a = await add_account(client)
+    b = await add_account(client, username="bob")
+    await services.poller.poll_all()
+    only_b = (await client.get("/api/jobs", params={"account_id": b["id"]})).json()
+    assert only_b
+    assert {j["account_id"] for j in only_b} == {b["id"]}
+    assert (await client.get("/api/jobs/999999")).status_code == 404
+    assert a["id"] != b["id"]
+
+
+async def test_preferences_round_trip(client: AsyncClient) -> None:
+    prefs = (await client.get("/api/preferences")).json()["alerts"]
+    assert all(prefs.values())
+
+    updated = await client.put("/api/preferences", json={"alerts": {"job_started": False}})
+    assert updated.json()["alerts"]["job_started"] is False
+    assert updated.json()["alerts"]["job_failed"] is True
+
+
+async def test_push_subscription_lifecycle(client: AsyncClient) -> None:
+    config = (await client.get("/api/push/config")).json()
+    assert config == {"enabled": False, "public_key": None}
+
+    sub = {"endpoint": "https://push.example.com/abc", "keys": {"p256dh": "k", "auth": "a"}}
+    assert (await client.post("/api/push/subscriptions", json=sub)).status_code == 204
+    assert (await client.post("/api/push/subscriptions", json=sub)).status_code == 204  # upsert
+
+    # Delivery is a no-op without VAPID keys.
+    assert (await client.post("/api/push/test")).json() == {"delivered": 0}
+
+    response = await client.request(
+        "DELETE", "/api/push/subscriptions", json={"endpoint": sub["endpoint"]}
+    )
+    assert response.status_code == 204
