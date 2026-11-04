@@ -25,18 +25,20 @@ COPY backend/src ./backend/src
 RUN pip install ./backend && rm -rf ./backend
 COPY --from=web /web/dist ./web
 
-# Defaults for running in a container; every one can be overridden.
+# Defaults for running in a container; every one can be overridden. The port
+# isn't set here: it's 8000 unless the platform's PORT (or PULSE_PORT) says otherwise.
 ENV PULSE_HOST=0.0.0.0 \
-    PULSE_PORT=8000 \
     PULSE_DATA_DIR=/data \
     PULSE_DATABASE_URL=sqlite+aiosqlite:////data/pulse.db \
     PULSE_STATIC_DIR=/app/web \
     PULSE_SLURM_BACKEND=ssh
 
 RUN useradd --create-home --uid 1000 pulse && mkdir /data && chown pulse:pulse /data
-USER pulse
+# The entrypoint fixes ownership of root-owned volumes, then runs Pulse as "pulse".
+COPY --chmod=755 deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint
 VOLUME /data
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
+ENTRYPOINT ["docker-entrypoint"]
 CMD ["pulse", "serve"]
