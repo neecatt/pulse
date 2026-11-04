@@ -1,0 +1,42 @@
+# Pulse behind Caddy, which obtains and renews HTTPS certificates automatically.
+#
+#   cp .env.example .env      # set PULSE_DOMAIN and the admin account
+#   docker compose up -d
+#
+# Needs a public DNS name pointing at this machine, with ports 80 and 443 open.
+# For a private setup without a domain, see docs/deployment.md (Tailscale).
+
+services:
+  pulse:
+    image: ${PULSE_IMAGE:-ghcr.io/neecatt/hpc-monitoring-app:latest}
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Only Caddy can reach this container, so its X-Forwarded-* headers are trusted.
+      PULSE_TRUSTED_PROXIES: "*"
+    volumes:
+      - pulse-data:/data
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PULSE_DOMAIN: ${PULSE_DOMAIN:?Set PULSE_DOMAIN in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - pulse
+
+volumes:
+  pulse-data:
+  caddy-data:
+  caddy-config:

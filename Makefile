@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 VENV := backend/.venv
 
-.PHONY: help install dev start check clean
+.PHONY: help install dev start check clean image demo
 
 help: ## List commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
@@ -25,6 +25,12 @@ start: ## Build the web app and serve everything from one process (:8000)
 check: ## Lint, type-check and test both packages
 	cd backend && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy src && .venv/bin/pytest -q
 	cd frontend && bun run lint && bun run typecheck && bun run test
+
+image: ## Build the Docker image (pulse:local)
+	docker build -t pulse:local .
+
+demo: image ## Run the image with a simulated cluster on http://localhost:8000
+	docker run --rm -p 8000:8000 -e PULSE_SLURM_BACKEND=mock pulse:local
 
 clean: ## Remove build output and local data
 	rm -rf frontend/dist backend/data
