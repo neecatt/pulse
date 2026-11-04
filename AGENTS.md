@@ -97,6 +97,13 @@ Run lint, types, and tests for every package you touched before committing.
   key Pulse generates in `data/` (shown in the UI via `/api/setup`), and pins
   each account's host key on first connect.
 - `pulse/services/notifier.py` fans events out to Web Push subscriptions.
+- Accounts connect either `direct` (Pulse polls over SSH) or via `agent`:
+  `pulse/agent/pulse_agent.py` is a single-file, **Python 3.6+ stdlib-only**
+  script that users install on the login node of clusters that require 2FA.
+  Keep it dumb: it ships raw `sacct`/`scontrol`/log/`nvidia-smi` output to
+  `POST /api/agent/report` and the server does all the parsing (`SACCT_FIELDS`
+  must match `slurm/parsing.py`; a test enforces this). Don't use syntax or
+  stdlib features newer than 3.6 in that file.
 - Auth is a single-user stub (`api/deps.py:get_current_user`). Every query is
   already scoped by `user_id`, so real auth only needs to replace that dependency.
 
