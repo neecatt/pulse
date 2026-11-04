@@ -3,6 +3,7 @@ import { HeadContent, Link, Outlet, createRootRouteWithContext } from "@tanstack
 
 import { useMe } from "@/api/queries";
 import { AuthScreen } from "@/components/AuthScreen";
+import { PasskeyHint } from "@/components/PasskeyHint";
 import { AppShell } from "@/components/layout/AppShell";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
 
@@ -26,6 +27,7 @@ function SignedInApp() {
   const live = useLiveUpdates();
   return (
     <AppShell live={live}>
+      <PasskeyHint />
       <Outlet />
     </AppShell>
   );

@@ -219,3 +219,16 @@ export interface LoginSession {
   last_seen_at: string;
   current: boolean;
 }
+
+export interface Passkey {
+  id: number;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+/** WebAuthn options from the server, with the id of the pending challenge. */
+export interface PasskeyOptions<T> {
+  challenge_id: string;
+  options: T;
+}

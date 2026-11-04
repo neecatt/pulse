@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pulse.auth.rate_limit import LoginRateLimiter
+from pulse.auth.webauthn import ChallengeStore
 from pulse.config import Settings
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.notifier import Notifier
@@ -22,3 +23,4 @@ class Services:
     poller: Poller
     login_limiter: LoginRateLimiter
     setup_code: str | None  # required to create the first account; None once set up
+    passkey_challenges: ChallengeStore

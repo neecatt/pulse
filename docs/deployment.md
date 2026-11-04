@@ -148,6 +148,10 @@ CPU and GPU usage.
   created with the setup code.
 - **More users:** set `PULSE_ALLOW_SIGNUP=true`, or create them on the server:
   `docker compose exec pulse pulse create-user alice`.
+- **Passkeys:** after signing in, **Settings → Your account → Add a passkey**,
+  once per device. Passkeys only work over HTTPS (or on `localhost`), and are
+  tied to the domain you created them on. If Pulse is reachable under several
+  names, set `PULSE_PUBLIC_URL` to the one you use.
 - **Forgotten password:** `docker compose exec pulse pulse reset-password alice`.
   To rotate the admin password, change it in `.env` and restart.
 

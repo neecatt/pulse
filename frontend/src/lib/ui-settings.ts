@@ -15,6 +15,8 @@ export interface UiSettings {
   chartSmoothing: number;
   chartLogScale: boolean;
   chartXAxis: "step" | "time";
+  /** The "add a passkey" hint was dismissed on this device. */
+  passkeyHintDismissed: boolean;
 }
 
 export const UI_DEFAULTS: UiSettings = {
@@ -27,6 +29,7 @@ export const UI_DEFAULTS: UiSettings = {
   chartSmoothing: 0.6,
   chartLogScale: false,
   chartXAxis: "step",
+  passkeyHintDismissed: false,
 };
 
 const listeners = new Set<() => void>();
