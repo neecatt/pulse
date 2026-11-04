@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pulse.constants import SYSTEM_METRICS, SYSTEM_PREFIX
 from pulse.domain import JobState
 from pulse.metrics.discovery import classify
 from pulse.metrics.hparams import parse_config
@@ -19,8 +20,6 @@ from pulse.metrics.tfevents import parse_tfevents
 from pulse.models import Job, JobMetric, MetricFile
 from pulse.slurm.base import FileChunk
 
-SYSTEM_METRICS = ("gpu_util", "gpu_mem")  # job-wide averages
-SYSTEM_PREFIX = "sys/"  # per node: sys/<node>/cpu, .../mem, .../gpu, .../gpu_mem
 _PRIMARY_PREFERENCE = ("loss", "train/loss", "train_loss", "loss/train", "training_loss")
 
 

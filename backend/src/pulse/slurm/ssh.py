@@ -15,17 +15,18 @@ import asyncssh
 from asyncssh.known_hosts import KnownHostsArg
 
 from pulse.config import Settings
-from pulse.domain import JobState
-from pulse.metrics.discovery import (
+from pulse.constants import (
     CHUNK_BYTES,
     CONFIG_MAX_BYTES,
     CONFIG_NAMES,
+    LOG_TAIL_LINES,
     MAX_CONFIG_FILES,
     MAX_METRIC_FILES,
     PRUNE_DIRS,
     SEARCH_DEPTH,
-    classify,
 )
+from pulse.domain import JobState
+from pulse.metrics.discovery import classify
 from pulse.slurm.base import (
     AccountRef,
     AccountSnapshot,
@@ -49,11 +50,7 @@ from pulse.slurm.parsing import (
 
 logger = logging.getLogger(__name__)
 
-LOG_TAIL_LINES = 40
-COMMAND_TIMEOUT_S = 30
-STATS_TIMEOUT_S = 20
-KEEPALIVE_INTERVAL_S = 60
-DISCOVERY_INTERVAL_S = 60  # `find` on shared filesystems is slow; don't repeat it often
+# Separates file chunks in the output of one combined read command.
 CHUNK_MARKER = "@@pulse-chunk"
 
 _ConnKey = tuple[str, str, int]
@@ -182,7 +179,10 @@ class SshSlurmClient:
         self, conn: asyncssh.SSHClientConnection, slurm_id: str, work_dir: str
     ) -> _Found:
         cached = self._discovery_cache.get(slurm_id)
-        if cached and time.monotonic() - cached[0] < DISCOVERY_INTERVAL_S:
+        if (
+            cached
+            and time.monotonic() - cached[0] < self._settings.metric_discovery_interval_seconds
+        ):
             # Sizes change every poll, so refresh them for the known files only.
             return await self._sizes(conn, [path for path, _ in cached[1]])
         prune = " -o ".join(f"-name {shlex.quote(d)}" for d in PRUNE_DIRS)
@@ -225,14 +225,15 @@ class SshSlurmClient:
         self, conn: asyncssh.SSHClientConnection, job: SlurmJob
     ) -> dict[str, NodeStats]:
         """CPU, memory and per-GPU usage on every node of the job. Sampling starts a
-        job step, so it runs at most once per ``gpu_sample_interval_seconds``."""
+        job step, so it runs at most once per ``node_stats_interval_seconds``."""
         cached = self._stats_cache.get(job.slurm_id)
-        if cached and time.monotonic() - cached[0] < self._settings.gpu_sample_interval_seconds:
+        if cached and time.monotonic() - cached[0] < self._settings.node_stats_interval_seconds:
             return cached[1]
         # --overlap lets the step share the job's allocation (Slurm >= 20.11).
         cmd = (
-            f"timeout {STATS_TIMEOUT_S} srun --jobid={job.slurm_id} --overlap "
-            f"-N{max(job.nodes, 1)} --ntasks-per-node=1 bash -c {shlex.quote(NODE_STATS_SCRIPT)}"
+            f"timeout {self._settings.node_stats_timeout_seconds} "
+            f"srun --jobid={job.slurm_id} --overlap -N{max(job.nodes, 1)} --ntasks-per-node=1 "
+            f"bash -c {shlex.quote(NODE_STATS_SCRIPT)}"
         )
         try:
             nodes = parse_node_stats(await self._run(conn, cmd))
@@ -267,7 +268,7 @@ class SshSlurmClient:
                     client_keys=[str(self._key_file)],
                     known_hosts=self._known_hosts(account),
                     connect_timeout=self._settings.ssh_connect_timeout_seconds,
-                    keepalive_interval=KEEPALIVE_INTERVAL_S,
+                    keepalive_interval=self._settings.ssh_keepalive_seconds,
                 )
             except asyncssh.HostKeyNotVerifiable as exc:
                 raise SlurmError(
@@ -292,10 +293,10 @@ class SshSlurmClient:
             return (pinned, [], [], [], [], [], [])  # trusted keys only
         return None  # trust on first use; the key is pinned after this connect
 
-    @staticmethod
-    async def _run(conn: asyncssh.SSHClientConnection, command: str) -> str:
+    async def _run(self, conn: asyncssh.SSHClientConnection, command: str) -> str:
+        timeout = self._settings.ssh_command_timeout_seconds
         try:
-            result = await conn.run(command, check=False, timeout=COMMAND_TIMEOUT_S)
+            result = await conn.run(command, check=False, timeout=timeout)
         except (asyncssh.Error, OSError, TimeoutError) as exc:
             raise SlurmError(f"`{_program(command)}` failed: {exc}") from exc
         if result.exit_status != 0:

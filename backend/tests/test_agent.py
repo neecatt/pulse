@@ -15,6 +15,7 @@ import pytest
 import uvicorn
 from httpx import AsyncClient
 
+from pulse import constants
 from pulse.agent import SCRIPT_PATH
 from pulse.config import Settings
 from pulse.main import create_app
@@ -110,7 +111,7 @@ def test_agent_finds_the_same_files_as_the_server() -> None:
         "PRUNE_DIRS",
         "CONFIG_NAMES",
     ):
-        assert getattr(agent, name) == getattr(discovery, name), name
+        assert getattr(agent, name) == getattr(constants, name), name
     for path in (
         "/a/events.out.tfevents.1.host",
         "/a/metrics.jsonl",

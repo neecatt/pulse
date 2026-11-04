@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-QUEUE_SIZE = 32
+from pulse.constants import STREAM_QUEUE_SIZE
 
 
 class Broadcaster:
@@ -23,7 +23,7 @@ class Broadcaster:
 
     @asynccontextmanager
     async def subscribe(self, user_id: int) -> AsyncIterator[asyncio.Queue[str]]:
-        queue: asyncio.Queue[str] = asyncio.Queue(QUEUE_SIZE)
+        queue: asyncio.Queue[str] = asyncio.Queue(STREAM_QUEUE_SIZE)
         self._queues[user_id].add(queue)
         try:
             yield queue

@@ -13,8 +13,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from pulse.constants import CHUNK_BYTES
 from pulse.domain import Clock, JobState
-from pulse.metrics.discovery import CHUNK_BYTES
 from pulse.slurm.base import (
     AccountRef,
     AccountSnapshot,

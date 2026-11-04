@@ -41,11 +41,17 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "ASYNC", "RUF", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Configuration and secrets come from pulse.config.Settings (environment / .env).
+"os.environ".msg = "Read configuration through pulse.config.Settings."
+"os.getenv".msg = "Read configuration through pulse.config.Settings."
 
 [tool.ruff.lint.per-file-ignores]
 # Runs on cluster login nodes with old Pythons: stays Python 3.6 compatible.
-"src/pulse/agent/pulse_agent.py" = ["UP", "SIM115", "RUF001"]
+"src/pulse/agent/pulse_agent.py" = ["UP", "SIM115", "RUF001", "TID251"]
+"tests/**" = ["TID251"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

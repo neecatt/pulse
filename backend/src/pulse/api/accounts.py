@@ -6,14 +6,13 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep, get_owned_account
+from pulse.constants import ACCOUNT_PALETTE_SIZE
 from pulse.models import Account
 from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate, AgentToken
 from pulse.slurm import AccountRef, SlurmError
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
-# Number of distinct account colours defined in the frontend palette.
-PALETTE_SIZE = 6
 # Host labels that say nothing about which cluster it is.
 _GENERIC_LABELS = {"login", "ssh", "gateway", "access", "frontend", "hpc", "cluster", "www"}
 
@@ -43,7 +42,9 @@ async def create_account(
     count = await session.scalar(select(func.count()).where(Account.user_id == user.id)) or 0
     fields = body.model_dump(exclude={"cluster"})
     cluster = body.cluster or cluster_name_from_host(body.host)
-    account = Account(user_id=user.id, color=count % PALETTE_SIZE, cluster=cluster, **fields)
+    account = Account(
+        user_id=user.id, color=count % ACCOUNT_PALETTE_SIZE, cluster=cluster, **fields
+    )
     session.add(account)
     await session.commit()
     if account.connection == "direct":
