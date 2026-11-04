@@ -5,10 +5,8 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
+from pulse.constants import EMA_WEIGHT, IMPROVEMENT_RATIO
 from pulse.metrics.model import Point
-
-EMA_WEIGHT = 0.9
-IMPROVEMENT = 1e-3  # a new best must beat the old one by 0.1%
 
 # last, min, max, first, n, step, best_at (ISO time), ema (smoothed value) and
 # ema_min (best smoothed value, which a single lucky batch can't drag down).
@@ -46,7 +44,7 @@ def update_summaries(
                 "best_at": moment,
             }
             continue
-        if point.value < s["min"] - max(abs(s["min"]) * IMPROVEMENT, 1e-12):
+        if point.value < s["min"] - max(abs(s["min"]) * IMPROVEMENT_RATIO, 1e-12):
             s["best_at"] = moment
         s["min"] = min(s["min"], point.value)
         s["max"] = max(s["max"], point.value)

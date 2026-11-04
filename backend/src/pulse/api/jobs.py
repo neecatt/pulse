@@ -5,17 +5,14 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pulse.api.deps import CurrentUser, SessionDep
+from pulse.constants import CHART_POINTS, SERIES_POINTS, SYSTEM_METRICS, TREND_POINTS
 from pulse.domain import JobState
 from pulse.metrics.downsample import downsample
-from pulse.metrics.ingest import SYSTEM_METRICS
 from pulse.models import Account, Job, JobMetric, MetricFile, User
 from pulse.schemas import JobDetailOut, JobMetrics, JobOut, JobUpdate, MetricPoint, StepPoint
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
-TREND_POINTS = 40
-SERIES_POINTS = 500
-CHART_POINTS = 1000  # per metric; plenty for a chart, small enough for a phone
 _STATE_ORDER = {JobState.RUNNING: 0, JobState.PENDING: 1}
 
 

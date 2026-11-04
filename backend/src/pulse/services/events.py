@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from pulse.constants import MIN_POINTS_FOR_ALERTS
 from pulse.domain import EventKind, JobState
 from pulse.slurm.base import JobTelemetry, SlurmJob
 
@@ -78,8 +79,6 @@ def format_duration(seconds: int) -> str:
 
 # Metric alerts. They apply to loss-like metrics, where lower is better.
 
-MIN_POINTS = 20  # don't judge a curve on its first few points
-
 
 @dataclass(slots=True)
 class MetricLatches:
@@ -113,7 +112,7 @@ def metric_alerts(
         )
 
     s = summaries.get(primary or "")
-    if s is None or s["n"] < MIN_POINTS or job.state is not JobState.RUNNING:
+    if s is None or s["n"] < MIN_POINTS_FOR_ALERTS or job.state is not JobState.RUNNING:
         return events
 
     # Compare smoothed against smoothed: noise and one-off good batches don't count.

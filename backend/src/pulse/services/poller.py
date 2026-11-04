@@ -12,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from pulse.config import Settings
+from pulse.constants import POLL_TICK_SECONDS, SYSTEM_PREFIX
 from pulse.domain import Clock, EventKind, JobState
-from pulse.metrics.ingest import SYSTEM_PREFIX, ingest_files, load_cursors, store_points
+from pulse.metrics.ingest import ingest_files, load_cursors, store_points
 from pulse.metrics.logs import parse_log_metrics
 from pulse.metrics.model import Point
 from pulse.models import Account, Event, Job, User, utcnow
@@ -33,10 +34,6 @@ from pulse.slurm.base import NodeStats
 from pulse.slurm.parsing import mean_gpu_usage
 
 logger = logging.getLogger(__name__)
-
-# How often the scheduler checks which accounts are due. Bounds the fastest
-# refresh a user can choose.
-TICK_SECONDS = 5
 
 
 @dataclass(slots=True)
@@ -77,7 +74,7 @@ class Poller:
                 logger.exception("poll cycle failed")
             force = False
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._wakeup.wait(), TICK_SECONDS)
+                await asyncio.wait_for(self._wakeup.wait(), POLL_TICK_SECONDS)
                 force = True  # trigger(): new account, app opened, settings changed
             self._wakeup.clear()
 
@@ -215,7 +212,7 @@ class Poller:
             return True
         # A tick of slack so a 10 s interval doesn't slip to 15 s on a 5 s tick.
         elapsed = (now - account.last_polled_at).total_seconds()
-        return elapsed + TICK_SECONDS / 2 >= self.interval_for(account.user)
+        return elapsed + POLL_TICK_SECONDS / 2 >= self.interval_for(account.user)
 
     async def _apply_snapshot(
         self,
