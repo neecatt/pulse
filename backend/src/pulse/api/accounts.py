@@ -8,7 +8,7 @@ from pulse.auth.tokens import hash_token, new_token
 from pulse.constants import ACCOUNT_PALETTE_SIZE
 from pulse.models import Account
 from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate, AgentToken
-from pulse.slurm import AccountRef, SlurmError
+from pulse.slurm import SlurmError
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -96,19 +96,13 @@ async def check_account(
                 ok=False, error="Waiting for the agent's first report from the login node."
             )
         return AccountCheck(ok=account.last_error is None, error=account.last_error)
-    ref = AccountRef(
-        username=account.username,
-        host=account.host,
-        port=account.port,
-        host_key=account.host_key,
-    )
     try:
-        host_key = await services.slurm.check(ref)
+        host_keys = await services.slurm.check(account.ref())
     except SlurmError as exc:
         account.last_error = str(exc)[:500]
         await session.commit()
         return AccountCheck(ok=False, error=str(exc))
-    account.host_key = account.host_key or host_key
+    account.pin_host_keys(host_keys)
     account.last_error = None
     await session.commit()
     services.poller.trigger()

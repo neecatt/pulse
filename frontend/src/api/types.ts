@@ -25,6 +25,10 @@ export interface Account {
   color: number;
   notify: boolean;
   connection: Connection;
+  /** Jump host in front of the login node (ssh -J), if any. */
+  jump_host: string | null;
+  jump_port: number;
+  jump_username: string | null;
   last_polled_at: string | null;
   last_error: string | null;
 }
@@ -37,6 +41,9 @@ export interface AccountCreate {
   port?: number;
   notify?: boolean;
   connection?: Connection;
+  jump_host?: string;
+  jump_port?: number;
+  jump_username?: string;
 }
 
 export type AccountUpdate = Partial<Pick<Account, "cluster" | "notify">>;

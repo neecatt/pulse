@@ -6,8 +6,7 @@ import logging
 import shlex
 import socket
 import time
-from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,6 +31,8 @@ from pulse.slurm.base import (
     AccountSnapshot,
     Cursors,
     FileChunk,
+    Hop,
+    HostKeys,
     JobTelemetry,
     NodeStats,
     SlurmError,
@@ -53,7 +54,7 @@ logger = logging.getLogger(__name__)
 # Separates file chunks in the output of one combined read command.
 CHUNK_MARKER = "@@pulse-chunk"
 
-_ConnKey = tuple[str, str, int]
+_ConnKey = tuple[str, str, int, str]  # user, host, port, role
 _StatsSample = tuple[float, dict[str, NodeStats]]
 _Found = list[tuple[str, int]]  # (path, size)
 _Discovery = tuple[float, _Found]
@@ -82,23 +83,23 @@ class SshSlurmClient:
     def public_key(self) -> str | None:
         return self._public_key
 
-    async def check(self, account: AccountRef) -> str | None:
-        async with self._session(account) as conn:
-            await self._run(conn, "sacct --version")
-            return _host_key(conn)
+    async def check(self, account: AccountRef) -> HostKeys:
+        conn, keys = await self._connect(account)
+        await self._run(conn, "sacct --version")
+        return keys
 
     async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
-        async with self._session(account) as conn:
-            jobs = parse_sacct(await self._run(conn, self._sacct_command(account.username)))
-            running = [j for j in jobs if j.state is JobState.RUNNING]
-            results = await asyncio.gather(
-                *(self._telemetry(conn, j, cursors.get(j.slurm_id, {})) for j in running)
-            )
-            return AccountSnapshot(
-                jobs=jobs,
-                telemetry={j.slurm_id: t for j, t in zip(running, results, strict=True)},
-                host_key=_host_key(conn),
-            )
+        conn, keys = await self._connect(account)
+        jobs = parse_sacct(await self._run(conn, self._sacct_command(account.username)))
+        running = [j for j in jobs if j.state is JobState.RUNNING]
+        results = await asyncio.gather(
+            *(self._telemetry(conn, j, cursors.get(j.slurm_id, {})) for j in running)
+        )
+        return AccountSnapshot(
+            jobs=jobs,
+            telemetry={j.slurm_id: t for j, t in zip(running, results, strict=True)},
+            host_keys=keys,
+        )
 
     async def close(self) -> None:
         conns, self._conns = list(self._conns.values()), {}
@@ -242,54 +243,55 @@ class SshSlurmClient:
         self._stats_cache[job.slurm_id] = (time.monotonic(), nodes)
         return nodes
 
-    @asynccontextmanager
-    async def _session(self, account: AccountRef) -> AsyncIterator[asyncssh.SSHClientConnection]:
-        """Yield a live connection, dropping it if the session fails so the next
-        call reconnects."""
-        key = (account.username, account.host, account.port)
-        conn = await self._connection(key, account)
-        try:
-            yield conn
-        except SlurmError:
-            if conn.is_closed():
-                self._conns.pop(key, None)
-            raise
+    async def _connect(self, account: AccountRef) -> tuple[asyncssh.SSHClientConnection, HostKeys]:
+        """A live connection to the login node (through the jump host, if any),
+        reused across polls, and the host keys seen on the way."""
+        tunnel = await self._hop(account.jump, None, jump=True) if account.jump else None
+        conn = await self._hop(account.target, tunnel)
+        return conn, HostKeys(target=_host_key(conn), jump=_host_key(tunnel) if tunnel else None)
 
-    async def _connection(self, key: _ConnKey, account: AccountRef) -> asyncssh.SSHClientConnection:
+    async def _hop(
+        self, hop: Hop, tunnel: asyncssh.SSHClientConnection | None, *, jump: bool = False
+    ) -> asyncssh.SSHClientConnection:
+        """Connect to one hop, reusing an open connection. A connection through a
+        jump host closes when the jump host's does, so it's replaced the same way."""
+        key = (hop.username, hop.host, hop.port, "jump" if jump else "target")
         async with self._locks.setdefault(key, asyncio.Lock()):
             conn = self._conns.get(key)
             if conn is not None and not conn.is_closed():
                 return conn
+            role = "jump host " if jump else ""
             try:
                 conn = await asyncssh.connect(
-                    account.host,
-                    port=account.port,
-                    username=account.username,
+                    hop.host,
+                    port=hop.port,
+                    username=hop.username,
                     client_keys=[str(self._key_file)],
-                    known_hosts=self._known_hosts(account),
+                    known_hosts=self._known_hosts(hop),
                     connect_timeout=self._settings.ssh_connect_timeout_seconds,
                     keepalive_interval=self._settings.ssh_keepalive_seconds,
+                    **({"tunnel": tunnel} if tunnel is not None else {}),
                 )
             except asyncssh.HostKeyNotVerifiable as exc:
                 raise SlurmError(
-                    f"{account.host} presented a different host key than before. "
+                    f"The {role}{hop.host} presented a different host key than before. "
                     "If the cluster rotated its keys, remove and re-add the account."
                 ) from exc
             except asyncssh.PermissionDenied as exc:
                 raise SlurmError(
-                    f"{account.host} rejected Pulse's SSH key for {account.username}. "
+                    f"The {role}{hop.host} rejected Pulse's SSH key for {hop.username}. "
                     "Authorise the key shown in the app on that cluster."
                 ) from exc
             except (OSError, asyncssh.Error) as exc:
-                raise SlurmError(_describe_connect_error(account, exc)) from exc
+                raise SlurmError(_describe_connect_error(hop, exc, role)) from exc
             self._conns[key] = conn
             return conn
 
-    def _known_hosts(self, account: AccountRef) -> KnownHostsArg:
+    def _known_hosts(self, hop: Hop) -> KnownHostsArg:
         if self._settings.ssh_known_hosts:
             return self._settings.ssh_known_hosts
-        if account.host_key:
-            pinned = [asyncssh.import_public_key(account.host_key)]
+        if hop.host_key:
+            pinned = [asyncssh.import_public_key(hop.host_key)]
             return (pinned, [], [], [], [], [], [])  # trusted keys only
         return None  # trust on first use; the key is pinned after this connect
 
@@ -338,15 +340,18 @@ def _ensure_key_pair(private_path: Path) -> str:
     return asyncssh.read_private_key(private_path).export_public_key().decode().strip()
 
 
-def _describe_connect_error(account: AccountRef, exc: Exception) -> str:
-    where = account.host if account.port == 22 else f"{account.host}:{account.port}"
+def _describe_connect_error(hop: Hop, exc: Exception, role: str = "") -> str:
+    where = hop.host if hop.port == 22 else f"{hop.host}:{hop.port}"
     if isinstance(exc, socket.gaierror):
-        return f"Can't find {account.host}. Check the hostname."
+        return f"Can't find the {role}{hop.host}. Check the hostname."
     if isinstance(exc, ConnectionRefusedError):
-        return f"{where} refused the connection. Check the host and SSH port."
+        return f"The {role}{where} refused the connection. Check the host and SSH port."
     if isinstance(exc, TimeoutError):
-        return f"{where} didn't respond. It may be down, or only reachable via VPN."
-    return f"SSH to {where} failed: {exc}"
+        return (
+            f"The {role}{where} didn't respond. It may be down, only reachable via VPN, "
+            "or need a jump host."
+        )
+    return f"SSH to the {role}{where} failed: {exc}"
 
 
 def _host_key(conn: asyncssh.SSHClientConnection) -> str | None:

@@ -10,14 +10,38 @@ Cursors = Mapping[str, Mapping[str, int]]
 
 
 @dataclass(frozen=True, slots=True)
-class AccountRef:
-    """What a Slurm client needs to reach one account."""
+class Hop:
+    """One SSH server to connect to: the login node, or a jump host before it."""
 
     username: str
     host: str
     port: int = 22
     # OpenSSH public key pinned on first successful connect; None = not yet known.
     host_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AccountRef:
+    """What a Slurm client needs to reach one account."""
+
+    username: str
+    host: str
+    port: int = 22
+    host_key: str | None = None
+    # Jump host (like ssh -J / ProxyJump) when the login node isn't directly reachable.
+    jump: Hop | None = None
+
+    @property
+    def target(self) -> Hop:
+        return Hop(self.username, self.host, self.port, self.host_key)
+
+
+@dataclass(frozen=True, slots=True)
+class HostKeys:
+    """Host keys seen while connecting, for pinning: the login node's and the jump host's."""
+
+    target: str | None = None
+    jump: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +102,7 @@ class JobTelemetry:
 class AccountSnapshot:
     jobs: list[SlurmJob]
     telemetry: dict[str, JobTelemetry] = field(default_factory=dict)  # keyed by slurm_id
-    host_key: str | None = None  # key the server presented, for pinning
+    host_keys: HostKeys = field(default_factory=HostKeys)  # keys seen, for pinning
 
 
 class SlurmError(Exception):
@@ -90,8 +114,8 @@ class SlurmClient(Protocol):
     def public_key(self) -> str | None:
         """Public key users must authorise on their cluster, if the client uses one."""
 
-    async def check(self, account: AccountRef) -> str | None:
-        """Verify the account is reachable and return the server's host key.
+    async def check(self, account: AccountRef) -> HostKeys:
+        """Verify the account is reachable and return the host keys seen.
 
         Raises SlurmError if it isn't reachable.
         """

@@ -15,7 +15,7 @@ import pytest
 
 from pulse.config import Settings
 from pulse.domain import JobState
-from pulse.slurm.base import AccountRef, SlurmError
+from pulse.slurm.base import AccountRef, Hop, SlurmError
 from pulse.slurm.ssh import CHUNK_MARKER, SshSlurmClient, select_files
 
 WORK_DIR = Path(tempfile.mkdtemp(prefix="pulse-ssh-workdir-"))
@@ -117,7 +117,7 @@ def test_generates_private_key_once(tmp_path: Path) -> None:
 
 
 async def test_check_returns_server_host_key(client: SshSlurmClient, cluster: FakeCluster) -> None:
-    assert await client.check(cluster.account()) == cluster.host_key
+    assert (await client.check(cluster.account())).target == cluster.host_key
 
 
 async def test_snapshot_parses_jobs_and_telemetry(
@@ -133,7 +133,7 @@ async def test_snapshot_parses_jobs_and_telemetry(
     assert telemetry.epoch == "2/5"
     assert telemetry.gpu_util == 85.0
     assert telemetry.gpu_mem == 50.0
-    assert snapshot.host_key == cluster.host_key
+    assert snapshot.host_keys.target == cluster.host_key
 
 
 async def test_connection_is_reused_across_polls(
@@ -155,7 +155,8 @@ async def test_pinned_host_key_mismatch_is_rejected(
 async def test_matching_pinned_host_key_connects(
     client: SshSlurmClient, cluster: FakeCluster
 ) -> None:
-    assert await client.check(cluster.account(host_key=cluster.host_key)) == cluster.host_key
+    keys = await client.check(cluster.account(host_key=cluster.host_key))
+    assert keys.target == cluster.host_key
 
 
 async def test_unauthorised_key_gets_actionable_error(tmp_path: Path, cluster: FakeCluster) -> None:
@@ -204,3 +205,82 @@ def test_select_files_keeps_newest_per_kind() -> None:
     assert [p for p, _ in picked][:2] == ["/w/run0/metrics.jsonl", "/w/run1/metrics.jsonl"]
     assert len(picked) == 8 + 1  # MAX_METRIC_FILES metrics, plus the config
     assert ("/w/hparams.yaml", 5) in picked
+
+
+# Jump hosts (ssh -J / ProxyJump)
+
+
+@dataclass
+class JumpHost:
+    port: int
+    host_key: str
+    forwarded: list[tuple[str, int]]
+
+    def hop(self, host_key: str | None = None, port: int | None = None) -> Hop:
+        return Hop("alice", "127.0.0.1", port or self.port, host_key)
+
+
+@pytest.fixture
+async def jump_host(client: SshSlurmClient, cluster: FakeCluster) -> AsyncIterator[JumpHost]:
+    """An SSH server that only forwards connections, like csnhr.nhr.fau.de."""
+    server_key = asyncssh.generate_private_key("ssh-ed25519")
+    forwarded: list[tuple[str, int]] = []
+
+    class Jump(asyncssh.SSHServer):
+        def connection_requested(
+            self, dest_host: str, dest_port: int, orig_host: str, orig_port: int
+        ) -> bool:
+            forwarded.append((dest_host, dest_port))
+            return True  # let asyncssh open the forwarded TCP connection
+
+    assert client.public_key is not None
+    server = await asyncssh.listen(
+        "127.0.0.1",
+        0,
+        server_host_keys=[server_key],
+        authorized_client_keys=asyncssh.import_authorized_keys(client.public_key),
+        server_factory=Jump,
+    )
+    port = server.sockets[0].getsockname()[1]
+    yield JumpHost(port, server_key.export_public_key().decode().strip(), forwarded)
+    await client.close()
+    server.close()
+    await server.wait_closed()
+
+
+def via_jump(cluster: FakeCluster, jump: Hop) -> AccountRef:
+    return AccountRef(username="alice", host="127.0.0.1", port=cluster.port, jump=jump)
+
+
+async def test_connects_through_a_jump_host(
+    client: SshSlurmClient, cluster: FakeCluster, jump_host: JumpHost
+) -> None:
+    account = via_jump(cluster, jump_host.hop())
+
+    keys = await client.check(account)
+    assert keys.target == cluster.host_key
+    assert keys.jump == jump_host.host_key
+    assert jump_host.forwarded == [("127.0.0.1", cluster.port)]
+
+    snapshot = await client.snapshot(account, {})
+    assert [j.slurm_id for j in snapshot.jobs] == ["4242"]
+    assert len(cluster.connections) == 1  # both hops reused across calls
+    assert len(jump_host.forwarded) == 1
+
+
+async def test_jump_host_key_is_pinned(
+    client: SshSlurmClient, cluster: FakeCluster, jump_host: JumpHost
+) -> None:
+    other = asyncssh.generate_private_key("ssh-ed25519").export_public_key().decode()
+    with pytest.raises(SlurmError, match=r"jump host 127\.0\.0\.1 presented a different host key"):
+        await client.check(via_jump(cluster, jump_host.hop(host_key=other)))
+
+
+async def test_unreachable_jump_host_is_named(
+    client: SshSlurmClient, cluster: FakeCluster, jump_host: JumpHost
+) -> None:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed_port = probe.getsockname()[1]
+    with pytest.raises(SlurmError, match=r"jump host 127\.0\.0\.1:\d+ refused the connection"):
+        await client.check(via_jump(cluster, jump_host.hop(port=closed_port)))

@@ -2,6 +2,8 @@ from pulse.config import Settings
 from pulse.slurm.base import (
     AccountRef,
     AccountSnapshot,
+    Hop,
+    HostKeys,
     JobTelemetry,
     SlurmClient,
     SlurmError,
@@ -13,6 +15,8 @@ from pulse.slurm.ssh import SshSlurmClient
 __all__ = [
     "AccountRef",
     "AccountSnapshot",
+    "Hop",
+    "HostKeys",
     "JobTelemetry",
     "SlurmClient",
     "SlurmError",

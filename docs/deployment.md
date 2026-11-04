@@ -87,6 +87,12 @@ from there (iOS 16.4+).
 - **Direct:** Pulse generates its own SSH key on first start; the app shows it
   with a copy-ready `authorized_keys` command. The host key is pinned on first
   connect.
+- **Behind a jump host** (`ProxyJump` in your `~/.ssh/config`): paste the login
+  as `ssh -J gateway.example.org you@cluster.example.org`. Pulse connects to the
+  gateway, tunnels to the login node and pins both host keys. Pulse's key must
+  be accepted on both; centres that manage keys through a web portal (such as
+  NHR@FAU) usually apply one upload to both. Prefer this over the agent on
+  clusters without cron: nothing has to stay running on the cluster.
 - **Agent:** for clusters that require 2FA. The install command in the app
   points the agent at the address you opened Pulse on, so open Pulse through
   its public URL before copying the command.
