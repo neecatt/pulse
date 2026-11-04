@@ -1,16 +1,11 @@
-import { useState } from "react";
+import { useCopy } from "@/hooks/use-copy";
 
 import { Button } from "./Button";
 
 export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  const { copied, copy } = useCopy();
   return (
-    <Button variant="ghost" onClick={copy} className="shrink-0">
+    <Button variant="ghost" onClick={() => copy(text)} className="shrink-0">
       {copied ? "Copied" : label}
     </Button>
   );

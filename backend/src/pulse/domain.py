@@ -29,6 +29,9 @@ class EventKind(StrEnum):
     JOB_CANCELLED = "job_cancelled"
     JOB_TIME_LIMIT = "job_time_limit"
     JOB_STALLED = "job_stalled"
+    JOB_NAN = "job_nan"
+    JOB_DIVERGING = "job_diverging"
+    JOB_PLATEAU = "job_plateau"
 
 
 def resolve_alerts(stored: Mapping[str, bool]) -> dict[EventKind, bool]:

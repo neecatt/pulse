@@ -34,11 +34,11 @@ STATE_PATH = os.path.join(CONFIG_DIR, "state.json")  # file offsets the server h
 CRON_TAG = "# pulse-agent"
 
 RUN_SECONDS = 55  # cron starts the next run a minute later
-GPU_SAMPLE_SECONDS = 60  # GPU queries start a job step; keep them rare
+STATS_SAMPLE_SECONDS = 60  # node stats start a job step; keep them rare
 DEFAULT_INTERVAL = 30
 MIN_INTERVAL = 5
 COMMAND_TIMEOUT = 30
-GPU_TIMEOUT = 15
+STATS_TIMEOUT = 20
 LOG_TAIL_BYTES = 16384
 LOG_TAIL_LINES = 40
 LOOKBACK = "now-48hours"
@@ -78,11 +78,15 @@ CONFIG_NAMES = (
 )
 DISCOVERY_SECONDS = 60  # walking shared filesystems is slow; don't repeat it often
 
-NVIDIA_SMI = [
-    "nvidia-smi",
-    "--query-gpu=utilization.gpu,memory.used,memory.total",
-    "--format=csv,noheader,nounits",
-]
+# Must match pulse.slurm.parsing.NODE_STATS_SCRIPT (the backend tests check this).
+NODE_STATS_SCRIPT = r"""h=$(hostname -s)
+vmstat 1 2 | tail -1 | awk -v h="$h" '{print h "\tcpu\t" 100-$15}'
+awk -v h="$h" '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2}
+  END{if (t>0) print h "\tmem\t" (t-a)*100/t}' /proc/meminfo
+nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total \
+  --format=csv,noheader,nounits 2>/dev/null |
+  awk -F', *' -v h="$h" '{print h "\tgpu\t" $1 "\t" $2 "\t" $3 "\t" $4}'
+"""
 
 
 class AgentError(Exception):
@@ -110,7 +114,7 @@ def main(argv: List[str]) -> int:
 def install(server: str, token: str) -> int:
     config = {"server": server, "token": token}
     try:
-        report(config, include_gpu=False)
+        report(config, include_stats=False)
     except AgentError as exc:
         print("✗ {}".format(exc))
         return 1
@@ -125,7 +129,7 @@ def install(server: str, token: str) -> int:
 
 def status() -> int:
     try:
-        interval = report(load_config(), include_gpu=False)
+        interval = report(load_config(), include_stats=False)
     except AgentError as exc:
         print("✗ {}".format(exc))
         return 1
@@ -148,14 +152,14 @@ def run(duration: float) -> int:
     if lock is None:
         return 0  # another run is still going
     deadline = time.monotonic() + duration
-    last_gpu_sample = -float("inf")
+    last_stats_sample = -float("inf")
     discovered = {}  # type: Dict[str, Tuple[float, List[str]]]
     while True:
-        include_gpu = time.monotonic() - last_gpu_sample >= GPU_SAMPLE_SECONDS
-        if include_gpu:
-            last_gpu_sample = time.monotonic()
+        include_stats = time.monotonic() - last_stats_sample >= STATS_SAMPLE_SECONDS
+        if include_stats:
+            last_stats_sample = time.monotonic()
         try:
-            interval = report(config, include_gpu, discovered)
+            interval = report(config, include_stats, discovered)
         except AgentError as exc:
             log(str(exc))
             if exc.fatal:
@@ -171,11 +175,11 @@ def run(duration: float) -> int:
 
 def report(
     config: Dict[str, str],
-    include_gpu: bool,
+    include_stats: bool,
     discovered: Optional[Dict[str, Tuple[float, List[str]]]] = None,
 ) -> int:
     """Send one snapshot; returns the server's requested delay before the next."""
-    payload = collect(include_gpu, load_cursors(), {} if discovered is None else discovered)
+    payload = collect(include_stats, load_cursors(), {} if discovered is None else discovered)
     body = json.dumps(payload).encode()
     request = urllib.request.Request(
         config["server"] + "/api/agent/report",
@@ -204,7 +208,7 @@ def report(
 
 
 def collect(
-    include_gpu: bool,
+    include_stats: bool,
     cursors: Dict[str, Dict[str, int]],
     discovered: Dict[str, Tuple[float, List[str]]],
 ) -> Dict[str, object]:
@@ -231,29 +235,33 @@ def collect(
         return payload
     payload["sacct"] = sacct
     payload["jobs"] = {
-        job_id: job_telemetry(job_id, has_gpus and include_gpu, cursors.get(job_id, {}), discovered)
-        for job_id, has_gpus in running_jobs(sacct)
+        job_id: job_telemetry(
+            job_id, nodes if include_stats else 0, cursors.get(job_id, {}), discovered
+        )
+        for job_id, nodes in running_jobs(sacct)
     }
     return payload
 
 
-def running_jobs(sacct: str) -> List[Tuple[str, bool]]:
+def running_jobs(sacct: str) -> List[Tuple[str, int]]:
+    """(job id, node count) of running jobs."""
     jobs = []
     state_col = SACCT_FIELDS.index("State")
-    tres_col = SACCT_FIELDS.index("AllocTRES")
+    nodes_col = SACCT_FIELDS.index("NNodes")
     for line in sacct.splitlines():
         cols = line.split("|")
         if len(cols) != len(SACCT_FIELDS):
             continue
         state = (cols[state_col].split() or [""])[0]
         if state in ("RUNNING", "COMPLETING"):
-            jobs.append((cols[0], "gres/gpu" in cols[tres_col]))
+            nodes = cols[nodes_col]
+            jobs.append((cols[0], int(nodes) if nodes.isdigit() else 1))
     return jobs
 
 
 def job_telemetry(
     job_id: str,
-    include_gpu: bool,
+    stats_nodes: int,  # nodes to sample usage on; 0 skips sampling this time
     cursors: Dict[str, int],
     discovered: Dict[str, Tuple[float, List[str]]],
 ) -> Dict[str, object]:
@@ -274,11 +282,20 @@ def job_telemetry(
             cached = (time.monotonic(), find_metric_files(work_dir))
             discovered[job_id] = cached
         telemetry["files"] = read_chunks(cached[1], cursors)
-    if include_gpu:
+    if stats_nodes:
         with contextlib.suppress(AgentError):
-            telemetry["nvidia_smi"] = run_command(
-                ["srun", "--jobid=" + job_id, "--overlap", "-N1", "-n1", *NVIDIA_SMI],
-                timeout=GPU_TIMEOUT,
+            telemetry["node_stats"] = run_command(
+                [
+                    "srun",
+                    "--jobid=" + job_id,
+                    "--overlap",
+                    "-N{}".format(stats_nodes),
+                    "--ntasks-per-node=1",
+                    "bash",
+                    "-c",
+                    NODE_STATS_SCRIPT,
+                ],
+                timeout=STATS_TIMEOUT,
             )
     return telemetry
 

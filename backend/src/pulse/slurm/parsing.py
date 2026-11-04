@@ -4,7 +4,7 @@ import re
 from datetime import UTC, datetime
 
 from pulse.domain import JobState
-from pulse.slurm.base import SlurmJob
+from pulse.slurm.base import NodeStats, SlurmJob
 
 # Order matters: this is the column order requested from sacct.
 SACCT_FIELDS = (
@@ -95,6 +95,7 @@ def parse_sacct(output: str) -> list[SlurmJob]:
         jobs.append(
             SlurmJob(
                 slurm_id=row["JobID"],
+                array_id=array_id(row["JobID"]),
                 name=row["JobName"],
                 partition=row["Partition"],
                 state=state,
@@ -111,6 +112,12 @@ def parse_sacct(output: str) -> list[SlurmJob]:
             )
         )
     return jobs
+
+
+def array_id(slurm_id: str) -> str | None:
+    """``123_4`` and ``123_[5-9%2]`` belong to array ``123``; others to none."""
+    head, sep, _ = slurm_id.partition("_")
+    return head if sep and head.isdigit() else None
 
 
 def parse_scontrol_field(output: str, field: str) -> str | None:
@@ -131,27 +138,44 @@ def parse_training_log(lines: list[str]) -> tuple[float | None, str | None]:
     return loss, epoch
 
 
-def parse_nvidia_smi(output: str) -> tuple[float | None, float | None]:
-    """Mean GPU utilisation and memory use (%) across GPUs.
-
-    Expects ``nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total
-    --format=csv,noheader,nounits`` output.
-    """
-    utils: list[float] = []
-    mems: list[float] = []
-    for line in output.splitlines():
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) != 3:
-            continue
-        try:
-            util, used, total = (float(p) for p in parts)
-        except ValueError:
-            continue
-        utils.append(util)
-        if total > 0:
-            mems.append(100 * used / total)
-    return _mean(utils), _mean(mems)
-
-
 def _mean(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 1) if values else None
+
+
+# Per-node usage. One `srun` step runs this on every node of the job and prints
+# tab-separated lines: "<node> cpu <pct>", "<node> mem <pct>" and
+# "<node> gpu <index> <util%> <mem used> <mem total>". The agent ships the same
+# script (checked by a test).
+NODE_STATS_SCRIPT = r"""h=$(hostname -s)
+vmstat 1 2 | tail -1 | awk -v h="$h" '{print h "\tcpu\t" 100-$15}'
+awk -v h="$h" '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2}
+  END{if (t>0) print h "\tmem\t" (t-a)*100/t}' /proc/meminfo
+nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total \
+  --format=csv,noheader,nounits 2>/dev/null |
+  awk -F', *' -v h="$h" '{print h "\tgpu\t" $1 "\t" $2 "\t" $3 "\t" $4}'
+"""
+
+
+def parse_node_stats(output: str) -> dict[str, NodeStats]:
+    nodes: dict[str, NodeStats] = {}
+    for line in output.splitlines():
+        parts = line.strip().split("\t")
+        if len(parts) < 3 or not parts[0]:
+            continue
+        node = nodes.setdefault(parts[0], {"cpu": None, "mem": None, "gpus": []})
+        try:
+            if parts[1] in ("cpu", "mem") and len(parts) == 3:
+                node[parts[1]] = round(float(parts[2]), 1)  # type: ignore[literal-required]
+            elif parts[1] == "gpu" and len(parts) == 6:
+                util, used, total = (float(v) for v in parts[3:])
+                mem = 100 * used / total if total > 0 else 0.0
+                node["gpus"].append({"util": round(util, 1), "mem": round(mem, 1)})
+        except ValueError:
+            continue
+    return nodes
+
+
+def mean_gpu_usage(nodes: dict[str, NodeStats]) -> tuple[float | None, float | None]:
+    """Job-wide GPU utilisation and memory (%), averaged over every GPU."""
+    gpus = [gpu for node in nodes.values() for gpu in node["gpus"]]
+    return _mean([g["util"] for g in gpus]), _mean([g["mem"] for g in gpus])

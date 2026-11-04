@@ -1,4 +1,4 @@
-const API_ORIGIN = import.meta.env["VITE_API_URL"] ?? window.location.origin;
+import { PUBLIC_ORIGIN as API_ORIGIN } from "@/config/env";
 
 /** One command that downloads, verifies and schedules the login-node agent. */
 export function agentInstallCommand(token: string): string {

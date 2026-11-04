@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from pulse.config import Settings
+from pulse.constants import POLL_TICK_SECONDS, SYSTEM_PREFIX
 from pulse.domain import Clock, EventKind, JobState
 from pulse.metrics.ingest import ingest_files, load_cursors, store_points
 from pulse.metrics.logs import parse_log_metrics
@@ -21,18 +22,18 @@ from pulse.schemas import EventOut, Monitoring
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.events import (
     DetectedEvent,
+    MetricLatches,
     is_near_time_limit,
     is_stalled,
+    metric_alerts,
     state_change_event,
 )
 from pulse.services.notifier import Notifier
 from pulse.slurm import AccountRef, AccountSnapshot, JobTelemetry, SlurmClient, SlurmError, SlurmJob
+from pulse.slurm.base import NodeStats
+from pulse.slurm.parsing import mean_gpu_usage
 
 logger = logging.getLogger(__name__)
-
-# How often the scheduler checks which accounts are due. Bounds the fastest
-# refresh a user can choose.
-TICK_SECONDS = 5
 
 
 @dataclass(slots=True)
@@ -73,7 +74,7 @@ class Poller:
                 logger.exception("poll cycle failed")
             force = False
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._wakeup.wait(), TICK_SECONDS)
+                await asyncio.wait_for(self._wakeup.wait(), POLL_TICK_SECONDS)
                 force = True  # trigger(): new account, app opened, settings changed
             self._wakeup.clear()
 
@@ -211,7 +212,7 @@ class Poller:
             return True
         # A tick of slack so a 10 s interval doesn't slip to 15 s on a 5 s tick.
         elapsed = (now - account.last_polled_at).total_seconds()
-        return elapsed + TICK_SECONDS / 2 >= self.interval_for(account.user)
+        return elapsed + POLL_TICK_SECONDS / 2 >= self.interval_for(account.user)
 
     async def _apply_snapshot(
         self,
@@ -231,7 +232,14 @@ class Poller:
             previous_state = row.state if row else None
             if row is None:
                 # Column defaults apply only on INSERT; set what's read before then.
-                row = Job(slurm_id=slurm_job.slurm_id, metric_files=[], hparams={}, tags=[])
+                row = Job(
+                    slurm_id=slurm_job.slurm_id,
+                    metric_files=[],
+                    hparams={},
+                    tags=[],
+                    metric_summary={},
+                    node_stats={},
+                )
                 account.jobs.append(row)
             _copy_job_fields(row, slurm_job)
 
@@ -247,9 +255,46 @@ class Poller:
                 )
         session.add_all(events)
         await session.flush()  # new jobs need ids before their points are stored
+        jobs_by_id = {j.slurm_id: j for j in snapshot.jobs}
         for row, points in new_points:
-            await store_points(session, row, points, now)
+            non_finite = await store_points(session, row, points, now)
+            detected = self._metric_alerts(
+                row, jobs_by_id[row.slurm_id], non_finite, now, monitoring
+            )
+            if announce:
+                metric_events = [
+                    Event(account=account, job=row, kind=d.kind, message=d.message)
+                    for d in detected
+                ]
+                session.add_all(metric_events)
+                events.extend(metric_events)
         return events
+
+    def _metric_alerts(
+        self,
+        row: Job,
+        job: SlurmJob,
+        non_finite: set[str],
+        now: datetime,
+        monitoring: Monitoring,
+    ) -> list[DetectedEvent]:
+        latches = MetricLatches(row.warned_nan, row.warned_divergence, row.warned_plateau)
+        detected = metric_alerts(
+            job,
+            row.primary_metric,
+            row.metric_summary or {},
+            non_finite,
+            latches,
+            now,
+            diverge_percent=monitoring.diverge_percent,
+            plateau_minutes=monitoring.plateau_minutes,
+        )
+        row.warned_nan, row.warned_divergence, row.warned_plateau = (
+            latches.nan,
+            latches.divergence,
+            latches.plateau,
+        )
+        return detected
 
     def _detect(
         self,
@@ -306,6 +351,7 @@ def _copy_job_fields(row: Job, job: SlurmJob) -> None:
     row.time_limit_s = job.time_limit_s
     row.elapsed_s = job.elapsed_s
     row.exit_code = job.exit_code
+    row.array_id = job.array_id
 
 
 def _record_telemetry(row: Job, t: JobTelemetry) -> list[Point]:
@@ -322,6 +368,9 @@ def _record_telemetry(row: Job, t: JobTelemetry) -> list[Point]:
         for name, value in (("gpu_util", t.gpu_util), ("gpu_mem", t.gpu_mem))
         if value is not None
     )
+    if t.nodes:
+        row.node_stats = dict(t.nodes)
+        points.extend(_node_points(t.nodes))
     points.extend(ingest_files(row, t.files))
 
     row.epoch = t.epoch or row.epoch
@@ -333,4 +382,18 @@ def _record_telemetry(row: Job, t: JobTelemetry) -> list[Point]:
     if t.log_tail:
         row.log_tail = t.log_tail
     row.log_updated_at = t.log_updated_at
+    return points
+
+
+def _node_points(nodes: dict[str, NodeStats]) -> list[Point]:
+    """Per-node time series: sys/<node>/cpu, mem, gpu (mean util) and gpu_mem."""
+    points: list[Point] = []
+    for node, stats in nodes.items():
+        gpu_util, gpu_mem = mean_gpu_usage({node: stats})
+        values = {"cpu": stats["cpu"], "mem": stats["mem"], "gpu": gpu_util, "gpu_mem": gpu_mem}
+        points.extend(
+            Point(f"{SYSTEM_PREFIX}{node}/{key}", value)
+            for key, value in values.items()
+            if value is not None
+        )
     return points

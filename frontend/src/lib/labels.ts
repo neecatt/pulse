@@ -17,6 +17,9 @@ export const EVENT_LABELS: Record<EventKind, string> = {
   job_cancelled: "Job cancelled",
   job_time_limit: "Near time limit",
   job_stalled: "Training stalled",
+  job_nan: "Loss became NaN",
+  job_diverging: "Loss diverging",
+  job_plateau: "Loss plateaued",
 };
 
 export const EVENT_STATE: Record<EventKind, JobState> = {
@@ -26,16 +29,7 @@ export const EVENT_STATE: Record<EventKind, JobState> = {
   job_cancelled: "CANCELLED",
   job_time_limit: "PENDING",
   job_stalled: "FAILED",
+  job_nan: "FAILED",
+  job_diverging: "FAILED",
+  job_plateau: "PENDING",
 };
-
-/** Distinct colours for runs shown together (compare view). */
-export const RUN_COLORS = [
-  "var(--acc-0)",
-  "var(--acc-1)",
-  "var(--acc-2)",
-  "var(--acc-3)",
-  "var(--acc-4)",
-  "var(--acc-5)",
-];
-
-export const MAX_COMPARE = RUN_COLORS.length;

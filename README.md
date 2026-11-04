@@ -15,6 +15,8 @@ start, finish, or fail.
   jobs start, finish, fail, stall or near their time limit
 - Training metrics charts, hyperparameters and run comparison, read from
   TensorBoard event files, metric JSONL/CSV logs and stdout, with no code changes
+- Runs table with parallel coordinates for sweeps, alerts when a loss goes NaN,
+  diverges or plateaus, and per-node CPU/memory/GPU usage
 - Clusters with 2FA work through a tiny agent on the login node
 
 ## Quick start

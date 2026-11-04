@@ -1,5 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { FALLBACK_REFRESH_MS } from "@/config/constants";
+
 import { api } from "./client";
 import type {
   Account,
@@ -10,16 +12,14 @@ import type {
   PreferencesUpdate,
 } from "./types";
 
-// Live data arrives over the /api/stream channel (see useLiveUpdates); this is
-// only a safety net in case the stream is down.
-const FALLBACK_REFRESH_MS = 60_000;
-
 export const queryKeys = {
   accounts: ["accounts"] as const,
   jobs: ["jobs"] as const,
   job: (id: number) => ["jobs", id] as const,
   // Under ["jobs"], so live updates refresh open charts too.
   jobMetrics: (id: number) => ["jobs", id, "metrics"] as const,
+  // Also under ["jobs"], so live updates refresh the runs table.
+  runs: (arrayId?: string) => ["jobs", "runs", arrayId ?? "all"] as const,
   events: (limit: number) => ["events", limit] as const,
   preferences: ["preferences"] as const,
   pushConfig: ["push-config"] as const,
@@ -47,6 +47,14 @@ export function useJob(id: number) {
   return useQuery({
     queryKey: queryKeys.job(id),
     queryFn: () => api.jobs.get(id),
+    refetchInterval: FALLBACK_REFRESH_MS,
+  });
+}
+
+export function useRuns(arrayId?: string) {
+  return useQuery({
+    queryKey: queryKeys.runs(arrayId),
+    queryFn: () => api.runs.list(arrayId),
     refetchInterval: FALLBACK_REFRESH_MS,
   });
 }

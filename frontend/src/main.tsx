@@ -5,11 +5,12 @@ import { createRoot } from "react-dom/client";
 
 import { registerServiceWorker } from "./lib/push";
 import { initUiSettings } from "./lib/ui-settings";
+import { DEFAULT_STALE_MS } from "./config/constants";
 import { routeTree } from "./routeTree.gen";
 import "./styles.css";
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 5_000 } },
+  defaultOptions: { queries: { retry: 1, staleTime: DEFAULT_STALE_MS } },
 });
 
 const router = createRouter({

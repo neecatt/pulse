@@ -7,23 +7,9 @@ it must stay standalone; a test keeps the two in agreement.
 import posixpath
 from typing import Literal
 
-MetricFileKind = Literal["tfevents", "jsonl", "csv", "config"]
+from pulse.constants import CONFIG_NAMES
 
-CHUNK_BYTES = 256 * 1024  # max new bytes read per file per poll
-CONFIG_MAX_BYTES = 64 * 1024
-MAX_METRIC_FILES = 8  # newest first, per job
-MAX_CONFIG_FILES = 4
-SEARCH_DEPTH = 4
-PRUNE_DIRS = (".git", "node_modules", "__pycache__", ".venv", "venv", ".cache")
-CONFIG_NAMES = (
-    "hparams.yaml",
-    "hparams.json",
-    "config.yaml",
-    "config.yml",
-    "config.json",
-    "params.json",
-    "args.json",
-)
+MetricFileKind = Literal["tfevents", "jsonl", "csv", "config"]
 
 
 def classify(path: str) -> MetricFileKind | None:

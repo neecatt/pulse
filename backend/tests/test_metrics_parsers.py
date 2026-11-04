@@ -1,3 +1,4 @@
+import math
 import struct
 from pathlib import Path
 
@@ -75,11 +76,13 @@ def test_jsonl() -> None:
     chunk = parse_jsonl(data)
 
     assert chunk.hparams == {"lr": 0.001, "model.layers": 12}
-    assert [(p.name, p.step, p.value) for p in chunk.points] == [
-        ("train/loss", 10, 1.5),
-        ("acc", 10, 0.5),
-        ("train/loss", 20, 1.2),
+    assert [(p.name, p.step) for p in chunk.points] == [
+        ("train/loss", 10),
+        ("acc", 10),
+        ("train/loss", 20),
+        ("acc", 20),  # NaN is kept: storage drops it, alerts need it
     ]
+    assert math.isnan(chunk.points[-1].value)
     assert chunk.points[0].wall_time is not None
     assert chunk.consumed == data.rfind(b"\n") + 1
 
