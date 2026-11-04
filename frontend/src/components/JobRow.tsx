@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 
 import type { Account, Job } from "@/api/types";
 import { formatDuration } from "@/lib/format";
+import { useUiSettings } from "@/lib/ui-settings";
 
 import { AccountDot } from "./AccountDot";
 import { Meter } from "./Meter";
@@ -9,12 +10,13 @@ import { Sparkline } from "./Sparkline";
 import { StateBadge } from "./StateBadge";
 
 export function JobRow({ job, account }: { job: Job; account: Account | undefined }) {
+  const { showSparklines } = useUiSettings();
   const active = job.state === "RUNNING";
   return (
     <Link
       to="/jobs/$jobId"
       params={{ jobId: String(job.id) }}
-      className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 p-4 transition-colors hover:bg-muted/50 md:grid-cols-[1fr_140px_100px]"
+      className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 p-4 transition-colors compact:py-2.5 hover:bg-muted/50 md:grid-cols-[1fr_140px_100px]"
     >
       <div className="min-w-0">
         <div className="flex items-center gap-2">
@@ -37,7 +39,7 @@ export function JobRow({ job, account }: { job: Job; account: Account | undefine
         </div>
       </div>
       <div className="hidden text-run md:block">
-        {active && <Sparkline data={job.loss_trend} />}
+        {active && showSparklines && <Sparkline data={job.loss_trend} />}
       </div>
       <div className="text-right">
         <StateBadge state={job.state} />
