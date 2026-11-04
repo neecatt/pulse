@@ -18,6 +18,8 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
         secrets_dir=_SECRETS_DIR if _SECRETS_DIR.is_dir() else None,
+        # Never echo rejected values (passwords, keys) into error messages and logs.
+        hide_input_in_errors=True,
     )
 
     # Where `pulse serve` listens. Behind a reverse proxy keep 127.0.0.1;
