@@ -201,11 +201,19 @@ async def test_hsts_over_https(app: FastAPI) -> None:
 
 
 def test_short_admin_password_is_rejected_at_startup() -> None:
-    with pytest.raises(ValueError, match="at least 10 characters"):
-        Settings(admin_username="admin", admin_password=SecretStr("admin"), _env_file=None)  # type: ignore[call-arg]
+    with pytest.raises(ValueError, match="at least 10 characters") as error:
+        Settings(admin_username="admin", admin_password="tooShort!", _env_file=None)  # type: ignore[call-arg]
+    assert "tooShort!" not in str(error.value)  # the secret never reaches logs
 
 
 async def test_no_setup_code_once_an_admin_is_configured(env_admin_settings: Settings) -> None:
     app = create_app(env_admin_settings, run_poller=False)
     async with app.router.lifespan_context(app):
         assert app.state.services.setup_code is None
+
+
+def test_port_follows_platform_port_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PORT", "4321")  # e.g. injected by Railway
+    assert Settings(_env_file=None).port == 4321  # type: ignore[call-arg]
+    monkeypatch.setenv("PULSE_PORT", "9000")  # an explicit PULSE_PORT wins
+    assert Settings(_env_file=None).port == 9000  # type: ignore[call-arg]
