@@ -1,17 +1,18 @@
 import { Link } from "@tanstack/react-router";
-import { Activity, Layers, Server, Settings, type LucideIcon } from "lucide-react";
+import { Activity, Layers, Server, Settings, Table2, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
 interface NavItem {
-  to: "/" | "/activity" | "/accounts" | "/settings";
+  to: "/" | "/runs" | "/activity" | "/accounts" | "/settings";
   label: string;
   icon: LucideIcon;
 }
 
 const NAV: NavItem[] = [
   { to: "/", label: "Jobs", icon: Layers },
+  { to: "/runs", label: "Runs", icon: Table2 },
   { to: "/activity", label: "Activity", icon: Activity },
   { to: "/accounts", label: "Accounts", icon: Server },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -53,7 +54,7 @@ export function AppShell({ children, live }: { children: ReactNode; live: boolea
       <main className="mx-auto max-w-6xl px-4 pt-6 pb-28 md:pt-10 md:pb-16">{children}</main>
 
       <nav className="pb-safe fixed inset-x-0 bottom-0 z-20 border-t bg-background/90 backdrop-blur md:hidden">
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           {NAV.map(({ to, label, icon: Icon }) => (
             <Link
               key={to}

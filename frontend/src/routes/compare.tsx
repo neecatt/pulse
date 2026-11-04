@@ -5,7 +5,7 @@ import { useJobs, useJobsMetrics } from "@/api/queries";
 import { HparamsTable } from "@/components/HparamsTable";
 import { MetricsPanel } from "@/components/MetricsPanel";
 import { EmptyState, LoadingRows, Section } from "@/components/Section";
-import { MAX_COMPARE, RUN_COLORS } from "@/lib/labels";
+import { MAX_COMPARE, RUN_COLORS } from "@/config/constants";
 
 export const Route = createFileRoute("/compare")({
   validateSearch: (search: Record<string, unknown>): { ids: string } => ({

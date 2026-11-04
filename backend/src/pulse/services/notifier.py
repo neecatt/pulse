@@ -11,14 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from pulse.config import Settings
+from pulse.constants import PUSH_EXPIRED_STATUSES
 from pulse.domain import resolve_alerts
 from pulse.models import Event, PushSubscription, User
 
 logger = logging.getLogger(__name__)
-
-PUSH_TTL_S = 6 * 3600
-PUSH_TIMEOUT_S = 10
-EXPIRED_STATUSES = {404, 410}
 
 
 class Notifier:
@@ -75,12 +72,12 @@ class Notifier:
                 vapid_private_key=self._settings.vapid_private_key,
                 # pywebpush mutates the claims dict, so build a fresh one per call.
                 vapid_claims={"sub": self._settings.vapid_subject},
-                ttl=PUSH_TTL_S,
-                timeout=PUSH_TIMEOUT_S,
+                ttl=self._settings.push_ttl_seconds,
+                timeout=self._settings.push_timeout_seconds,
             )
         except WebPushException as exc:
             status = exc.response.status_code if exc.response is not None else None
-            if status in EXPIRED_STATUSES:
+            if status in PUSH_EXPIRED_STATUSES:
                 return False, True
             logger.warning("push to subscription %s failed: %s", sub.id, exc)
             return False, False

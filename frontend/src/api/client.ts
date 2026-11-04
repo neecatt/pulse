@@ -1,3 +1,5 @@
+import { API_URL } from "@/config/env";
+
 import type {
   Account,
   AccountCheck,
@@ -14,10 +16,11 @@ import type {
   PulseEvent,
   PushConfig,
   PushSubscriptionJSON,
+  Run,
   SetupInfo,
 } from "./types";
 
-const BASE_URL = `${import.meta.env["VITE_API_URL"] ?? ""}/api`;
+const BASE_URL = `${API_URL}/api`;
 export const STREAM_URL = `${BASE_URL}/stream`;
 
 export class ApiError extends Error {
@@ -84,6 +87,9 @@ export const api = {
     metrics: (id: number) => request<JobMetrics>(`/jobs/${id}/metrics`),
     update: (id: number, body: JobUpdate) =>
       request<JobDetail>(`/jobs/${id}`, { method: "PATCH", body: json(body) }),
+  },
+  runs: {
+    list: (arrayId?: string) => request<Run[]>(`/runs${query({ array_id: arrayId })}`),
   },
   events: {
     list: (limit = 50) => request<PulseEvent[]>(`/events${query({ limit })}`),

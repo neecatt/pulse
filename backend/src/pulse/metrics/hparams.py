@@ -5,8 +5,7 @@ from typing import Any
 
 import yaml
 
-MAX_KEYS = 200
-MAX_VALUE_LENGTH = 200
+from pulse.constants import HPARAM_MAX_KEYS, HPARAM_MAX_VALUE_LENGTH
 
 Scalar = str | int | float | bool | None
 
@@ -30,12 +29,12 @@ def flatten(tree: dict[str, Any], prefix: str = "") -> dict[str, Scalar]:
             out.update(flatten(value, f"{name}."))
         elif isinstance(value, list):
             if all(isinstance(v, str | int | float | bool) for v in value) and len(value) <= 16:
-                out[name] = json.dumps(value)[:MAX_VALUE_LENGTH]
+                out[name] = json.dumps(value)[:HPARAM_MAX_VALUE_LENGTH]
         elif isinstance(value, str):
-            out[name] = value[:MAX_VALUE_LENGTH]
+            out[name] = value[:HPARAM_MAX_VALUE_LENGTH]
         elif value is None or isinstance(value, int | float | bool):
             out[name] = value
-        if len(out) >= MAX_KEYS:
+        if len(out) >= HPARAM_MAX_KEYS:
             break
     return out
 

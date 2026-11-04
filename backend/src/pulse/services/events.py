@@ -1,8 +1,11 @@
 """Turn successive job snapshots into user-facing events. Pure logic; no I/O."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
+from pulse.constants import MIN_POINTS_FOR_ALERTS
 from pulse.domain import EventKind, JobState
 from pulse.slurm.base import JobTelemetry, SlurmJob
 
@@ -72,3 +75,73 @@ def format_duration(seconds: int) -> str:
     hours, rest = divmod(max(seconds, 0), 3600)
     minutes = rest // 60
     return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
+
+
+# Metric alerts. They apply to loss-like metrics, where lower is better.
+
+
+@dataclass(slots=True)
+class MetricLatches:
+    """One-shot flags so each metric alert fires once per episode."""
+
+    nan: bool = False
+    divergence: bool = False
+    plateau: bool = False
+
+
+def metric_alerts(
+    job: SlurmJob,
+    primary: str | None,
+    summaries: dict[str, dict[str, Any]],
+    non_finite: Iterable[str],
+    latches: MetricLatches,
+    now: datetime,
+    *,
+    diverge_percent: int,
+    plateau_minutes: int,
+) -> list[DetectedEvent]:
+    """NaN/Inf losses, diverging loss and plateaus. Updates ``latches`` in place."""
+    events: list[DetectedEvent] = []
+    broken = sorted(n for n in non_finite if n == primary or "loss" in n.lower())
+    if broken and not latches.nan:
+        latches.nan = True
+        events.append(
+            DetectedEvent(
+                job.slurm_id, EventKind.JOB_NAN, f"{job.name}: {broken[0]} became NaN/Inf"
+            )
+        )
+
+    s = summaries.get(primary or "")
+    if s is None or s["n"] < MIN_POINTS_FOR_ALERTS or job.state is not JobState.RUNNING:
+        return events
+
+    # Compare smoothed against smoothed: noise and one-off good batches don't count.
+    best, smoothed = s.get("ema_min", s["min"]), s["ema"]
+    limit = best + abs(best) * diverge_percent / 100
+    if smoothed > limit and not latches.divergence:
+        latches.divergence = True
+        events.append(
+            DetectedEvent(
+                job.slurm_id,
+                EventKind.JOB_DIVERGING,
+                f"{job.name}: {primary} is rising ({smoothed:.4g}, best {s['min']:.4g})",
+            )
+        )
+    elif smoothed <= best + abs(best) * diverge_percent / 200:
+        latches.divergence = False  # recovered well below the threshold
+
+    stuck_for = now - datetime.fromisoformat(s["best_at"])
+    if stuck_for >= timedelta(minutes=plateau_minutes):
+        if not latches.plateau:
+            latches.plateau = True
+            events.append(
+                DetectedEvent(
+                    job.slurm_id,
+                    EventKind.JOB_PLATEAU,
+                    f"{job.name}: no improvement in {primary} for "
+                    f"{format_duration(int(stuck_for.total_seconds()))} (best {s['min']:.4g})",
+                )
+            )
+    else:
+        latches.plateau = False  # a new best resets it
+    return events

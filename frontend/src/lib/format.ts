@@ -1,6 +1,9 @@
-const MINUTE = 60;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
+import { DAY_MS, HOUR_MS, MINUTE_MS, SECOND_MS } from "@/config/constants";
+
+// Durations here are in seconds.
+const MINUTE = MINUTE_MS / SECOND_MS;
+const HOUR = HOUR_MS / SECOND_MS;
+const DAY = DAY_MS / SECOND_MS;
 
 /** 3725 -> "1h 02m"; 59 -> "0m"; 90000 -> "1d 1h". */
 export function formatDuration(seconds: number): string {

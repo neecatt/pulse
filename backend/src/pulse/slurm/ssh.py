@@ -15,30 +15,34 @@ import asyncssh
 from asyncssh.known_hosts import KnownHostsArg
 
 from pulse.config import Settings
-from pulse.domain import JobState
-from pulse.metrics.discovery import (
+from pulse.constants import (
     CHUNK_BYTES,
     CONFIG_MAX_BYTES,
     CONFIG_NAMES,
+    LOG_TAIL_LINES,
     MAX_CONFIG_FILES,
     MAX_METRIC_FILES,
     PRUNE_DIRS,
     SEARCH_DEPTH,
-    classify,
 )
+from pulse.domain import JobState
+from pulse.metrics.discovery import classify
 from pulse.slurm.base import (
     AccountRef,
     AccountSnapshot,
     Cursors,
     FileChunk,
     JobTelemetry,
+    NodeStats,
     SlurmError,
     SlurmJob,
 )
 from pulse.slurm.parsing import (
+    NODE_STATS_SCRIPT,
     SACCT_FIELDS,
     SAFE_JOB_ID,
-    parse_nvidia_smi,
+    mean_gpu_usage,
+    parse_node_stats,
     parse_sacct,
     parse_scontrol_field,
     parse_training_log,
@@ -46,18 +50,11 @@ from pulse.slurm.parsing import (
 
 logger = logging.getLogger(__name__)
 
-LOG_TAIL_LINES = 40
-COMMAND_TIMEOUT_S = 30
-GPU_QUERY_TIMEOUT_S = 15
-KEEPALIVE_INTERVAL_S = 60
-DISCOVERY_INTERVAL_S = 60  # `find` on shared filesystems is slow; don't repeat it often
+# Separates file chunks in the output of one combined read command.
 CHUNK_MARKER = "@@pulse-chunk"
-NVIDIA_SMI_QUERY = (
-    "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits"
-)
 
 _ConnKey = tuple[str, str, int]
-_GpuSample = tuple[float, tuple[float | None, float | None]]
+_StatsSample = tuple[float, dict[str, NodeStats]]
 _Found = list[tuple[str, int]]  # (path, size)
 _Discovery = tuple[float, _Found]
 
@@ -78,7 +75,7 @@ class SshSlurmClient:
         self._conns: dict[_ConnKey, asyncssh.SSHClientConnection] = {}
         self._locks: dict[_ConnKey, asyncio.Lock] = {}
         # GPU queries start a job step, so sample them less often than we poll.
-        self._gpu_cache: dict[str, _GpuSample] = {}
+        self._stats_cache: dict[str, _StatsSample] = {}
         self._discovery_cache: dict[str, _Discovery] = {}
 
     @property
@@ -124,7 +121,7 @@ class SshSlurmClient:
         try:
             info = await self._run(conn, f"scontrol show job -o {job.slurm_id}")
             log_tail, log_mtime = await self._log_tail(conn, parse_scontrol_field(info, "StdOut"))
-            gpu_util, gpu_mem = await self._gpu_usage(conn, job) if job.gpus else (None, None)
+            nodes = await self._node_usage(conn, job)
             files = await self._metric_files(
                 conn, job.slurm_id, parse_scontrol_field(info, "WorkDir"), cursors
             )
@@ -132,11 +129,13 @@ class SshSlurmClient:
             logger.info("telemetry unavailable for job %s: %s", job.slurm_id, exc)
             return JobTelemetry()
         loss, epoch = parse_training_log(log_tail)
+        gpu_util, gpu_mem = mean_gpu_usage(nodes)
         return JobTelemetry(
             loss=loss,
             epoch=epoch,
             gpu_util=gpu_util,
             gpu_mem=gpu_mem,
+            nodes=nodes,
             log_tail=log_tail,
             log_updated_at=log_mtime,
             files=files,
@@ -180,7 +179,10 @@ class SshSlurmClient:
         self, conn: asyncssh.SSHClientConnection, slurm_id: str, work_dir: str
     ) -> _Found:
         cached = self._discovery_cache.get(slurm_id)
-        if cached and time.monotonic() - cached[0] < DISCOVERY_INTERVAL_S:
+        if (
+            cached
+            and time.monotonic() - cached[0] < self._settings.metric_discovery_interval_seconds
+        ):
             # Sizes change every poll, so refresh them for the known files only.
             return await self._sizes(conn, [path for path, _ in cached[1]])
         prune = " -o ".join(f"-name {shlex.quote(d)}" for d in PRUNE_DIRS)
@@ -219,23 +221,26 @@ class SshSlurmClient:
         mtime = datetime.fromtimestamp(int(first), UTC) if first.strip().isdigit() else None
         return rest.splitlines(), mtime
 
-    async def _gpu_usage(
+    async def _node_usage(
         self, conn: asyncssh.SSHClientConnection, job: SlurmJob
-    ) -> tuple[float | None, float | None]:
-        cached = self._gpu_cache.get(job.slurm_id)
-        if cached and time.monotonic() - cached[0] < self._settings.gpu_sample_interval_seconds:
+    ) -> dict[str, NodeStats]:
+        """CPU, memory and per-GPU usage on every node of the job. Sampling starts a
+        job step, so it runs at most once per ``node_stats_interval_seconds``."""
+        cached = self._stats_cache.get(job.slurm_id)
+        if cached and time.monotonic() - cached[0] < self._settings.node_stats_interval_seconds:
             return cached[1]
         # --overlap lets the step share the job's allocation (Slurm >= 20.11).
         cmd = (
-            f"timeout {GPU_QUERY_TIMEOUT_S} srun --jobid={job.slurm_id} --overlap -N1 -n1 "
-            f"{NVIDIA_SMI_QUERY}"
+            f"timeout {self._settings.node_stats_timeout_seconds} "
+            f"srun --jobid={job.slurm_id} --overlap -N{max(job.nodes, 1)} --ntasks-per-node=1 "
+            f"bash -c {shlex.quote(NODE_STATS_SCRIPT)}"
         )
         try:
-            usage = parse_nvidia_smi(await self._run(conn, cmd))
+            nodes = parse_node_stats(await self._run(conn, cmd))
         except SlurmError:
-            usage = (None, None)
-        self._gpu_cache[job.slurm_id] = (time.monotonic(), usage)
-        return usage
+            nodes = {}
+        self._stats_cache[job.slurm_id] = (time.monotonic(), nodes)
+        return nodes
 
     @asynccontextmanager
     async def _session(self, account: AccountRef) -> AsyncIterator[asyncssh.SSHClientConnection]:
@@ -263,7 +268,7 @@ class SshSlurmClient:
                     client_keys=[str(self._key_file)],
                     known_hosts=self._known_hosts(account),
                     connect_timeout=self._settings.ssh_connect_timeout_seconds,
-                    keepalive_interval=KEEPALIVE_INTERVAL_S,
+                    keepalive_interval=self._settings.ssh_keepalive_seconds,
                 )
             except asyncssh.HostKeyNotVerifiable as exc:
                 raise SlurmError(
@@ -288,10 +293,10 @@ class SshSlurmClient:
             return (pinned, [], [], [], [], [], [])  # trusted keys only
         return None  # trust on first use; the key is pinned after this connect
 
-    @staticmethod
-    async def _run(conn: asyncssh.SSHClientConnection, command: str) -> str:
+    async def _run(self, conn: asyncssh.SSHClientConnection, command: str) -> str:
+        timeout = self._settings.ssh_command_timeout_seconds
         try:
-            result = await conn.run(command, check=False, timeout=COMMAND_TIMEOUT_S)
+            result = await conn.run(command, check=False, timeout=timeout)
         except (asyncssh.Error, OSError, TimeoutError) as exc:
             raise SlurmError(f"`{_program(command)}` failed: {exc}") from exc
         if result.exit_status != 0:

@@ -85,7 +85,7 @@ class AgentJob(BaseModel):
         default=[], max_length=200
     )
     log_mtime: int | None = None
-    nvidia_smi: str | None = Field(default=None, max_length=8192)
+    node_stats: str | None = Field(default=None, max_length=65536)  # NODE_STATS_SCRIPT output
     files: list[AgentFile] = Field(default=[], max_length=16)
 
 
@@ -138,6 +138,7 @@ class JobOut(ORMModel):
     loss_trend: list[float] = []
     primary_metric: str | None
     tags: list[str]
+    array_id: str | None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -158,7 +159,23 @@ class JobDetailOut(JobOut):
     log_updated_at: datetime | None
     note: str | None
     hparams: dict[str, Any]
-    series: dict[str, list[MetricPoint]] = {}  # system metrics (gpu_util, gpu_mem)
+    node_stats: dict[str, Any]  # latest per node: {cpu, mem, gpus: [{util, mem}]}
+    # System metrics: gpu_util, gpu_mem and per node sys/<node>/{cpu,mem,gpu,gpu_mem}
+    series: dict[str, list[MetricPoint]] = {}
+
+
+class MetricStats(BaseModel):
+    last: float
+    min: float
+    max: float
+
+
+class RunOut(JobOut):
+    """A job as a row of the runs table: metric summaries plus hyperparameters."""
+
+    hparams: dict[str, Any]
+    # Not "metrics": that name is the ORM relationship holding every sample.
+    metric_stats: dict[str, MetricStats] = {}
 
 
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32)]
@@ -206,6 +223,8 @@ class Monitoring(BaseModel):
     idle_refresh_seconds: int = Field(ge=30, le=1800)
     stall_minutes: int = Field(ge=5, le=240)
     time_limit_warning_percent: int = Field(ge=50, le=99)
+    diverge_percent: int = Field(ge=10, le=500)
+    plateau_minutes: int = Field(ge=15, le=1440)
 
     @classmethod
     def resolve(cls, stored: dict[str, int], settings: Settings) -> "Monitoring":
@@ -214,6 +233,8 @@ class Monitoring(BaseModel):
             "idle_refresh_seconds": settings.poll_interval_idle_seconds,
             "stall_minutes": settings.stall_minutes,
             "time_limit_warning_percent": round(settings.time_limit_warning_ratio * 100),
+            "diverge_percent": settings.diverge_percent,
+            "plateau_minutes": settings.plateau_minutes,
         }
         merged = defaults | {k: v for k, v in stored.items() if k in defaults}
         try:
@@ -227,6 +248,8 @@ class MonitoringUpdate(BaseModel):
     idle_refresh_seconds: int | None = Field(default=None, ge=30, le=1800)
     stall_minutes: int | None = Field(default=None, ge=5, le=240)
     time_limit_warning_percent: int | None = Field(default=None, ge=50, le=99)
+    diverge_percent: int | None = Field(default=None, ge=10, le=500)
+    plateau_minutes: int | None = Field(default=None, ge=15, le=1440)
 
 
 class Preferences(BaseModel):

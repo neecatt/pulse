@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, TypedDict
 
 from pulse.domain import JobState
 
@@ -36,6 +36,18 @@ class SlurmJob:
     time_limit_s: int | None = None
     elapsed_s: int = 0
     exit_code: int | None = None
+    array_id: str | None = None  # "123" for array task "123_4" or pending "123_[5-9]"
+
+
+class GpuStats(TypedDict):
+    util: float  # %
+    mem: float  # % of GPU memory used
+
+
+class NodeStats(TypedDict):
+    cpu: float | None  # %
+    mem: float | None  # % of RAM used
+    gpus: list[GpuStats]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +71,7 @@ class JobTelemetry:
     log_tail: list[str] = field(default_factory=list)
     log_updated_at: datetime | None = None
     files: list[FileChunk] = field(default_factory=list)
+    nodes: dict[str, NodeStats] = field(default_factory=dict)  # latest per-node usage
 
 
 @dataclass(frozen=True, slots=True)

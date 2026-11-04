@@ -13,7 +13,7 @@ so files can be read incrementally and a partial trailing record waits for the
 next poll.
 """
 
-from pulse.metrics.discovery import CHUNK_BYTES, MetricFileKind, classify
+from pulse.metrics.discovery import MetricFileKind, classify
 from pulse.metrics.model import ParsedChunk, Point
 
-__all__ = ["CHUNK_BYTES", "MetricFileKind", "ParsedChunk", "Point", "classify"]
+__all__ = ["MetricFileKind", "ParsedChunk", "Point", "classify"]

@@ -5,11 +5,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from pulse.api.deps import CurrentUserId, ServicesDep
+from pulse.constants import STREAM_KEEPALIVE_SECONDS
 from pulse.schemas import SetupInfo
 
 router = APIRouter(tags=["live"])
-
-KEEPALIVE_S = 15
 
 
 @router.get("/stream")
@@ -25,7 +24,7 @@ async def stream(
             yield "retry: 3000\n\n"
             while not await request.is_disconnected():
                 try:
-                    message = await asyncio.wait_for(queue.get(), KEEPALIVE_S)
+                    message = await asyncio.wait_for(queue.get(), STREAM_KEEPALIVE_SECONDS)
                 except TimeoutError:
                     yield ": keepalive\n\n"
                 else:

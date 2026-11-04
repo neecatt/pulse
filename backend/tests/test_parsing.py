@@ -4,8 +4,9 @@ import pytest
 
 from pulse.domain import JobState
 from pulse.slurm.parsing import (
+    mean_gpu_usage,
     parse_gpus,
-    parse_nvidia_smi,
+    parse_node_stats,
     parse_sacct,
     parse_scontrol_field,
     parse_state,
@@ -89,6 +90,22 @@ def test_parse_training_log_takes_latest_values() -> None:
     assert parse_training_log(["nothing here"]) == (None, None)
 
 
-def test_parse_nvidia_smi() -> None:
-    assert parse_nvidia_smi("90, 40000, 80000\n70, 20000, 80000\n") == (80.0, 37.5)
-    assert parse_nvidia_smi("No devices were found\n") == (None, None)
+def test_parse_node_stats() -> None:
+    output = (
+        "gpu001\tcpu\t63.0\n"
+        "gpu001\tmem\t41.25\n"
+        "gpu001\tgpu\t0\t90\t40000\t80000\n"
+        "gpu001\tgpu\t1\t70\t20000\t80000\n"
+        "gpu002\tcpu\t12\n"
+        "gpu002\tmem\tnot-a-number\n"
+        "srun: warning: something\n"
+    )
+    nodes = parse_node_stats(output)
+    assert nodes["gpu001"] == {
+        "cpu": 63.0,
+        "mem": 41.2,
+        "gpus": [{"util": 90.0, "mem": 50.0}, {"util": 70.0, "mem": 25.0}],
+    }
+    assert nodes["gpu002"] == {"cpu": 12.0, "mem": None, "gpus": []}
+    assert mean_gpu_usage(nodes) == (80.0, 37.5)
+    assert mean_gpu_usage({}) == (None, None)
