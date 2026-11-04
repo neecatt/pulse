@@ -7,6 +7,8 @@ import { AccountDot } from "@/components/AccountDot";
 import { EventItem } from "@/components/EventItem";
 import { JobRow } from "@/components/JobRow";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
+import { Segmented } from "@/components/Segmented";
+import { useUiSettings } from "@/lib/ui-settings";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -15,7 +17,8 @@ export const Route = createFileRoute("/")({
 });
 
 type View = "active" | "all";
-const DAY_MS = 24 * 3600 * 1000;
+const HOUR_MS = 3600 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 function JobsPage() {
   const accounts = useAccounts();
@@ -23,7 +26,8 @@ function JobsPage() {
   const events = useEvents(8);
   const accountMap = useAccountMap();
   const [accountId, setAccountId] = useState<number | null>(null);
-  const [view, setView] = useState<View>("active");
+  const ui = useUiSettings();
+  const [view, setView] = useState<View>(ui.defaultView);
 
   if (accounts.data?.length === 0) {
     return (
@@ -38,7 +42,10 @@ function JobsPage() {
 
   const all = jobs.data ?? [];
   const scoped = accountId === null ? all : all.filter((j) => j.account_id === accountId);
-  const visible = view === "active" ? scoped.filter(isActive) : scoped;
+  const since = Date.now() - ui.historyHours * HOUR_MS;
+  const visible = scoped.filter((j) =>
+    view === "active" ? isActive(j) : isActive(j) || finishedSince(j, since),
+  );
 
   return (
     <div className="space-y-8">
@@ -56,21 +63,15 @@ function JobsPage() {
             </Chip>
           ))}
         </div>
-        <div className="flex rounded-md border p-0.5 text-xs">
-          {(["active", "all"] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              className={cn(
-                "rounded px-3 py-1 capitalize",
-                view === v ? "bg-muted text-foreground" : "text-muted-foreground",
-              )}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
+        <Segmented<View>
+          label="Jobs to show"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "active", label: "Active" },
+            { value: "all", label: "All" },
+          ]}
+        />
       </div>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
@@ -80,7 +81,7 @@ function JobsPage() {
             <LoadingRows />
           ) : visible.length === 0 ? (
             <EmptyState title={view === "active" ? "Nothing running or queued" : "No jobs"}>
-              Jobs from the last 48 hours appear here.
+              Finished jobs from the last {ui.historyHours} hours appear under All.
             </EmptyState>
           ) : (
             <Card className="divide-y overflow-hidden">
@@ -118,6 +119,11 @@ function JobsPage() {
 
 function isActive(job: Job): boolean {
   return job.state === "RUNNING" || job.state === "PENDING";
+}
+
+function finishedSince(job: Job, since: number): boolean {
+  const moment = job.end_time ?? job.submit_time;
+  return moment !== null && new Date(moment).getTime() >= since;
 }
 
 /** Headline counters; `null` while loading so we never show a misleading 0. */

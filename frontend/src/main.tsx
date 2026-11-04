@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { registerServiceWorker } from "./lib/push";
+import { initUiSettings } from "./lib/ui-settings";
 import { routeTree } from "./routeTree.gen";
 import "./styles.css";
 
@@ -23,6 +24,8 @@ declare module "@tanstack/react-router" {
     router: typeof router;
   }
 }
+
+initUiSettings();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Missing #root element");

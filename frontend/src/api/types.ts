@@ -88,8 +88,27 @@ export interface PulseEvent {
   created_at: string;
 }
 
+export interface Monitoring {
+  live_refresh_seconds: number;
+  idle_refresh_seconds: number;
+  stall_minutes: number;
+  time_limit_warning_percent: number;
+}
+
 export interface Preferences {
   alerts: Record<EventKind, boolean>;
+  monitoring: Monitoring;
+}
+
+export interface PreferencesUpdate {
+  alerts?: Partial<Record<EventKind, boolean>>;
+  monitoring?: Partial<Monitoring>;
+}
+
+export interface Health {
+  status: string;
+  version: string;
+  slurm_backend: "mock" | "ssh";
 }
 
 export interface SetupInfo {

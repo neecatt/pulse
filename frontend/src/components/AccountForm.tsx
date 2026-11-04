@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { AgentInstall } from "./AgentInstall";
 import { Button } from "./Button";
 import { CopyButton } from "./CopyButton";
+import { Segmented } from "./Segmented";
 
 const inputClass =
   "h-10 w-full rounded-md border bg-background px-3 font-mono text-sm outline-none placeholder:text-muted-foreground/60 focus:border-ring";
@@ -78,24 +79,13 @@ export function AccountForm({ onDone }: { onDone: () => void }) {
   return (
     <form onSubmit={submit} className="space-y-5 p-4">
       <div className="space-y-2">
-        <div className="flex rounded-md border p-0.5 text-xs" role="radiogroup">
-          {CONNECTIONS.map((c) => (
-            <button
-              key={c.value}
-              type="button"
-              role="radio"
-              aria-checked={connection === c.value}
-              disabled={account !== null}
-              onClick={() => setConnection(c.value)}
-              className={cn(
-                "flex-1 rounded px-3 py-1.5",
-                connection === c.value ? "bg-muted text-foreground" : "text-muted-foreground",
-              )}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
+        <Segmented<Connection>
+          label="How Pulse connects"
+          value={connection}
+          onChange={setConnection}
+          disabled={account !== null}
+          options={CONNECTIONS}
+        />
         <p className="text-xs text-muted-foreground">{hint}</p>
       </div>
 
