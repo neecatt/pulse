@@ -6,7 +6,9 @@ import type {
   Job,
   JobDetail,
   JobState,
+  Health,
   Preferences,
+  PreferencesUpdate,
   PulseEvent,
   PushConfig,
   PushSubscriptionJSON,
@@ -61,6 +63,7 @@ export interface JobFilters {
 }
 
 export const api = {
+  health: () => request<Health>("/health"),
   setup: () => request<SetupInfo>("/setup"),
   accounts: {
     list: () => request<Account[]>("/accounts"),
@@ -82,8 +85,8 @@ export const api = {
   },
   preferences: {
     get: () => request<Preferences>("/preferences"),
-    update: (body: Preferences) =>
-      request<Preferences>("/preferences", { method: "PUT", body: json(body) }),
+    update: (body: PreferencesUpdate) =>
+      request<Preferences>("/preferences", { method: "PATCH", body: json(body) }),
   },
   push: {
     config: () => request<PushConfig>("/push/config"),

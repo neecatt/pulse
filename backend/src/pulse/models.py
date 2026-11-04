@@ -18,6 +18,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True)
     # EventKind value -> enabled. Missing keys fall back to DEFAULT_ALERTS.
     alert_prefs: Mapped[dict[str, bool]] = mapped_column(JSON, default=dict)
+    # Monitoring overrides (see schemas.Monitoring); missing keys use server defaults.
+    monitoring_prefs: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     accounts: Mapped[list["Account"]] = relationship(

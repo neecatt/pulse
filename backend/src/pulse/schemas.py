@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
 
+from pulse.config import Settings
 from pulse.domain import EventKind, JobState
 
 Username = Annotated[
@@ -161,8 +162,46 @@ class EventOut(ORMModel):
 # Preferences & push
 
 
+class Monitoring(BaseModel):
+    """Per-user monitoring settings. Server config supplies the defaults."""
+
+    live_refresh_seconds: int = Field(ge=5, le=300)
+    idle_refresh_seconds: int = Field(ge=30, le=1800)
+    stall_minutes: int = Field(ge=5, le=240)
+    time_limit_warning_percent: int = Field(ge=50, le=99)
+
+    @classmethod
+    def resolve(cls, stored: dict[str, int], settings: Settings) -> "Monitoring":
+        defaults = {
+            "live_refresh_seconds": settings.poll_interval_live_seconds,
+            "idle_refresh_seconds": settings.poll_interval_idle_seconds,
+            "stall_minutes": settings.stall_minutes,
+            "time_limit_warning_percent": round(settings.time_limit_warning_ratio * 100),
+        }
+        merged = defaults | {k: v for k, v in stored.items() if k in defaults}
+        try:
+            return cls(**merged)
+        except ValueError:  # stored values from an older, wider range
+            return cls(**defaults)
+
+
+class MonitoringUpdate(BaseModel):
+    live_refresh_seconds: int | None = Field(default=None, ge=5, le=300)
+    idle_refresh_seconds: int | None = Field(default=None, ge=30, le=1800)
+    stall_minutes: int | None = Field(default=None, ge=5, le=240)
+    time_limit_warning_percent: int | None = Field(default=None, ge=50, le=99)
+
+
 class Preferences(BaseModel):
     alerts: dict[EventKind, bool]
+    monitoring: Monitoring
+
+
+class PreferencesUpdate(BaseModel):
+    """Partial update: only the given alert kinds and monitoring fields change."""
+
+    alerts: dict[EventKind, bool] = {}
+    monitoring: MonitoringUpdate = MonitoringUpdate()
 
 
 class PushConfig(BaseModel):

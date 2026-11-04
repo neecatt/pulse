@@ -5,8 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Pulse — HPC Monitor</title>
     <meta name="description" content="Monitor Slurm jobs across all your HPC accounts." />
-    <meta name="theme-color" content="#fcfcfc" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0e0f10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#0e0f10" />
+    <script>
+      // Apply the saved theme before first paint to avoid a flash (see src/lib/ui-settings.ts).
+      try {
+        var ui = JSON.parse(localStorage.getItem("pulse.ui") || "{}");
+        var theme = ui.theme || "system";
+        var dark =
+          theme === "dark" ||
+          (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.documentElement.dataset.density = ui.density || "comfortable";
+      } catch (e) {}
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from pulse.api.accounts import cluster_name_from_host
 from pulse.config import Settings
 from pulse.main import create_app
+from pulse.models import User
 from pulse.services.container import Services
 from tests.conftest import FakeClock
 
@@ -69,11 +70,38 @@ async def test_poll_cycle_publishes_one_update_per_user(
     assert {e["kind"] for e in message["events"]} >= {"job_started", "job_failed"}
 
 
-async def test_poll_interval_follows_viewers(services: Services) -> None:
-    poller = services.poller
-    assert poller._interval() == services.settings.poll_interval_idle_seconds
+async def test_poll_interval_follows_viewers_and_preferences(
+    client: AsyncClient, services: Services
+) -> None:
+    async def interval() -> int:
+        async with services.sessions() as session:
+            user = await session.get(User, 1)
+            assert user is not None
+            return services.poller.interval_for(user)
+
+    assert await interval() == 60
     async with services.broadcaster.subscribe(1):
-        assert poller._interval() == services.settings.poll_interval_live_seconds
+        assert await interval() == 10
+        await client.patch("/api/preferences", json={"monitoring": {"live_refresh_seconds": 30}})
+        assert await interval() == 30
+
+
+async def test_scheduler_only_polls_due_accounts(
+    client: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    await client.post("/api/accounts", json=ACCOUNT)
+    await services.poller.poll_all(force=True)
+
+    async def last_polled() -> str:
+        return (await client.get("/api/accounts")).json()[0]["last_polled_at"]
+
+    first = await last_polled()
+    clock.advance(30)  # idle interval is 60 s
+    await services.poller.poll_all(force=False)
+    assert await last_polled() == first
+    clock.advance(30)
+    await services.poller.poll_all(force=False)
+    assert await last_polled() != first
 
 
 async def test_serves_built_frontend_with_spa_fallback(tmp_path: Path) -> None:

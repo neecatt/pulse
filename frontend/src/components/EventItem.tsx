@@ -1,12 +1,14 @@
 import { Link } from "@tanstack/react-router";
 
 import type { Account, PulseEvent } from "@/api/types";
-import { formatAgo } from "@/lib/format";
+import { formatAgo, formatClock } from "@/lib/format";
 import { EVENT_LABELS, EVENT_STATE, stateTone } from "@/lib/labels";
+import { useUiSettings } from "@/lib/ui-settings";
 
 import { AccountDot } from "./AccountDot";
 
 export function EventItem({ event, account }: { event: PulseEvent; account: Account | undefined }) {
+  const { timeFormat } = useUiSettings();
   const body = (
     <div className="flex gap-3 text-sm">
       <AccountDot color={account?.color ?? 0} className="mt-1.5" />
@@ -19,7 +21,9 @@ export function EventItem({ event, account }: { event: PulseEvent; account: Acco
               · {account.username}@{account.cluster}
             </span>
           )}
-          <span>· {formatAgo(event.created_at)}</span>
+          <span>
+            · {timeFormat === "clock" ? formatClock(event.created_at) : formatAgo(event.created_at)}
+          </span>
         </div>
       </div>
     </div>

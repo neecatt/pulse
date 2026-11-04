@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Activity, Bell, Layers, Server, type LucideIcon } from "lucide-react";
+import { Activity, Layers, Server, Settings, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
@@ -14,7 +14,7 @@ const NAV: NavItem[] = [
   { to: "/", label: "Jobs", icon: Layers },
   { to: "/activity", label: "Activity", icon: Activity },
   { to: "/accounts", label: "Accounts", icon: Server },
-  { to: "/settings", label: "Alerts", icon: Bell },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 /** Top bar on desktop, bottom tab bar on phones (app-like when installed). */

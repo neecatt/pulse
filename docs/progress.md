@@ -3,6 +3,22 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Settings (`feat/settings`)
+
+- New **Settings** tab (replaces "Alerts"); every option applies instantly:
+  - Appearance, per device: theme (System / Light / Dark), density
+    (Comfortable / Compact), and event times (relative / clock).
+  - Jobs list, per device: default view, finished-job history (6/24/48 h),
+    and loss sparklines on or off.
+  - Notifications: device push on/off/test, plus per-event toggles.
+  - Monitoring, per user, server-side: refresh while open (5 s–1 min), refresh
+    in the background (1–15 min), stall threshold, and time-limit warning %.
+  - Connection: demo/SSH mode, Pulse's SSH key, and version.
+- The poller now schedules each account by its owner's refresh settings
+  (5 s tick) and uses their alert thresholds; agents follow the same pace.
+- The theme applies before first paint (no flash) and follows OS changes in
+  System mode.
+
 ## 2026-11-04 — Login-node agent (`feat/login-node-agent`)
 
 - For clusters where Pulse can't sign in unattended (2FA, SSH certificates).

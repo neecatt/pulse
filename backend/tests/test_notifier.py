@@ -53,7 +53,7 @@ async def test_events_are_pushed_respecting_preferences(
     client: AsyncClient, services: Services, clock: FakeClock, sent: list[dict[str, Any]]
 ) -> None:
     await client.post("/api/push/subscriptions", json=SUB)
-    await client.put("/api/preferences", json={"alerts": {"job_started": False}})
+    await client.patch("/api/preferences", json={"alerts": {"job_started": False}})
 
     await _account_with_events(client, services, clock)
 
@@ -95,3 +95,18 @@ async def test_stalled_job_is_reported_once(
     stalls = [p for p in sent if p["kind"] == "job_stalled"]
     assert len(stalls) == 1
     assert "rl-ppo" in stalls[0]["body"]
+
+
+async def test_stall_threshold_follows_user_preference(
+    client: AsyncClient, services: Services, clock: FakeClock, sent: list[dict[str, Any]]
+) -> None:
+    await client.post("/api/push/subscriptions", json=SUB)
+    await client.patch("/api/preferences", json={"monitoring": {"stall_minutes": 60}})
+    await _account_with_events(client, services, clock)
+    account_id = (await client.get("/api/accounts")).json()[0]["id"]
+
+    for _ in range(3):  # 15 minutes: enough for the default 15, not for 60
+        clock.advance(300)
+        await services.poller.poll_account(account_id)
+
+    assert not [p for p in sent if p["kind"] == "job_stalled"]
