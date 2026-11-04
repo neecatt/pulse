@@ -163,6 +163,10 @@ src/
   TensorBoard-style smoothing, log scale, step/time axis, hover readout);
   `MetricsPanel` groups metrics by prefix; `/compare?ids=1,2` overlays runs
   and diffs hyperparameters. Keep charts dependency-free.
+- Runs page: pure table/axis/sweep logic lives in `lib/runs.ts` (unit-tested);
+  `RunsTable`, `ParallelCoordinates` and `ColumnPicker` only render. Per-node
+  usage arrives as `sys/<node>/<cpu|mem|gpu|gpu_mem>` series plus
+  `node_stats` (latest snapshot).
 - `public/sw.js` is the service worker (push + notification clicks). iOS only
   delivers Web Push to PWAs that were added to the home screen (iOS 16.4+), and
   permission must be requested from a user gesture.
