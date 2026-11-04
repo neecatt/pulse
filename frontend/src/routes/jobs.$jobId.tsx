@@ -1,9 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 
-import { useAccountMap, useJob } from "@/api/queries";
+import { useAccountMap, useJob, useJobMetrics } from "@/api/queries";
 import type { JobDetail } from "@/api/types";
-import { LineChart } from "@/components/LineChart";
+import { HparamsTable } from "@/components/HparamsTable";
+import { JobNotes } from "@/components/JobNotes";
+import { MetricChart } from "@/components/MetricChart";
+import { MetricsPanel } from "@/components/MetricsPanel";
 import { Meter } from "@/components/Meter";
 import { Card, ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { StateBadge } from "@/components/StateBadge";
@@ -67,6 +70,8 @@ function JobDetailView({ job }: { job: JobDetail }) {
         <StateBadge state={job.state} />
       </header>
 
+      <JobNotes key={job.id} job={job} />
+
       {job.time_used !== null && (
         <div className="space-y-1.5">
           <div className="flex justify-between font-mono text-xs text-muted-foreground">
@@ -82,7 +87,7 @@ function JobDetailView({ job }: { job: JobDetail }) {
       <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-4">
         {[
           ["Epoch", job.epoch ?? "—"],
-          ["Loss", formatNumber(job.last_loss, 4)],
+          [job.primary_metric ?? "Loss", formatNumber(job.last_loss, 4)],
           ["GPU util", running ? formatPercent(job.gpu_util) : "—"],
           ["GPU memory", running ? formatPercent(job.gpu_mem) : "—"],
         ].map(([label, value]) => (
@@ -93,20 +98,11 @@ function JobDetailView({ job }: { job: JobDetail }) {
         ))}
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-4">
-          <div className="mb-3 text-xs tracking-wider text-muted-foreground uppercase">
-            Training loss
-          </div>
-          <LineChart points={job.series.loss ?? []} className="text-run" />
-        </Card>
-        <Card className="p-4">
-          <div className="mb-3 text-xs tracking-wider text-muted-foreground uppercase">
-            GPU utilisation
-          </div>
-          <LineChart points={job.series.gpu_util ?? []} domain={[0, 100]} unit="%" />
-        </Card>
-      </div>
+      <Section title="Training metrics">
+        <JobMetricsSection job={job} />
+      </Section>
+
+      <SystemMetrics job={job} />
 
       <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-4">
         {details.map(([label, value]) => (
@@ -132,5 +128,57 @@ function JobDetailView({ job }: { job: JobDetail }) {
         </pre>
       </Section>
     </>
+  );
+}
+
+function JobMetricsSection({ job }: { job: JobDetail }) {
+  const { data, isPending } = useJobMetrics(job.id);
+  if (isPending) return <LoadingRows rows={2} />;
+  const run = { id: job.id, label: job.name, color: "var(--run)" };
+  return (
+    <div className="space-y-8">
+      <MetricsPanel
+        runs={[{ ...run, metrics: data?.metrics ?? {} }]}
+        primary={data?.primary ?? null}
+      />
+      <div>
+        <h3 className="mb-2 text-xs tracking-wider text-muted-foreground uppercase">
+          Hyperparameters
+        </h3>
+        <HparamsTable runs={[{ ...run, hparams: data?.hparams ?? job.hparams }]} />
+      </div>
+    </div>
+  );
+}
+
+function SystemMetrics({ job }: { job: JobDetail }) {
+  const charts = [
+    { key: "gpu_util", title: "GPU utilisation" },
+    { key: "gpu_mem", title: "GPU memory" },
+  ] as const;
+  if (!charts.some((c) => job.series[c.key]?.length)) return null;
+  return (
+    <Section title="System">
+      <div className="grid gap-4 lg:grid-cols-2">
+        {charts.map((c) => (
+          <Card key={c.key} className="p-4">
+            <div className="mb-3 font-mono text-xs">{c.title}</div>
+            <MetricChart
+              xAxis="time"
+              domain={[0, 100]}
+              unit="%"
+              series={[
+                {
+                  key: c.key,
+                  label: c.title,
+                  color: "var(--foreground)",
+                  points: (job.series[c.key] ?? []).map((p) => ({ x: Date.parse(p.t), y: p.v })),
+                },
+              ]}
+            />
+          </Card>
+        ))}
+      </div>
+    </Section>
   );
 }

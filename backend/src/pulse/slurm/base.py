@@ -1,8 +1,12 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
 from pulse.domain import JobState
+
+# slurm_id -> file path -> byte offset already ingested
+Cursors = Mapping[str, Mapping[str, int]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +39,16 @@ class SlurmJob:
 
 
 @dataclass(frozen=True, slots=True)
+class FileChunk:
+    """New bytes from a metrics/config file, starting at ``offset``."""
+
+    path: str
+    offset: int
+    size: int  # file size when read
+    data: bytes
+
+
+@dataclass(frozen=True, slots=True)
 class JobTelemetry:
     """Best-effort live data for a running job. Any field may be unknown."""
 
@@ -44,6 +58,7 @@ class JobTelemetry:
     gpu_mem: float | None = None
     log_tail: list[str] = field(default_factory=list)
     log_updated_at: datetime | None = None
+    files: list[FileChunk] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,8 +83,11 @@ class SlurmClient(Protocol):
         Raises SlurmError if it isn't reachable.
         """
 
-    async def snapshot(self, account: AccountRef) -> AccountSnapshot:
-        """Active and recently finished jobs, plus telemetry for running ones."""
+    async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
+        """Active and recently finished jobs, plus telemetry for running ones.
+
+        For files listed in ``cursors``, only bytes after the offset are needed.
+        """
 
     async def close(self) -> None:
         """Release connections."""

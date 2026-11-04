@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import JSON, Enum, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -90,6 +91,13 @@ class Job(Base):
     gpu_mem: Mapped[float | None]
     log_tail: Mapped[list[str]] = mapped_column(JSON, default=list)
     log_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # Metric used for last_loss and the list sparkline ("loss", "train/loss", ...).
+    primary_metric: Mapped[str | None] = mapped_column(String(128))
+    hparams: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    # User annotations; kept across polls because jobs are upserted, not replaced.
+    note: Mapped[str | None] = mapped_column(String(2000))
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     # One-shot alert latches, so each warning fires once per job
     warned_time_limit: Mapped[bool] = mapped_column(default=False)
@@ -101,21 +109,47 @@ class Job(Base):
     metrics: Mapped[list["JobMetric"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
+    metric_files: Mapped[list["MetricFile"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
 
 
 class JobMetric(Base):
-    """Time series sample (loss, gpu_util, gpu_mem) for a job."""
+    """One sample of a job's metric: training metrics (by step) or system
+    metrics such as gpu_util (by time, no step)."""
 
     __tablename__ = "job_metrics"
-    __table_args__ = (Index("ix_job_metrics_job_name_ts", "job_id", "name", "ts"),)
+    __table_args__ = (
+        Index("ix_job_metrics_job_name_ts", "job_id", "name", "ts"),
+        # Re-reading a file must not duplicate points. NULL steps never collide.
+        UniqueConstraint("job_id", "name", "step"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
-    name: Mapped[str] = mapped_column(String(32))
+    name: Mapped[str] = mapped_column(String(128))
+    step: Mapped[int | None]
     ts: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     value: Mapped[float]
 
     job: Mapped[Job] = relationship(back_populates="metrics")
+
+
+class MetricFile(Base):
+    """A metrics/config file found in a job's working directory, and how far
+    into it we've read."""
+
+    __tablename__ = "metric_files"
+    __table_args__ = (UniqueConstraint("job_id", "path"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
+    path: Mapped[str] = mapped_column(String(1024))
+    kind: Mapped[str] = mapped_column(String(16))
+    offset: Mapped[int] = mapped_column(default=0)
+    csv_header: Mapped[list[str] | None] = mapped_column(JSON)
+
+    job: Mapped[Job] = relationship(back_populates="metric_files")
 
 
 class Event(Base):

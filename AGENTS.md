@@ -104,6 +104,15 @@ Run lint, types, and tests for every package you touched before committing.
   `POST /api/agent/report` and the server does all the parsing (`SACCT_FIELDS`
   must match `slurm/parsing.py`; a test enforces this). Don't use syntax or
   stdlib features newer than 3.6 in that file.
+- `pulse/metrics/` reads training metrics from files jobs already write, so
+  users never change their code: TensorBoard event files (a hand-written
+  TFRecord/protobuf reader, no TensorFlow), `*metric*.jsonl`/`.csv`,
+  `key=value` stdout lines with a step, and hyperparameters from
+  `hparams.yaml`/`config.*`. Files are read **incrementally**: the server keeps
+  a byte offset per file (`metric_files`), clients send only newer bytes, and
+  parsers consume complete records only. Points are unique per
+  (job, metric, step). Discovery rules live in `metrics/discovery.py` and are
+  mirrored in the agent (a test keeps them equal).
 - Auth is a single-user stub (`api/deps.py:get_current_user`). Every query is
   already scoped by `user_id`, so real auth only needs to replace that dependency.
 
@@ -135,6 +144,10 @@ src/
   uses the `compact:` variant. Per-user monitoring settings (refresh speeds,
   alert thresholds) are server-side in `/api/preferences`. Every setting
   applies immediately, with no Save button.
+- Metrics UI: `MetricChart` is a dependency-free SVG chart (multi-series,
+  TensorBoard-style smoothing, log scale, step/time axis, hover readout);
+  `MetricsPanel` groups metrics by prefix; `/compare?ids=1,2` overlays runs
+  and diffs hyperparameters. Keep charts dependency-free.
 - `public/sw.js` is the service worker (push + notification clicks). iOS only
   delivers Web Push to PWAs that were added to the home screen (iOS 16.4+), and
   permission must be requested from a user gesture.
