@@ -3,6 +3,11 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Release 0.1.1
+
+- Fixes v0.1.0 failing on databases created before jump hosts (in-place column
+  upgrade, see below). New README with screenshots.
+
 ## 2026-11-04 — Upgrade old databases in place (`fix/schema-upgrade`)
 
 - v0.1.0 failed on databases created before jump hosts (`no such column:

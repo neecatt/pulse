@@ -1,6 +1,6 @@
 [project]
 name = "pulse-backend"
-version = "0.1.0"
+version = "0.1.1"
 description = "API, Slurm poller and push notifier for the Pulse HPC monitor."
 readme = "README.md"
 license = "MIT"
