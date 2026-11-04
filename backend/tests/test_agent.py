@@ -1,5 +1,6 @@
 """The login-node agent script and the server endpoints it talks to."""
 
+import ast
 import base64
 import importlib.util
 import os
@@ -312,3 +313,8 @@ def test_install_verifies_connection_and_adds_cron_entry(
     assert agent.uninstall() == 0
     assert "# pulse-agent" not in agent.crontab_file.read_text()
     assert agent.status() == 1  # no longer configured
+
+
+def test_agent_stays_python_36_compatible() -> None:
+    """The agent runs on login nodes with old system Pythons."""
+    ast.parse(SCRIPT_PATH.read_text(), feature_version=(3, 6))
