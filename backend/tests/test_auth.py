@@ -217,3 +217,16 @@ def test_port_follows_platform_port_variable(monkeypatch: pytest.MonkeyPatch) ->
     assert Settings(_env_file=None).port == 4321  # type: ignore[call-arg]
     monkeypatch.setenv("PULSE_PORT", "9000")  # an explicit PULSE_PORT wins
     assert Settings(_env_file=None).port == 9000  # type: ignore[call-arg]
+
+
+async def test_untrusted_proxy_explains_itself(client: AsyncClient) -> None:
+    # Behind a proxy Pulse doesn't trust, it sees http while the browser is on https.
+    response = await client.post(
+        "/api/auth/passkeys/login/options", headers={"Origin": "https://test"}
+    )
+    assert response.status_code == 403
+    assert "PULSE_TRUSTED_PROXIES" in response.json()["detail"]
+    evil = await client.post(
+        "/api/auth/passkeys/login/options", headers={"Origin": "https://evil.example"}
+    )
+    assert "PULSE_TRUSTED_PROXIES" not in evil.json()["detail"]  # a real cross-site request
