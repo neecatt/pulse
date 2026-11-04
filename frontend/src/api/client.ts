@@ -5,7 +5,9 @@ import type {
   AccountUpdate,
   Job,
   JobDetail,
+  JobMetrics,
   JobState,
+  JobUpdate,
   Health,
   Preferences,
   PreferencesUpdate,
@@ -79,6 +81,9 @@ export const api = {
   jobs: {
     list: (filters: JobFilters = {}) => request<Job[]>(`/jobs${query({ ...filters })}`),
     get: (id: number) => request<JobDetail>(`/jobs/${id}`),
+    metrics: (id: number) => request<JobMetrics>(`/jobs/${id}/metrics`),
+    update: (id: number, body: JobUpdate) =>
+      request<JobDetail>(`/jobs/${id}`, { method: "PATCH", body: json(body) }),
   },
   events: {
     list: (limit = 50) => request<PulseEvent[]>(`/events${query({ limit })}`),

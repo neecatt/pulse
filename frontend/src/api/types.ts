@@ -65,6 +65,9 @@ export interface Job {
   gpu_util: number | null;
   gpu_mem: number | null;
   loss_trend: number[];
+  /** Metric shown as "Loss" and in sparklines, e.g. "loss" or "train/loss". */
+  primary_metric: string | null;
+  tags: string[];
   time_used: number | null;
 }
 
@@ -73,10 +76,33 @@ export interface MetricPoint {
   v: number;
 }
 
+export type HparamValue = string | number | boolean | null;
+
 export interface JobDetail extends Job {
   log_tail: string[];
   log_updated_at: string | null;
+  note: string | null;
+  hparams: Record<string, HparamValue>;
   series: Partial<Record<"loss" | "gpu_util" | "gpu_mem", MetricPoint[]>>;
+}
+
+export interface JobUpdate {
+  note?: string;
+  tags?: string[];
+}
+
+/** A training-metric sample: step (if known), time, value. */
+export interface StepPoint {
+  s: number | null;
+  t: string;
+  v: number;
+}
+
+export interface JobMetrics {
+  metrics: Record<string, StepPoint[]>;
+  primary: string | null;
+  hparams: Record<string, HparamValue>;
+  files: string[];
 }
 
 export interface PulseEvent {
