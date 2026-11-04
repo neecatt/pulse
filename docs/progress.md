@@ -3,6 +3,32 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Backend API (`feat/backend-api`)
+
+- FastAPI app (`backend/src/pulse`) with async SQLAlchemy on SQLite. Tables:
+  users, accounts, jobs (latest snapshot), job_metrics (time series), events,
+  push_subscriptions.
+- `SlurmClient` interface with two implementations:
+  - `MockSlurmClient`: deterministic simulated cluster whose jobs start, finish,
+    fail (OOM), stall and near their time limit within ~10 minutes of startup.
+  - `SshSlurmClient`: one SSH connection per poll; `sacct -X -P` (epoch times
+    via `SLURM_TIME_FORMAT=%s`), `scontrol` for StdOut, `tail` for loss/epoch,
+    `srun --overlap nvidia-smi` for GPU usage (best effort).
+- Poller: polls all accounts concurrently every 30 s, upserts jobs, records
+  metrics, and emits events for start / complete / fail / cancel, 90% of time
+  limit, and no log output for 15 min. The first poll of an account seeds
+  silently, and one-shot warnings are latched per job.
+- Web Push notifier (VAPID via pywebpush) that respects per-user alert
+  preferences and per-account mute, and prunes expired (404/410) subscriptions.
+- REST API under `/api`: accounts CRUD + connection check, jobs list/detail,
+  events, preferences, push config/subscribe/unsubscribe/test, health.
+- `pulse serve` and `pulse gen-vapid` CLI commands.
+- 36 tests (parsers, event rules, mock timeline, API, notifier); ruff and strict
+  mypy are clean.
+
+**Known gaps:** authentication is a single-user stub; schema is created with
+`create_all` (no migrations yet); job_metrics has no retention policy.
+
 ## 2026-11-04 — Project structure (`chore/project-structure`)
 
 - Imported the Lovable prototype as the baseline commit.
