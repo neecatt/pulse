@@ -187,3 +187,33 @@ export interface PushSubscriptionJSON {
   endpoint: string;
   keys: { p256dh: string; auth: string };
 }
+
+// Auth
+
+export interface Me {
+  id: number;
+  username: string;
+  is_admin: boolean;
+  /** The password is set by PULSE_ADMIN_PASSWORD and can't be changed in the app. */
+  password_from_env: boolean;
+}
+
+export interface AuthStatus {
+  setup_required: boolean;
+  signup_allowed: boolean;
+  /** Who this browser is signed in as; null when signed out. */
+  user: Me | null;
+}
+
+export interface Credentials {
+  username: string;
+  password: string;
+}
+
+export interface LoginSession {
+  id: number;
+  user_agent: string | null;
+  created_at: string;
+  last_seen_at: string;
+  current: boolean;
+}

@@ -60,3 +60,14 @@ POLL_TICK_SECONDS = 5  # how often the poller checks which accounts are due
 
 # Web Push
 PUSH_EXPIRED_STATUSES = frozenset({404, 410})
+
+# Authentication
+SESSION_COOKIE = "pulse_session"
+SESSION_RENEW_SECONDS = 3600  # extend a session's expiry at most hourly
+USERNAME_PATTERN = r"^[A-Za-z0-9_.-]{3,64}$"
+PASSWORD_MIN_LENGTH = 10
+PASSWORD_MAX_LENGTH = 256
+# scrypt cost (RFC 7914 interactive-login parameters, ~50 ms, 16 MiB)
+SCRYPT_N = 2**14
+SCRYPT_R = 8
+SCRYPT_P = 1
