@@ -48,9 +48,22 @@ async def app(settings: Settings, clock: FakeClock) -> AsyncIterator[FastAPI]:
         yield application
 
 
+ADMIN = {"username": "admin", "password": "correct horse battery"}
+
+
+@pytest.fixture
+async def anon(app: FastAPI) -> AsyncIterator[AsyncClient]:
+    """A client that isn't signed in."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+    """A client signed in as the admin created through first-run setup."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        response = await c.post("/api/auth/setup", json=ADMIN)
+        assert response.status_code == 201, response.text
         yield c
 
 

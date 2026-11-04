@@ -22,7 +22,7 @@ from pulse.main import create_app
 from pulse.metrics import discovery
 from pulse.services.container import Services
 from pulse.slurm.parsing import NODE_STATS_SCRIPT, SACCT_FIELDS
-from tests.conftest import FakeClock
+from tests.conftest import ADMIN, FakeClock
 
 ACCOUNT = {"username": "alice", "host": "login.secure-hpc.example.org", "connection": "agent"}
 
@@ -289,18 +289,19 @@ def test_install_verifies_connection_and_adds_cron_entry(
 ) -> None:
     import httpx
 
-    account = httpx.post(f"{live_server}/api/accounts", json=ACCOUNT).json()
-    token = httpx.post(f"{live_server}/api/accounts/{account['id']}/agent-token").json()["token"]
+    with httpx.Client(base_url=live_server) as browser:  # keeps the session cookie
+        assert browser.post("/api/auth/setup", json=ADMIN).status_code == 201
+        account = browser.post("/api/accounts", json=ACCOUNT).json()
+        token = browser.post(f"/api/accounts/{account['id']}/agent-token").json()["token"]
 
-    assert agent.install(live_server, "wrong-token") == 1
-    assert agent.install(live_server, token) == 0
+        assert agent.install(live_server, "wrong-token") == 1
+        assert agent.install(live_server, token) == 0
 
-    cron = agent.crontab_file.read_text()
-    assert cron.count("# pulse-agent") == 1
-    assert " run " in cron
-    assert agent.status() == 0
-    jobs = httpx.get(f"{live_server}/api/jobs").json()
-    assert [j["slurm_id"] for j in jobs] == ["77", "76"]
+        cron = agent.crontab_file.read_text()
+        assert cron.count("# pulse-agent") == 1
+        assert " run " in cron
+        assert agent.status() == 0
+        assert [j["slurm_id"] for j in browser.get("/api/jobs").json()] == ["77", "76"]
 
     assert agent.install(live_server, token) == 0  # idempotent
     assert agent.crontab_file.read_text().count("# pulse-agent") == 1

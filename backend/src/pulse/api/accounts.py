@@ -1,11 +1,10 @@
-import hashlib
 import re
-import secrets
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep, get_owned_account
+from pulse.auth.tokens import hash_token, new_token
 from pulse.constants import ACCOUNT_PALETTE_SIZE
 from pulse.models import Account
 from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate, AgentToken
@@ -62,14 +61,10 @@ async def issue_agent_token(account_id: int, session: SessionDep, user: CurrentU
     account = await get_owned_account(session, user, account_id)
     if account.connection != "agent":
         raise HTTPException(status.HTTP_409_CONFLICT, "account doesn't use an agent")
-    token = secrets.token_urlsafe(32)
+    token = new_token()
     account.agent_token_hash = hash_token(token)
     await session.commit()
     return AgentToken(token=token)
-
-
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
 
 
 @router.patch("/{account_id}")
