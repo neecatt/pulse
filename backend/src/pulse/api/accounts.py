@@ -1,11 +1,13 @@
+import hashlib
 import re
+import secrets
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep, get_owned_account
 from pulse.models import Account
-from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate
+from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate, AgentToken
 from pulse.slurm import AccountRef, SlurmError
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -44,8 +46,29 @@ async def create_account(
     account = Account(user_id=user.id, color=count % PALETTE_SIZE, cluster=cluster, **fields)
     session.add(account)
     await session.commit()
-    services.poller.trigger()
+    if account.connection == "direct":
+        services.poller.trigger()
     return AccountOut.model_validate(account)
+
+
+@router.post("/{account_id}/agent-token")
+async def issue_agent_token(account_id: int, session: SessionDep, user: CurrentUser) -> AgentToken:
+    """Create (or replace) the token the login-node agent reports with.
+
+    Only a hash is stored, so the token is shown once; issuing a new one
+    disables the previous install.
+    """
+    account = await get_owned_account(session, user, account_id)
+    if account.connection != "agent":
+        raise HTTPException(status.HTTP_409_CONFLICT, "account doesn't use an agent")
+    token = secrets.token_urlsafe(32)
+    account.agent_token_hash = hash_token(token)
+    await session.commit()
+    return AgentToken(token=token)
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 @router.patch("/{account_id}")
@@ -71,6 +94,12 @@ async def check_account(
     account_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> AccountCheck:
     account = await get_owned_account(session, user, account_id)
+    if account.connection == "agent":
+        if account.last_polled_at is None:
+            return AccountCheck(
+                ok=False, error="Waiting for the agent's first report from the login node."
+            )
+        return AccountCheck(ok=account.last_error is None, error=account.last_error)
     ref = AccountRef(
         username=account.username,
         host=account.host,
