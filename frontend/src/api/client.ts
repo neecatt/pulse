@@ -70,6 +70,8 @@ export const api = {
       request<Account>(`/accounts/${id}`, { method: "PATCH", body: json(body) }),
     remove: (id: number) => request<void>(`/accounts/${id}`, { method: "DELETE" }),
     check: (id: number) => request<AccountCheck>(`/accounts/${id}/check`, { method: "POST" }),
+    issueAgentToken: (id: number) =>
+      request<{ token: string }>(`/accounts/${id}/agent-token`, { method: "POST" }),
   },
   jobs: {
     list: (filters: JobFilters = {}) => request<Job[]>(`/jobs${query({ ...filters })}`),
