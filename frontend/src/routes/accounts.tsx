@@ -5,12 +5,14 @@ import {
   useAccounts,
   useCheckAccount,
   useDeleteAccount,
+  useIssueAgentToken,
   useJobs,
   useUpdateAccount,
 } from "@/api/queries";
 import type { Account } from "@/api/types";
 import { AccountDot } from "@/components/AccountDot";
 import { AccountForm } from "@/components/AccountForm";
+import { AgentInstall } from "@/components/AgentInstall";
 import { Button } from "@/components/Button";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { Toggle } from "@/components/Toggle";
@@ -63,7 +65,9 @@ function AccountRow({ account }: { account: Account }) {
   const update = useUpdateAccount();
   const remove = useDeleteAccount();
   const check = useCheckAccount();
+  const issueToken = useIssueAgentToken();
   const { data: jobs } = useJobs();
+  const agent = account.connection === "agent";
   const jobCount = jobs?.filter((j) => j.account_id === account.id).length;
 
   const status = account.last_error
@@ -90,10 +94,16 @@ function AccountRow({ account }: { account: Account }) {
         <div className="truncate font-mono text-xs text-muted-foreground">
           {account.host}
           {account.port !== 22 && `:${account.port}`}
+          {agent && " · via agent"}
         </div>
         <div className={`mt-1 truncate text-xs text-muted-foreground ${status.className}`}>
           {status.text}
         </div>
+        {issueToken.data && (
+          <div className="mt-3">
+            <AgentInstall token={issueToken.data.token} />
+          </div>
+        )}
         {check.data && (
           <div className={`mt-1 text-xs ${check.data.ok ? "text-run" : "text-fail"}`}>
             {check.data.ok ? "Connection OK" : check.data.error}
@@ -109,9 +119,31 @@ function AccountRow({ account }: { account: Account }) {
             onChange={(notify) => update.mutate({ id: account.id, notify })}
           />
         </label>
-        <Button variant="ghost" onClick={() => check.mutate(account.id)} disabled={check.isPending}>
-          {check.isPending ? "Testing…" : "Test"}
-        </Button>
+        {agent ? (
+          <Button
+            variant="ghost"
+            disabled={issueToken.isPending}
+            onClick={() => {
+              if (
+                confirm(
+                  "Get a new install command? The agent installed with the old one stops working.",
+                )
+              ) {
+                issueToken.mutate(account.id);
+              }
+            }}
+          >
+            Reinstall
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            onClick={() => check.mutate(account.id)}
+            disabled={check.isPending}
+          >
+            {check.isPending ? "Testing…" : "Test"}
+          </Button>
+        )}
         <Button
           variant="danger"
           disabled={remove.isPending}

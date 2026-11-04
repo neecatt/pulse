@@ -99,6 +99,10 @@ export function useCheckAccount() {
   return useMutation({ mutationFn: (id: number) => api.accounts.check(id) });
 }
 
+export function useIssueAgentToken() {
+  return useMutation({ mutationFn: (id: number) => api.accounts.issueAgentToken(id) });
+}
+
 export function useUpdatePreferences() {
   const client = useQueryClient();
   return useMutation({

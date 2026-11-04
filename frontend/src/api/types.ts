@@ -10,6 +10,9 @@ export type EventKind =
   | "job_time_limit"
   | "job_stalled";
 
+/** "direct": Pulse polls over SSH. "agent": a script on the login node reports in. */
+export type Connection = "direct" | "agent";
+
 export interface Account {
   id: number;
   cluster: string;
@@ -18,6 +21,7 @@ export interface Account {
   port: number;
   color: number;
   notify: boolean;
+  connection: Connection;
   last_polled_at: string | null;
   last_error: string | null;
 }
@@ -29,6 +33,7 @@ export interface AccountCreate {
   host: string;
   port?: number;
   notify?: boolean;
+  connection?: Connection;
 }
 
 export type AccountUpdate = Partial<Pick<Account, "cluster" | "notify">>;
