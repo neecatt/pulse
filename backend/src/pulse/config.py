@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     poll_interval_live_seconds: int = 10
     poll_interval_idle_seconds: int = 60
     gpu_sample_interval_seconds: int = 60
+    # Flag an agent account when it hasn't reported for this long.
+    agent_stale_seconds: int = 180
     poll_concurrency: int = 8
     stall_minutes: int = 15
     time_limit_warning_ratio: float = 0.9

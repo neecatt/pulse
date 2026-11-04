@@ -47,6 +47,9 @@ class Account(Base):
     last_error: Mapped[str | None] = mapped_column(String(500))
     # Server host key pinned on first successful connect (trust on first use).
     host_key: Mapped[str | None] = mapped_column(String(2048))
+    # "direct": Pulse polls the cluster. "agent": an agent on the login node reports in.
+    connection: Mapped[str] = mapped_column(String(16), default="direct")
+    agent_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
 
     user: Mapped[User] = relationship(back_populates="accounts")
     jobs: Mapped[list["Job"]] = relationship(back_populates="account", cascade="all, delete-orphan")
