@@ -94,6 +94,7 @@ function AccountRow({ account }: { account: Account }) {
         <div className="truncate font-mono text-xs text-muted-foreground">
           {account.host}
           {account.port !== 22 && `:${account.port}`}
+          {account.jump_host && ` · via ${account.jump_host}`}
           {agent && " · via agent"}
         </div>
         <div className={`mt-1 truncate text-xs text-muted-foreground ${status.className}`}>
