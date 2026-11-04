@@ -5,11 +5,12 @@ import { describe, expect, it } from "vitest";
 import { routeTree } from "@/routeTree.gen";
 
 describe("App routing", () => {
-  it("matches a page for / instead of falling back to not found", () => {
-    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+  const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
 
-    const matches = router.matchRoutes("/");
-
-    expect(matches.at(-1)?.routeId).not.toBe(rootRouteId);
-  });
+  it.each(["/", "/activity", "/accounts", "/settings", "/jobs/42"])(
+    "matches a page for %s",
+    (path) => {
+      expect(router.matchRoutes(path).at(-1)?.routeId).not.toBe(rootRouteId);
+    },
+  );
 });
