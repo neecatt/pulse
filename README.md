@@ -16,6 +16,8 @@ desktop, with push notifications when something needs you.
 - **Per-node usage.** CPU, memory and every GPU on every node of a job.
 - **Works with 2FA clusters.** Where Pulse can't sign in unattended, a tiny
   agent on the login node reports instead (Python 3.6+, standard library only).
+- **Passkeys.** Sign in with Face ID, Touch ID or your screen lock; passwords
+  stay as a fallback.
 - **Light to run.** One container, SQLite, about 70 MB of RAM. Installs as an
   app on your phone's home screen.
 

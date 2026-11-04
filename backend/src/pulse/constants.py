@@ -87,6 +87,12 @@ SESSION_RENEW_SECONDS = 3600  # extend a session's expiry at most hourly
 USERNAME_PATTERN = r"^[A-Za-z0-9_.-]{3,64}$"
 PASSWORD_MIN_LENGTH = 10
 PASSWORD_MAX_LENGTH = 256
+# Passkeys (WebAuthn)
+PASSKEY_RP_NAME = "Pulse"  # shown by the browser when creating a passkey
+PASSKEY_CHALLENGE_TTL_SECONDS = 300
+PASSKEY_NAME_MAX_LENGTH = 64
+PASSKEY_MAX_PER_USER = 20
+
 # scrypt cost (RFC 7914 interactive-login parameters, ~50 ms, 16 MiB)
 SCRYPT_N = 2**14
 SCRYPT_R = 8

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Enum, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import JSON, Enum, ForeignKey, Index, LargeBinary, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from pulse.db import Base, UTCDateTime
@@ -36,6 +36,27 @@ class User(Base):
     login_sessions: Mapped[list["LoginSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    passkeys: Mapped[list["Passkey"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class Passkey(Base):
+    """A WebAuthn credential (passkey) a user signs in with."""
+
+    __tablename__ = "passkeys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    credential_id: Mapped[bytes] = mapped_column(LargeBinary(1023), unique=True)
+    public_key: Mapped[bytes] = mapped_column(LargeBinary)
+    sign_count: Mapped[int] = mapped_column(default=0)
+    transports: Mapped[list[str]] = mapped_column(JSON, default=list)
+    name: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+    user: Mapped[User] = relationship(back_populates="passkeys")
 
 
 class LoginSession(Base):
