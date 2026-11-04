@@ -9,6 +9,14 @@ start, finish, or fail.
 | [`frontend/`](frontend/) | React 19, Vite, TanStack Router & Query, Tailwind v4 |
 | [`backend/`](backend/)   | Python 3.12, FastAPI, SQLAlchemy (async), Web Push   |
 
+## What it does
+
+- All Slurm jobs across your HPC accounts, live, with push notifications when
+  jobs start, finish, fail, stall or near their time limit
+- Training metrics charts, hyperparameters and run comparison, read from
+  TensorBoard event files, metric JSONL/CSV logs and stdout, with no code changes
+- Clusters with 2FA work through a tiny agent on the login node
+
 ## Quick start
 
 Needs Python 3.12+ and [bun](https://bun.sh).
