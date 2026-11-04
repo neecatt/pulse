@@ -3,6 +3,15 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Platform-neutral main (`chore/remove-railway`)
+
+- `main` stays generic for open-source self-hosting. Railway-specific setup
+  (`railway.json`, no `VOLUME` in the Dockerfile, the Railway guide) lives on
+  the `deploy/railway` branch, which Railway builds from and which merges in
+  `main` to pick up changes.
+- Kept on `main` because they're generic: listening on a platform's `PORT`, and
+  the entrypoint taking ownership of root-owned volumes and bind mounts.
+
 ## 2026-11-04 — Passkeys (`feat/passkeys`)
 
 - Sign in with a passkey (Face ID, Touch ID, Windows Hello, security keys) as
