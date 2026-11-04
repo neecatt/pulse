@@ -3,6 +3,25 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Frontend dashboard (`feat/frontend-dashboard`)
+
+- Created the private GitHub repo and pushed the history; work now lands via PRs.
+- Replaced the mock data with a typed API layer (`src/api`) and TanStack Query
+  hooks that refresh every 15 s.
+- Pages: Jobs dashboard (stats, account filter, active/all toggle, loss
+  sparklines, recent activity), job detail (time used, epoch/loss/GPU stats,
+  loss and GPU charts, Slurm metadata, log tail), Activity (events by day),
+  Accounts (add / alerts toggle / test connection / remove), Alerts (device
+  push, per-event preferences, install help).
+- PWA: service worker for Web Push and notification clicks, manifest with
+  192/512 icons, safe-area insets, a bottom tab bar on phones, and iOS
+  home-screen detection before asking for push.
+- Light and dark themes follow the system setting.
+- Checked in a browser against the mock backend at 390 px and 1280 px.
+
+**Next up:** real authentication, Alembic migrations, metric retention, offline
+caching in the service worker, and trying SSH mode on a real cluster.
+
 ## 2026-11-04 — Backend API (`feat/backend-api`)
 
 - FastAPI app (`backend/src/pulse`) with async SQLAlchemy on SQLite. Tables:
