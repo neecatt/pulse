@@ -16,9 +16,10 @@ Every change is judged against these three rules. If a change breaks one,
 redesign it, or raise the trade-off explicitly in the PR.
 
 1. **Lightweight and easy to self-host.** Pulse is an open-source project that
-   anyone can deploy: one container image (`Dockerfile`, published to GHCR by
-   CI), SQLite in one `/data` volume, configured only through `PULSE_*`
-   environment variables. `make start` runs the same thing without Docker. No
+   anyone can deploy: one container image (`Dockerfile`, published by CI to
+   Docker Hub as `neecat/pulse`, mirrored to GHCR), SQLite in one `/data`
+   volume, configured only through `PULSE_*` environment variables.
+   `make start` runs the same thing without Docker. No
    additional services (databases, brokers, caches) unless there's no
    alternative; add a dependency only when it removes more complexity than it
    adds. No third-party requests from the web app (fonts are bundled). Be
@@ -48,7 +49,7 @@ redesign it, or raise the trade-off explicitly in the PR.
 ├── frontend/    TypeScript · React 19 · Vite · TanStack Router/Query · Tailwind v4
 ├── deploy/      Caddyfile (HTTPS proxy), pulse.service (systemd)
 ├── docs/        progress.md (running log), deployment.md (self-hosting guide)
-├── .github/     CI (checks + image build) and image publishing to GHCR
+├── .github/     CI (checks + image build) and image publishing (Docker Hub, GHCR)
 ├── Dockerfile   one image: web app + API; compose.yaml adds Caddy for HTTPS
 └── .env.example deployment settings for compose (full list: backend/.env.example)
 ```
@@ -108,6 +109,8 @@ Run lint, types, and tests for every package you touched before committing.
 
 - **Tests.** Pure logic (Slurm parsing, job-state diffing) gets unit tests. New
   endpoints get an API test.
+- **Releases.** Tag `vX.Y.Z` on `main` to publish `:X.Y.Z`, `:X.Y` and `:latest`;
+  every push to `main` publishes `:edge` (steps in `CONTRIBUTING.md`).
 - **Docs.** Append to `docs/progress.md` when you finish a meaningful piece of
   work, and update this file when commands, layout, or conventions change.
 
