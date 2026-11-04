@@ -8,7 +8,10 @@ export type EventKind =
   | "job_failed"
   | "job_cancelled"
   | "job_time_limit"
-  | "job_stalled";
+  | "job_stalled"
+  | "job_nan"
+  | "job_diverging"
+  | "job_plateau";
 
 /** "direct": Pulse polls over SSH. "agent": a script on the login node reports in. */
 export type Connection = "direct" | "agent";
@@ -68,6 +71,8 @@ export interface Job {
   /** Metric shown as "Loss" and in sparklines, e.g. "loss" or "train/loss". */
   primary_metric: string | null;
   tags: string[];
+  /** Job array (sweep) this task belongs to, e.g. "123" for "123_4". */
+  array_id: string | null;
   time_used: number | null;
 }
 
@@ -78,12 +83,33 @@ export interface MetricPoint {
 
 export type HparamValue = string | number | boolean | null;
 
+export interface NodeStats {
+  cpu: number | null;
+  mem: number | null;
+  gpus: { util: number; mem: number }[];
+}
+
+export interface MetricStats {
+  last: number;
+  min: number;
+  max: number;
+}
+
+/** A job as a row of the runs table. */
+export interface Run extends Job {
+  hparams: Record<string, HparamValue>;
+  metric_stats: Record<string, MetricStats>;
+}
+
 export interface JobDetail extends Job {
   log_tail: string[];
   log_updated_at: string | null;
   note: string | null;
   hparams: Record<string, HparamValue>;
-  series: Partial<Record<"loss" | "gpu_util" | "gpu_mem", MetricPoint[]>>;
+  /** Latest usage per node. */
+  node_stats: Record<string, NodeStats>;
+  /** System metrics: gpu_util, gpu_mem and per node sys/<node>/{cpu,mem,gpu,gpu_mem}. */
+  series: Record<string, MetricPoint[]>;
 }
 
 export interface JobUpdate {
@@ -119,6 +145,8 @@ export interface Monitoring {
   idle_refresh_seconds: number;
   stall_minutes: number;
   time_limit_warning_percent: number;
+  diverge_percent: number;
+  plateau_minutes: number;
 }
 
 export interface Preferences {

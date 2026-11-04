@@ -128,6 +128,9 @@ const ALERT_HINTS: Record<EventKind, string> = {
   job_cancelled: "Is cancelled",
   job_time_limit: "Gets close to its time limit",
   job_stalled: "Stops writing output",
+  job_nan: "Produces a NaN or infinite loss",
+  job_diverging: "Loss climbs well above its best",
+  job_plateau: "Loss stops improving",
 };
 
 const PUSH_STATUS_TEXT: Record<PushStatus, string> = {
@@ -255,6 +258,26 @@ const MONITORING_CHOICES: Choice<keyof Monitoring>[] = [
       { value: 80, label: "80%" },
       { value: 90, label: "90%" },
       { value: 95, label: "95%" },
+    ],
+  },
+  {
+    key: "diverge_percent",
+    label: "Diverging when loss is",
+    hint: "Smoothed loss this far above its best",
+    options: [
+      { value: 25, label: "+25%" },
+      { value: 50, label: "+50%" },
+      { value: 100, label: "+100%" },
+    ],
+  },
+  {
+    key: "plateau_minutes",
+    label: "Plateau after",
+    hint: "No new best loss for this long",
+    options: [
+      { value: 30, label: "30 min" },
+      { value: 60, label: "1 h" },
+      { value: 180, label: "3 h" },
     ],
   },
 ];

@@ -16,6 +16,7 @@ import type {
   PulseEvent,
   PushConfig,
   PushSubscriptionJSON,
+  Run,
   SetupInfo,
 } from "./types";
 
@@ -86,6 +87,9 @@ export const api = {
     metrics: (id: number) => request<JobMetrics>(`/jobs/${id}/metrics`),
     update: (id: number, body: JobUpdate) =>
       request<JobDetail>(`/jobs/${id}`, { method: "PATCH", body: json(body) }),
+  },
+  runs: {
+    list: (arrayId?: string) => request<Run[]>(`/runs${query({ array_id: arrayId })}`),
   },
   events: {
     list: (limit = 50) => request<PulseEvent[]>(`/events${query({ limit })}`),
