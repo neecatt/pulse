@@ -32,6 +32,7 @@ async def test_first_run_setup_then_locked(anon: AsyncClient) -> None:
     assert (await anon.get("/api/auth/status")).json() == {
         "setup_required": True,
         "signup_allowed": False,
+        "user": None,
     }
     created = await anon.post("/api/auth/setup", json=ADMIN)
     assert created.status_code == 201
@@ -39,6 +40,7 @@ async def test_first_run_setup_then_locked(anon: AsyncClient) -> None:
     assert "httponly" in created.headers["set-cookie"].lower()
     assert "samesite=lax" in created.headers["set-cookie"].lower()
     assert (await anon.get("/api/auth/me")).json()["username"] == "admin"
+    assert (await anon.get("/api/auth/status")).json()["user"]["username"] == "admin"
 
     again = await anon.post("/api/auth/setup", json={"username": "eve", "password": "x" * 12})
     assert again.status_code == 409

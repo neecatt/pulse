@@ -106,6 +106,7 @@ class AuthStatus(BaseModel):
 
     setup_required: bool  # no accounts yet: the first visitor creates the admin
     signup_allowed: bool
+    user: Me | None  # who this browser is signed in as, if anyone
 
 
 class LoginSessionOut(ORMModel):

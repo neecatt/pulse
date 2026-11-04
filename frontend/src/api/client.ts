@@ -5,11 +5,15 @@ import type {
   AccountCheck,
   AccountCreate,
   AccountUpdate,
+  AuthStatus,
+  Credentials,
   Job,
   JobDetail,
   JobMetrics,
   JobState,
   JobUpdate,
+  LoginSession,
+  Me,
   Health,
   Preferences,
   PreferencesUpdate,
@@ -68,6 +72,22 @@ export interface JobFilters {
 }
 
 export const api = {
+  auth: {
+    status: () => request<AuthStatus>("/auth/status"),
+    me: () => request<Me>("/auth/me"),
+    setup: (body: Credentials) => request<Me>("/auth/setup", { method: "POST", body: json(body) }),
+    signup: (body: Credentials) =>
+      request<Me>("/auth/signup", { method: "POST", body: json(body) }),
+    login: (body: Credentials) => request<Me>("/auth/login", { method: "POST", body: json(body) }),
+    logout: () => request<void>("/auth/logout", { method: "POST" }),
+    changePassword: (current_password: string, new_password: string) =>
+      request<void>("/auth/password", {
+        method: "POST",
+        body: json({ current_password, new_password }),
+      }),
+    sessions: () => request<LoginSession[]>("/auth/sessions"),
+    revokeOthers: () => request<void>("/auth/sessions/revoke-others", { method: "POST" }),
+  },
   health: () => request<Health>("/health"),
   setup: () => request<SetupInfo>("/setup"),
   accounts: {

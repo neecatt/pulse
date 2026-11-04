@@ -1,4 +1,10 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { FALLBACK_REFRESH_MS } from "@/config/constants";
 
@@ -7,8 +13,11 @@ import type {
   Account,
   AccountCreate,
   AccountUpdate,
+  AuthStatus,
+  Credentials,
   JobMetrics,
   JobUpdate,
+  Me,
   PreferencesUpdate,
 } from "./types";
 
@@ -24,8 +33,76 @@ export const queryKeys = {
   preferences: ["preferences"] as const,
   pushConfig: ["push-config"] as const,
   setup: ["setup"] as const,
+  authStatus: ["auth-status"] as const,
+  loginSessions: ["login-sessions"] as const,
   health: ["health"] as const,
 };
+
+/** Sign-in state: whether setup is needed, and who is signed in (or null). */
+export function useAuthStatus() {
+  return useQuery({
+    queryKey: queryKeys.authStatus,
+    queryFn: api.auth.status,
+    staleTime: Infinity,
+  });
+}
+
+/** The signed-in user, or null when signed out. */
+export function useMe(): { data: Me | null | undefined; isPending: boolean } {
+  const { data, isPending } = useAuthStatus();
+  return { data: data?.user, isPending };
+}
+
+/** Sign in, create the first account, or sign up; then load the app. */
+export function useSignIn(mode: "login" | "setup" | "signup") {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Credentials) => api.auth[mode](body),
+    onSuccess: (user) => setSignedIn(client, user),
+  });
+}
+
+export function useSignOut() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.auth.logout,
+    onSettled: () => setSignedIn(client, null),
+  });
+}
+
+/**
+ * Record who is signed in (null signs the app out) and drop everything cached for
+ * the previous session, so one account's data never shows up for another.
+ * The auth-status query itself is kept and updated in place: the root layout is
+ * subscribed to it, and replacing it would leave the layout watching a stale copy.
+ */
+export function setSignedIn(client: QueryClient, user: Me | null): void {
+  client.removeQueries({ predicate: (query) => query.queryKey[0] !== queryKeys.authStatus[0] });
+  client.setQueryData<AuthStatus>(queryKeys.authStatus, (status) => ({
+    setup_required: false,
+    signup_allowed: status?.signup_allowed ?? false,
+    user,
+  }));
+}
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: ({ current, next }: { current: string; next: string }) =>
+      api.auth.changePassword(current, next),
+  });
+}
+
+export function useLoginSessions() {
+  return useQuery({ queryKey: queryKeys.loginSessions, queryFn: api.auth.sessions });
+}
+
+export function useRevokeOtherSessions() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.auth.revokeOthers,
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.loginSessions }),
+  });
+}
 
 export function useAccounts() {
   return useQuery({
