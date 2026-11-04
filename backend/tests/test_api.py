@@ -13,8 +13,10 @@ async def add_account(client: AsyncClient, **overrides: object) -> dict:  # type
 
 
 async def test_health(client: AsyncClient) -> None:
-    response = await client.get("/api/health")
-    assert response.json() == {"status": "ok", "slurm_backend": "mock"}
+    body = (await client.get("/api/health")).json()
+    assert body["status"] == "ok"
+    assert body["slurm_backend"] == "mock"
+    assert body["version"]
 
 
 async def test_account_crud(client: AsyncClient) -> None:
@@ -99,9 +101,28 @@ async def test_preferences_round_trip(client: AsyncClient) -> None:
     prefs = (await client.get("/api/preferences")).json()["alerts"]
     assert all(prefs.values())
 
-    updated = await client.put("/api/preferences", json={"alerts": {"job_started": False}})
+    updated = await client.patch("/api/preferences", json={"alerts": {"job_started": False}})
     assert updated.json()["alerts"]["job_started"] is False
     assert updated.json()["alerts"]["job_failed"] is True
+
+
+async def test_monitoring_preferences(client: AsyncClient) -> None:
+    monitoring = (await client.get("/api/preferences")).json()["monitoring"]
+    assert monitoring == {
+        "live_refresh_seconds": 10,
+        "idle_refresh_seconds": 60,
+        "stall_minutes": 15,
+        "time_limit_warning_percent": 90,
+    }
+
+    body = {"monitoring": {"stall_minutes": 30, "time_limit_warning_percent": 80}}
+    updated = (await client.patch("/api/preferences", json=body)).json()
+    assert updated["monitoring"]["stall_minutes"] == 30
+    assert updated["monitoring"]["live_refresh_seconds"] == 10  # untouched
+    assert updated["alerts"]["job_started"] is True
+
+    too_fast = {"monitoring": {"live_refresh_seconds": 1}}
+    assert (await client.patch("/api/preferences", json=too_fast)).status_code == 422
 
 
 async def test_push_subscription_lifecycle(client: AsyncClient) -> None:

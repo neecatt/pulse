@@ -7,7 +7,7 @@ from sqlalchemy import select
 from pulse.agent import SCRIPT_PATH
 from pulse.api.accounts import hash_token
 from pulse.api.deps import ServicesDep, SessionDep
-from pulse.models import Account
+from pulse.models import Account, User
 from pulse.schemas import AgentReport, AgentReportAck
 from pulse.services.agent_reports import snapshot_from_report
 
@@ -37,8 +37,11 @@ async def agent_report(
         )
     if account is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid agent token")
-    account_id, user_id = account.id, account.user_id
+    user = await session.get(User, account.user_id)
+    assert user is not None  # enforced by the foreign key
+    next_report_in = services.poller.interval_for(user)
+    account_id = account.id
     await session.rollback()  # release the connection before the (separate) ingest
 
     await services.poller.ingest_and_publish(account_id, snapshot_from_report(body))
-    return AgentReportAck(next_report_in=services.poller.next_report_in(user_id))
+    return AgentReportAck(next_report_in=next_report_in)
