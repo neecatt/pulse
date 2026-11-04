@@ -1,5 +1,6 @@
 """SshSlurmClient against an in-process SSH server that fakes the Slurm CLI."""
 
+import socket
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -141,3 +142,12 @@ async def test_unauthorised_key_gets_actionable_error(tmp_path: Path, cluster: F
             await stranger.check(cluster.account())
     finally:
         await stranger.close()
+
+
+async def test_connection_errors_are_plain_language(client: SshSlurmClient) -> None:
+    with socket.socket() as probe:  # grab a free port, then close it so nothing listens
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    account = AccountRef(username="alice", host="127.0.0.1", port=port)
+    with pytest.raises(SlurmError, match="refused the connection"):
+        await client.check(account)
