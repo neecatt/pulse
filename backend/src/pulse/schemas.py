@@ -138,6 +138,7 @@ class JobOut(ORMModel):
     loss_trend: list[float] = []
     primary_metric: str | None
     tags: list[str]
+    array_id: str | None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -158,7 +159,23 @@ class JobDetailOut(JobOut):
     log_updated_at: datetime | None
     note: str | None
     hparams: dict[str, Any]
-    series: dict[str, list[MetricPoint]] = {}  # system metrics (gpu_util, gpu_mem)
+    node_stats: dict[str, Any]  # latest per node: {cpu, mem, gpus: [{util, mem}]}
+    # System metrics: gpu_util, gpu_mem and per node sys/<node>/{cpu,mem,gpu,gpu_mem}
+    series: dict[str, list[MetricPoint]] = {}
+
+
+class MetricStats(BaseModel):
+    last: float
+    min: float
+    max: float
+
+
+class RunOut(JobOut):
+    """A job as a row of the runs table: metric summaries plus hyperparameters."""
+
+    hparams: dict[str, Any]
+    # Not "metrics": that name is the ORM relationship holding every sample.
+    metric_stats: dict[str, MetricStats] = {}
 
 
 Tag = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=32)]

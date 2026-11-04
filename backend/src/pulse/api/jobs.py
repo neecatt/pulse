@@ -5,11 +5,19 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pulse.api.deps import CurrentUser, SessionDep
-from pulse.constants import CHART_POINTS, SERIES_POINTS, SYSTEM_METRICS, TREND_POINTS
+from pulse.constants import CHART_POINTS, SERIES_POINTS, TREND_POINTS
 from pulse.domain import JobState
 from pulse.metrics.downsample import downsample
+from pulse.metrics.ingest import system_metric_filter
 from pulse.models import Account, Job, JobMetric, MetricFile, User
-from pulse.schemas import JobDetailOut, JobMetrics, JobOut, JobUpdate, MetricPoint, StepPoint
+from pulse.schemas import (
+    JobDetailOut,
+    JobMetrics,
+    JobOut,
+    JobUpdate,
+    MetricPoint,
+    StepPoint,
+)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -30,7 +38,7 @@ async def list_jobs(
         query = query.where(Job.state == state)
     jobs = list(await session.scalars(query))
     # Active jobs first, then most recently finished.
-    jobs.sort(key=lambda j: (_STATE_ORDER.get(j.state, 2), -_sort_time(j)))
+    jobs.sort(key=lambda j: (_STATE_ORDER.get(j.state, 2), -sort_time(j)))
 
     trends = await _loss_trends(session, [j for j in jobs if j.state is JobState.RUNNING])
     return [
@@ -44,18 +52,17 @@ async def get_job(job_id: int, session: SessionDep, user: CurrentUser) -> JobDet
     job = await _get_owned_job(session, user, job_id)
     rows = await session.execute(
         select(JobMetric.name, JobMetric.ts, JobMetric.value)
-        .where(JobMetric.job_id == job.id, JobMetric.name.in_(SYSTEM_METRICS))
-        .order_by(JobMetric.ts.desc())
-        .limit(SERIES_POINTS * len(SYSTEM_METRICS))
+        .where(JobMetric.job_id == job.id, system_metric_filter())
+        .order_by(JobMetric.ts)
     )
     series: dict[str, list[MetricPoint]] = defaultdict(list)
-    for name, ts, value in reversed(rows.all()):
+    for name, ts, value in rows.all():
         series[name].append(MetricPoint(t=ts, v=value))
     trends = await _loss_trends(session, [job])
     detail = JobDetailOut.model_validate(job)
     return detail.model_copy(
         update={
-            "series": {k: v[-SERIES_POINTS:] for k, v in series.items()},
+            "series": {k: downsample(v, SERIES_POINTS) for k, v in series.items()},
             "loss_trend": trends.get(job.id, []),
         }
     )
@@ -86,7 +93,7 @@ async def get_job_metrics(
     job = await _get_owned_job(session, user, job_id)
     rows = await session.execute(
         select(JobMetric.name, JobMetric.step, JobMetric.ts, JobMetric.value)
-        .where(JobMetric.job_id == job.id, JobMetric.name.not_in(SYSTEM_METRICS))
+        .where(JobMetric.job_id == job.id, ~system_metric_filter())
         .order_by(JobMetric.name, JobMetric.step, JobMetric.ts)
     )
     metrics: dict[str, list[StepPoint]] = defaultdict(list)
@@ -130,6 +137,6 @@ async def _loss_trends(session: AsyncSession, jobs: list[Job]) -> dict[int, list
     return {k: v[-TREND_POINTS:] for k, v in trends.items()}
 
 
-def _sort_time(job: Job) -> float:
+def sort_time(job: Job) -> float:
     moment = job.end_time or job.start_time or job.submit_time
     return moment.timestamp() if moment else 0.0
