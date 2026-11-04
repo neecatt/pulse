@@ -3,6 +3,16 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Upgrade old databases in place (`fix/schema-upgrade`)
+
+- v0.1.0 failed on databases created before jump hosts (`no such column:
+accounts.jump_host`): `create_all` creates tables but never adds columns.
+  Startup now adds missing columns and fills existing rows with each column's
+  default (scalar or callable, JSON included). Additive changes only; anything
+  else still needs a real migration.
+- Test: an old-schema database is upgraded, keeps its rows, and a second start
+  is a no-op. Also checked against a copy of a real pre-jump-host database.
+
 ## 2026-11-04 — Docker Hub and license (`feat/docker-hub`)
 
 - Images publish to Docker Hub as `neecat/pulse` (GHCR kept as a mirror):
