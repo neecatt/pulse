@@ -68,22 +68,22 @@ def _complete_lines(data: bytes) -> tuple[list[str], int]:
 
 
 def _as_float(raw: Any) -> float | None:
+    """Numbers, including NaN/Inf (needed for alerts); None for anything else."""
     if isinstance(raw, bool):
         return None
     try:
-        value = float(raw)
+        return float(raw)
     except (TypeError, ValueError):
         return None
-    return value if math.isfinite(value) else None
 
 
 def _as_int(raw: Any) -> int | None:
     value = _as_float(raw)
-    return int(value) if value is not None else None
+    return int(value) if value is not None and math.isfinite(value) else None
 
 
 def _as_time(raw: Any) -> datetime | None:
     value = _as_float(raw)
-    if value is None or not 1e9 < value < 1e10:  # plausible Unix seconds only
+    if value is None or not 1e9 < value < 1e10:  # plausible Unix seconds only (NaN fails too)
         return None
     return datetime.fromtimestamp(value, UTC)

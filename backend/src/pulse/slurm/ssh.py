@@ -32,13 +32,16 @@ from pulse.slurm.base import (
     Cursors,
     FileChunk,
     JobTelemetry,
+    NodeStats,
     SlurmError,
     SlurmJob,
 )
 from pulse.slurm.parsing import (
+    NODE_STATS_SCRIPT,
     SACCT_FIELDS,
     SAFE_JOB_ID,
-    parse_nvidia_smi,
+    mean_gpu_usage,
+    parse_node_stats,
     parse_sacct,
     parse_scontrol_field,
     parse_training_log,
@@ -48,16 +51,13 @@ logger = logging.getLogger(__name__)
 
 LOG_TAIL_LINES = 40
 COMMAND_TIMEOUT_S = 30
-GPU_QUERY_TIMEOUT_S = 15
+STATS_TIMEOUT_S = 20
 KEEPALIVE_INTERVAL_S = 60
 DISCOVERY_INTERVAL_S = 60  # `find` on shared filesystems is slow; don't repeat it often
 CHUNK_MARKER = "@@pulse-chunk"
-NVIDIA_SMI_QUERY = (
-    "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits"
-)
 
 _ConnKey = tuple[str, str, int]
-_GpuSample = tuple[float, tuple[float | None, float | None]]
+_StatsSample = tuple[float, dict[str, NodeStats]]
 _Found = list[tuple[str, int]]  # (path, size)
 _Discovery = tuple[float, _Found]
 
@@ -78,7 +78,7 @@ class SshSlurmClient:
         self._conns: dict[_ConnKey, asyncssh.SSHClientConnection] = {}
         self._locks: dict[_ConnKey, asyncio.Lock] = {}
         # GPU queries start a job step, so sample them less often than we poll.
-        self._gpu_cache: dict[str, _GpuSample] = {}
+        self._stats_cache: dict[str, _StatsSample] = {}
         self._discovery_cache: dict[str, _Discovery] = {}
 
     @property
@@ -124,7 +124,7 @@ class SshSlurmClient:
         try:
             info = await self._run(conn, f"scontrol show job -o {job.slurm_id}")
             log_tail, log_mtime = await self._log_tail(conn, parse_scontrol_field(info, "StdOut"))
-            gpu_util, gpu_mem = await self._gpu_usage(conn, job) if job.gpus else (None, None)
+            nodes = await self._node_usage(conn, job)
             files = await self._metric_files(
                 conn, job.slurm_id, parse_scontrol_field(info, "WorkDir"), cursors
             )
@@ -132,11 +132,13 @@ class SshSlurmClient:
             logger.info("telemetry unavailable for job %s: %s", job.slurm_id, exc)
             return JobTelemetry()
         loss, epoch = parse_training_log(log_tail)
+        gpu_util, gpu_mem = mean_gpu_usage(nodes)
         return JobTelemetry(
             loss=loss,
             epoch=epoch,
             gpu_util=gpu_util,
             gpu_mem=gpu_mem,
+            nodes=nodes,
             log_tail=log_tail,
             log_updated_at=log_mtime,
             files=files,
@@ -219,23 +221,25 @@ class SshSlurmClient:
         mtime = datetime.fromtimestamp(int(first), UTC) if first.strip().isdigit() else None
         return rest.splitlines(), mtime
 
-    async def _gpu_usage(
+    async def _node_usage(
         self, conn: asyncssh.SSHClientConnection, job: SlurmJob
-    ) -> tuple[float | None, float | None]:
-        cached = self._gpu_cache.get(job.slurm_id)
+    ) -> dict[str, NodeStats]:
+        """CPU, memory and per-GPU usage on every node of the job. Sampling starts a
+        job step, so it runs at most once per ``gpu_sample_interval_seconds``."""
+        cached = self._stats_cache.get(job.slurm_id)
         if cached and time.monotonic() - cached[0] < self._settings.gpu_sample_interval_seconds:
             return cached[1]
         # --overlap lets the step share the job's allocation (Slurm >= 20.11).
         cmd = (
-            f"timeout {GPU_QUERY_TIMEOUT_S} srun --jobid={job.slurm_id} --overlap -N1 -n1 "
-            f"{NVIDIA_SMI_QUERY}"
+            f"timeout {STATS_TIMEOUT_S} srun --jobid={job.slurm_id} --overlap "
+            f"-N{max(job.nodes, 1)} --ntasks-per-node=1 bash -c {shlex.quote(NODE_STATS_SCRIPT)}"
         )
         try:
-            usage = parse_nvidia_smi(await self._run(conn, cmd))
+            nodes = parse_node_stats(await self._run(conn, cmd))
         except SlurmError:
-            usage = (None, None)
-        self._gpu_cache[job.slurm_id] = (time.monotonic(), usage)
-        return usage
+            nodes = {}
+        self._stats_cache[job.slurm_id] = (time.monotonic(), nodes)
+        return nodes
 
     @asynccontextmanager
     async def _session(self, account: AccountRef) -> AsyncIterator[asyncssh.SSHClientConnection]:

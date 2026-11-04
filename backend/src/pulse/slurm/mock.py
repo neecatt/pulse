@@ -20,10 +20,13 @@ from pulse.slurm.base import (
     AccountSnapshot,
     Cursors,
     FileChunk,
+    GpuStats,
     JobTelemetry,
+    NodeStats,
     SlurmError,
     SlurmJob,
 )
+from pulse.slurm.parsing import mean_gpu_usage
 
 SWEEP_PERIOD_S = 15 * 60
 LOOKBACK = timedelta(hours=24)
@@ -162,15 +165,41 @@ class MockSlurmClient:
             for i in reversed(range(8))
         ]
         frozen = s.log_freezes_after_s is not None and job.elapsed_s > s.log_freezes_after_s
+        nodes = _node_stats(s, job, live_s, frozen)
+        gpu_util, gpu_mem = mean_gpu_usage(nodes)
         return JobTelemetry(
             loss=loss,
             epoch=epoch,
-            gpu_util=(round(88 + 8 * wobble, 1) if not frozen else 0.0) if job.gpus else None,
-            gpu_mem=round(72 + 6 * math.cos(live_s / 131), 1) if job.gpus else None,
+            gpu_util=gpu_util,
+            gpu_mem=gpu_mem,
+            nodes=nodes,
             log_tail=log_tail,
             log_updated_at=job.start_time + timedelta(seconds=live_s) if frozen else now,
             files=files,
         )
+
+
+def _node_stats(s: _ScriptedJob, job: SlurmJob, live_s: int, frozen: bool) -> dict[str, NodeStats]:
+    """Plausible per-node CPU, memory and per-GPU usage; one node runs a bit cooler."""
+    first = int(job.slurm_id) % 900
+    gpus_per_node = s.gpus // max(s.nodes, 1)
+    nodes: dict[str, NodeStats] = {}
+    for n in range(s.nodes):
+        wobble = math.sin(live_s / 97 + n)
+        cool = 12 if n == s.nodes - 1 and s.nodes > 1 else 0  # e.g. a data-loading straggler
+        gpus: list[GpuStats] = [
+            {
+                "util": 0.0 if frozen else round(min(100, 90 + 6 * wobble - cool - g), 1),
+                "mem": round(70 + 5 * math.cos(live_s / 131 + g), 1),
+            }
+            for g in range(gpus_per_node)
+        ]
+        nodes[f"gpu{first + n:03d}"] = {
+            "cpu": round(5 if frozen else 55 + 20 * wobble, 1),
+            "mem": round(48 + 4 * math.cos(live_s / 211 + n), 1),
+            "gpus": gpus,
+        }
+    return nodes
 
 
 METRIC_INTERVAL_S = 60  # one metrics.jsonl record per simulated minute

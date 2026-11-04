@@ -1,6 +1,7 @@
 """Store parsed metric points and keep per-file read offsets."""
 
 import base64
+import math
 from collections.abc import Iterable
 from datetime import datetime
 
@@ -12,12 +13,14 @@ from pulse.domain import JobState
 from pulse.metrics.discovery import classify
 from pulse.metrics.hparams import parse_config
 from pulse.metrics.model import ParsedChunk, Point
+from pulse.metrics.summary import update_summaries
 from pulse.metrics.tabular import parse_csv, parse_jsonl
 from pulse.metrics.tfevents import parse_tfevents
 from pulse.models import Job, JobMetric, MetricFile
 from pulse.slurm.base import FileChunk
 
-SYSTEM_METRICS = ("gpu_util", "gpu_mem")
+SYSTEM_METRICS = ("gpu_util", "gpu_mem")  # job-wide averages
+SYSTEM_PREFIX = "sys/"  # per node: sys/<node>/cpu, .../mem, .../gpu, .../gpu_mem
 _PRIMARY_PREFERENCE = ("loss", "train/loss", "train_loss", "loss/train", "training_loss")
 
 
@@ -61,11 +64,16 @@ def ingest_files(job: Job, chunks: Iterable[FileChunk]) -> list[Point]:
     return points
 
 
-async def store_points(session: AsyncSession, job: Job, points: list[Point], now: datetime) -> None:
-    """Insert points, ignoring steps already stored, and refresh the job's
-    primary metric. Requires ``job.id`` (flush first for new jobs)."""
+async def store_points(
+    session: AsyncSession, job: Job, points: list[Point], now: datetime
+) -> set[str]:
+    """Insert points (ignoring steps already stored), refresh the job's primary
+    metric and summaries, and return the names of metrics that went NaN/Inf.
+    Requires ``job.id`` (flush first for new jobs)."""
+    non_finite = {p.name for p in points if not math.isfinite(p.value)}
+    points = [p for p in points if math.isfinite(p.value)]
     if not points:
-        return
+        return non_finite
     rows = [
         {
             "job_id": job.id,
@@ -80,11 +88,18 @@ async def store_points(session: AsyncSession, job: Job, points: list[Point], now
     for start in range(0, len(rows), 500):  # stay under SQLite's variable limit
         await session.execute(statement, rows[start : start + 500])
 
-    names = {p.name for p in points if p.name not in SYSTEM_METRICS}
-    job.primary_metric = job.primary_metric or choose_primary(names)
-    primary = [p for p in points if p.name == job.primary_metric]
+    training = [p for p in points if not is_system_metric(p.name)]
+    job.primary_metric = job.primary_metric or choose_primary({p.name for p in training})
+    # Reassign so SQLAlchemy notices the change to the JSON column.
+    job.metric_summary = update_summaries(job.metric_summary or {}, training, now)
+    primary = job.metric_summary.get(job.primary_metric or "")
     if primary:
-        job.last_loss = max(primary, key=lambda p: (p.step or 0, p.wall_time or now)).value
+        job.last_loss = primary["last"]
+    return non_finite
+
+
+def is_system_metric(name: str) -> bool:
+    return name in SYSTEM_METRICS or name.startswith(SYSTEM_PREFIX)
 
 
 def choose_primary(names: Iterable[str]) -> str | None:
