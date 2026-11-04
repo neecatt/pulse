@@ -63,9 +63,15 @@ class MockSlurmClient:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._epoch = self._clock()
 
-    async def check(self, account: AccountRef) -> None:
+    public_key: str | None = None
+
+    async def check(self, account: AccountRef) -> str | None:
         if account.host.endswith(UNREACHABLE_SUFFIX):
             raise SlurmError(f"SSH to {account.host} failed: host unreachable")
+        return None
+
+    async def close(self) -> None:
+        return None
 
     async def snapshot(self, account: AccountRef) -> AccountSnapshot:
         await self.check(account)

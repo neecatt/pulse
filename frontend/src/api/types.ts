@@ -23,7 +23,8 @@ export interface Account {
 }
 
 export interface AccountCreate {
-  cluster: string;
+  /** Omit to let the server derive it from the host. */
+  cluster?: string;
   username: string;
   host: string;
   port?: number;
@@ -84,6 +85,19 @@ export interface PulseEvent {
 
 export interface Preferences {
   alerts: Record<EventKind, boolean>;
+}
+
+export interface SetupInfo {
+  slurm_backend: "mock" | "ssh";
+  /** Key users authorise on their cluster; null in demo (mock) mode. */
+  ssh_public_key: string | null;
+}
+
+/** Message on the /api/stream Server-Sent Events channel. */
+export interface LiveUpdate {
+  type: "update";
+  accounts: number[];
+  events: PulseEvent[];
 }
 
 export interface PushConfig {

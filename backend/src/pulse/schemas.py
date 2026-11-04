@@ -30,7 +30,8 @@ class ORMModel(BaseModel):
 
 
 class AccountCreate(BaseModel):
-    cluster: ClusterName
+    # Derived from the host when omitted ("login.lumi.csc.fi" -> "LUMI").
+    cluster: ClusterName | None = None
     username: Username
     host: Hostname
     port: int = Field(default=22, ge=1, le=65535)
@@ -57,6 +58,13 @@ class AccountOut(ORMModel):
 class AccountCheck(BaseModel):
     ok: bool
     error: str | None = None
+
+
+class SetupInfo(BaseModel):
+    """What the UI needs to guide account setup."""
+
+    slurm_backend: str
+    ssh_public_key: str | None
 
 
 # Jobs

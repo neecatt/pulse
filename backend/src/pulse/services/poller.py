@@ -3,7 +3,9 @@
 import asyncio
 import contextlib
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -12,6 +14,8 @@ from sqlalchemy.orm import selectinload
 from pulse.config import Settings
 from pulse.domain import Clock, EventKind, JobState
 from pulse.models import Account, Event, Job, JobMetric, utcnow
+from pulse.schemas import EventOut
+from pulse.services.broadcaster import Broadcaster
 from pulse.services.events import (
     DetectedEvent,
     is_near_time_limit,
@@ -24,12 +28,20 @@ from pulse.slurm import AccountRef, AccountSnapshot, JobTelemetry, SlurmClient, 
 logger = logging.getLogger(__name__)
 
 
+@dataclass(slots=True)
+class PollResult:
+    user_id: int
+    account_id: int
+    events: list[dict[str, Any]] = field(default_factory=list)
+
+
 class Poller:
     def __init__(
         self,
         sessions: async_sessionmaker[AsyncSession],
         client: SlurmClient,
         notifier: Notifier,
+        broadcaster: Broadcaster,
         settings: Settings,
         clock: Clock = utcnow,
     ) -> None:
@@ -37,6 +49,7 @@ class Poller:
         self._clock = clock
         self._client = client
         self._notifier = notifier
+        self._broadcaster = broadcaster
         self._settings = settings
         self._wakeup = asyncio.Event()
 
@@ -51,21 +64,42 @@ class Poller:
             except Exception:
                 logger.exception("poll cycle failed")
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._wakeup.wait(), self._settings.poll_interval_seconds)
+                await asyncio.wait_for(self._wakeup.wait(), self._interval())
             self._wakeup.clear()
+
+    def _interval(self) -> int:
+        s = self._settings
+        live = self._broadcaster.has_subscribers
+        return s.poll_interval_live_seconds if live else s.poll_interval_idle_seconds
 
     async def poll_all(self) -> None:
         async with self._sessions() as session:
             account_ids = list(await session.scalars(select(Account.id)))
         limit = asyncio.Semaphore(self._settings.poll_concurrency)
 
-        async def guarded(account_id: int) -> None:
+        async def guarded(account_id: int) -> PollResult | None:
             async with limit:
-                await self.poll_account(account_id)
+                return await self.poll_account(account_id)
 
-        await asyncio.gather(*(guarded(i) for i in account_ids))
+        results = await asyncio.gather(*(guarded(i) for i in account_ids))
+        self._publish([r for r in results if r is not None])
 
-    async def poll_account(self, account_id: int) -> None:
+    def _publish(self, results: list[PollResult]) -> None:
+        """One live update per user per cycle, so clients refetch once."""
+        by_user: dict[int, list[PollResult]] = {}
+        for result in results:
+            by_user.setdefault(result.user_id, []).append(result)
+        for user_id, items in by_user.items():
+            self._broadcaster.publish(
+                user_id,
+                {
+                    "type": "update",
+                    "accounts": [r.account_id for r in items],
+                    "events": [e for r in items for e in r.events],
+                },
+            )
+
+    async def poll_account(self, account_id: int) -> PollResult | None:
         async with self._sessions() as session:
             account = await session.get(
                 Account,
@@ -73,9 +107,15 @@ class Poller:
                 options=[selectinload(Account.jobs), selectinload(Account.user)],
             )
             if account is None:
-                return
+                return None
             now = self._clock()
-            ref = AccountRef(username=account.username, host=account.host, port=account.port)
+            result = PollResult(user_id=account.user_id, account_id=account.id)
+            ref = AccountRef(
+                username=account.username,
+                host=account.host,
+                port=account.port,
+                host_key=account.host_key,
+            )
             try:
                 snapshot = await self._client.snapshot(ref)
             except SlurmError as exc:
@@ -83,7 +123,7 @@ class Poller:
                 account.last_error = str(exc)[:500]
                 account.last_polled_at = now
                 await session.commit()
-                return
+                return result
 
             # The first poll of an account only records its jobs; announcing every
             # pre-existing job as "started" would flood the user.
@@ -91,10 +131,13 @@ class Poller:
             events = self._apply_snapshot(session, account, snapshot, now, announce=announce)
             account.last_polled_at = now
             account.last_error = None
+            account.host_key = account.host_key or snapshot.host_key
             await session.commit()
 
+            result.events = [EventOut.model_validate(e).model_dump(mode="json") for e in events]
             if events and account.notify:
                 await self._notifier.send_events(session, account.user_id, events)
+            return result
 
     def _apply_snapshot(
         self,

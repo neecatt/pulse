@@ -3,8 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type { Account, AccountCreate, AccountUpdate, Preferences } from "./types";
 
-// Polling cadence. The backend polls Slurm every 30s, so faster gains nothing.
-const LIVE_REFRESH_MS = 15_000;
+// Live data arrives over the /api/stream channel (see useLiveUpdates); this is
+// only a safety net in case the stream is down.
+const FALLBACK_REFRESH_MS = 60_000;
 
 export const queryKeys = {
   accounts: ["accounts"] as const,
@@ -13,13 +14,14 @@ export const queryKeys = {
   events: (limit: number) => ["events", limit] as const,
   preferences: ["preferences"] as const,
   pushConfig: ["push-config"] as const,
+  setup: ["setup"] as const,
 };
 
 export function useAccounts() {
   return useQuery({
     queryKey: queryKeys.accounts,
     queryFn: api.accounts.list,
-    refetchInterval: LIVE_REFRESH_MS,
+    refetchInterval: FALLBACK_REFRESH_MS,
   });
 }
 
@@ -27,7 +29,7 @@ export function useJobs() {
   return useQuery({
     queryKey: queryKeys.jobs,
     queryFn: () => api.jobs.list(),
-    refetchInterval: LIVE_REFRESH_MS,
+    refetchInterval: FALLBACK_REFRESH_MS,
   });
 }
 
@@ -35,7 +37,7 @@ export function useJob(id: number) {
   return useQuery({
     queryKey: queryKeys.job(id),
     queryFn: () => api.jobs.get(id),
-    refetchInterval: LIVE_REFRESH_MS,
+    refetchInterval: FALLBACK_REFRESH_MS,
   });
 }
 
@@ -43,12 +45,16 @@ export function useEvents(limit = 50) {
   return useQuery({
     queryKey: queryKeys.events(limit),
     queryFn: () => api.events.list(limit),
-    refetchInterval: LIVE_REFRESH_MS,
+    refetchInterval: FALLBACK_REFRESH_MS,
   });
 }
 
 export function usePreferences() {
   return useQuery({ queryKey: queryKeys.preferences, queryFn: api.preferences.get });
+}
+
+export function useSetup() {
+  return useQuery({ queryKey: queryKeys.setup, queryFn: api.setup, staleTime: Infinity });
 }
 
 export function usePushConfig() {
