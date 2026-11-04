@@ -9,6 +9,8 @@ import { EventItem } from "@/components/EventItem";
 import { JobRow } from "@/components/JobRow";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { Segmented } from "@/components/Segmented";
+import { SweepRow } from "@/components/SweepRow";
+import { groupSweeps, type Sweep } from "@/lib/runs";
 import { DAY_MS, HOUR_MS, MAX_COMPARE } from "@/config/constants";
 import { useUiSettings } from "@/lib/ui-settings";
 import { cn } from "@/lib/utils";
@@ -146,19 +148,27 @@ function JobsPage() {
             </EmptyState>
           ) : (
             <Card className="divide-y overflow-hidden">
-              {visible.map((job) => (
-                <JobRow
-                  key={job.id}
-                  job={job}
-                  account={accountMap.get(job.account_id)}
-                  {...(comparing && {
-                    selection: {
-                      selected: selected.includes(job.id),
-                      onToggle: () => toggleSelected(job.id),
-                    },
-                  })}
-                />
-              ))}
+              {listItems(visible, comparing).map((item) =>
+                item.kind === "sweep" ? (
+                  <SweepRow
+                    key={`sweep-${item.sweep.arrayId}-${item.sweep.tasks[0]?.account_id}`}
+                    sweep={item.sweep}
+                    account={accountMap.get(item.sweep.tasks[0]?.account_id ?? -1)}
+                  />
+                ) : (
+                  <JobRow
+                    key={item.job.id}
+                    job={item.job}
+                    account={accountMap.get(item.job.account_id)}
+                    {...(comparing && {
+                      selection: {
+                        selected: selected.includes(item.job.id),
+                        onToggle: () => toggleSelected(item.job.id),
+                      },
+                    })}
+                  />
+                ),
+              )}
             </Card>
           )}
         </div>
@@ -186,6 +196,33 @@ function JobsPage() {
       </div>
     </div>
   );
+}
+
+type ListItem = { kind: "job"; job: Job } | { kind: "sweep"; sweep: Sweep };
+
+/**
+ * Jobs in list order, with each job array collapsed into one sweep row where its
+ * first task appears. When selecting runs to compare, tasks stay individual.
+ */
+function listItems(jobs: Job[], comparing: boolean): ListItem[] {
+  if (comparing) return jobs.map((job) => ({ kind: "job", job }));
+  const sweeps = new Map(groupSweeps(jobs).map((s) => [sweepKey(s.tasks[0]!), s]));
+  const shown = new Set<string>();
+  const items: ListItem[] = [];
+  for (const job of jobs) {
+    const sweep = job.array_id ? sweeps.get(sweepKey(job)) : undefined;
+    if (!sweep) {
+      items.push({ kind: "job", job });
+    } else if (!shown.has(sweepKey(job))) {
+      shown.add(sweepKey(job));
+      items.push({ kind: "sweep", sweep });
+    }
+  }
+  return items;
+}
+
+function sweepKey(job: Job): string {
+  return `${job.account_id}:${job.array_id}`;
 }
 
 function matches(job: Job, search: string, account: Account | undefined): boolean {
