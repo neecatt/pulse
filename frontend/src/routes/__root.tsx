@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { HeadContent, Link, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { useLiveUpdates } from "@/hooks/use-live-updates";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: RootLayout,
@@ -9,10 +10,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootLayout() {
+  const live = useLiveUpdates();
   return (
     <>
       <HeadContent />
-      <AppShell>
+      <AppShell live={live}>
         <Outlet />
       </AppShell>
     </>
