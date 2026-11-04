@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Dialect, event
+from sqlalchemy import Column, Connection, DateTime, Dialect, event, inspect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -55,8 +55,46 @@ def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessi
 
 
 async def init_db(engine: AsyncEngine) -> None:
-    # Pilot only: replace with Alembic migrations before the schema needs to evolve.
+    """Create missing tables, and add columns that newer versions introduced."""
     from pulse import models  # noqa: F401  (register tables on Base.metadata)
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
+
+
+def _add_missing_columns(conn: Connection) -> None:
+    """Upgrade databases from older versions in place.
+
+    ``create_all`` never alters existing tables, so a column added in a new
+    version is added here and existing rows get its default. This covers
+    additive changes only; renames or new constraints need a real migration.
+    The database column stays nullable (SQLite can't add a NOT NULL column
+    without a constant default); the models still require a value.
+    """
+    inspector = inspect(conn)
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue  # just created with every column
+        existing = {column["name"] for column in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing:
+                continue
+            if column.primary_key or column.unique:
+                raise RuntimeError(f"Can't add key column {table.name}.{column.name} in place")
+            column_type = column.type.compile(conn.dialect)
+            conn.exec_driver_sql(
+                f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {column_type}'
+            )
+            if column.default is not None:
+                conn.execute(table.update().values({column.name: _default_value(column)}))
+            elif not column.nullable:
+                raise RuntimeError(f"New column {table.name}.{column.name} needs a default")
+
+
+def _default_value(column: Column[Any]) -> Any:
+    default = column.default
+    assert default is not None
+    if default.is_scalar:
+        return default.arg  # type: ignore[attr-defined]
+    return default.arg(None)  # type: ignore[attr-defined]  # callable, e.g. dict or utcnow
