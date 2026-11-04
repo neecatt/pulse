@@ -1,111 +1,136 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { accounts as initial, jobs } from "@/lib/mock";
+
+import {
+  useAccounts,
+  useCheckAccount,
+  useDeleteAccount,
+  useJobs,
+  useUpdateAccount,
+} from "@/api/queries";
+import type { Account } from "@/api/types";
+import { AccountDot } from "@/components/AccountDot";
+import { AccountForm } from "@/components/AccountForm";
+import { Button } from "@/components/Button";
+import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
+import { Toggle } from "@/components/Toggle";
+import { formatAgo } from "@/lib/format";
 
 export const Route = createFileRoute("/accounts")({
-  head: () => ({
-    meta: [
-      { title: "Accounts & alerts — Pulse" },
-      {
-        name: "description",
-        content: "Connect multiple HPC cluster accounts and choose which ones send job alerts.",
-      },
-      { property: "og:title", content: "Accounts & alerts — Pulse" },
-      { property: "og:description", content: "Manage HPC accounts and push alerts." },
-    ],
-  }),
-  component: Accounts,
+  head: () => ({ meta: [{ title: "Accounts — Pulse" }] }),
+  component: AccountsPage,
 });
 
-const alertTypes = [
-  "Job started",
-  "Job finished",
-  "Job failed",
-  "Training stalled (no log output 15 min)",
-  "Near time limit",
-];
-
-function Accounts() {
-  const [list, setList] = useState(initial);
-  const [alerts, setAlerts] = useState<Record<string, boolean>>(
-    Object.fromEntries(alertTypes.map((a) => [a, true])),
-  );
+function AccountsPage() {
+  const { data, error, isPending } = useAccounts();
+  const [adding, setAdding] = useState(false);
 
   return (
-    <div className="space-y-10">
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h1 className="text-lg font-medium">Accounts</h1>
-          <button className="rounded-md bg-foreground px-3 py-1.5 text-xs text-background">
-            + Add account
-          </button>
+    <div className="space-y-6">
+      <Section
+        title="HPC accounts"
+        action={!adding && <Button onClick={() => setAdding(true)}>+ Add account</Button>}
+      >
+        <div className="space-y-4">
+          {adding && (
+            <Card>
+              <AccountForm onDone={() => setAdding(false)} />
+            </Card>
+          )}
+          {error && <ErrorNotice error={error} />}
+          {isPending ? (
+            <LoadingRows rows={2} />
+          ) : data?.length ? (
+            <Card className="divide-y">
+              {data.map((a) => (
+                <AccountRow key={a.id} account={a} />
+              ))}
+            </Card>
+          ) : (
+            !adding && (
+              <EmptyState title="No accounts linked">
+                Add each cluster login you use; Pulse watches all of them together.
+              </EmptyState>
+            )
+          )}
         </div>
-        <ul className="divide-y rounded-lg border">
-          {list.map((a) => (
-            <li key={a.id} className="flex items-center gap-3 p-4">
-              <span className="size-2.5 rounded-sm" style={{ background: a.color }} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium">
-                  {a.user}@{a.cluster}
-                </div>
-                <div className="truncate font-mono text-xs text-muted-foreground">
-                  {a.host} · {jobs.filter((j) => j.accountId === a.id).length} jobs
-                </div>
-              </div>
-              <Toggle
-                on={a.notify}
-                onChange={(v) =>
-                  setList(list.map((x) => (x.id === a.id ? { ...x, notify: v } : x)))
-                }
-                label="Alerts"
-              />
-            </li>
-          ))}
-        </ul>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Accounts connect via SSH key or a lightweight agent on the login node.
-        </p>
-      </section>
+      </Section>
 
-      <section>
-        <h2 className="mb-3 text-lg font-medium">Push notifications</h2>
-        <ul className="divide-y rounded-lg border">
-          {alertTypes.map((t) => (
-            <li key={t} className="flex items-center justify-between p-4 text-sm">
-              {t}
-              <Toggle on={!!alerts[t]} onChange={(v) => setAlerts({ ...alerts, [t]: v })} />
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="rounded-lg border p-4 text-sm text-muted-foreground">
-        <div className="mb-1 font-medium text-foreground">Install on your phone</div>
-        iPhone: Share → Add to Home Screen. Android: menu → Install app.
-      </section>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Pulse connects to the login node over SSH using the server's key and runs read-only{" "}
+        <code className="font-mono">sacct</code> / <code className="font-mono">scontrol</code>{" "}
+        commands. Authorise the server's public key in{" "}
+        <code className="font-mono">~/.ssh/authorized_keys</code> on each cluster.
+      </p>
     </div>
   );
 }
 
-function Toggle({
-  on,
-  onChange,
-  label,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  label?: string;
-}) {
+function AccountRow({ account }: { account: Account }) {
+  const update = useUpdateAccount();
+  const remove = useDeleteAccount();
+  const check = useCheckAccount();
+  const { data: jobs } = useJobs();
+  const jobCount = jobs?.filter((j) => j.account_id === account.id).length;
+
+  const status = account.last_error
+    ? { text: account.last_error, className: "text-fail" }
+    : account.last_polled_at
+      ? {
+          text: [
+            jobCount !== undefined && `${jobCount} jobs`,
+            `synced ${formatAgo(account.last_polled_at)}`,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          className: "",
+        }
+      : { text: "Waiting for first sync…", className: "" };
+
   return (
-    <button
-      onClick={() => onChange(!on)}
-      aria-label={label ?? "toggle"}
-      aria-pressed={on}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-run" : "bg-muted"}`}
-    >
-      <span
-        className={`absolute top-0.5 size-4 rounded-full bg-background transition-all ${on ? "left-[18px]" : "left-0.5"}`}
-      />
-    </button>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-3 p-4">
+      <AccountDot color={account.color} className="size-2.5" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">
+          {account.username}@{account.cluster}
+        </div>
+        <div className="truncate font-mono text-xs text-muted-foreground">
+          {account.host}
+          {account.port !== 22 && `:${account.port}`}
+        </div>
+        <div className={`mt-1 truncate text-xs text-muted-foreground ${status.className}`}>
+          {status.text}
+        </div>
+        {check.data && (
+          <div className={`mt-1 text-xs ${check.data.ok ? "text-run" : "text-fail"}`}>
+            {check.data.ok ? "Connection OK" : check.data.error}
+          </div>
+        )}
+      </div>
+      <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+        <label className="mr-auto flex items-center gap-2 text-xs text-muted-foreground sm:mr-0">
+          Alerts
+          <Toggle
+            label={`Alerts for ${account.username}@${account.cluster}`}
+            checked={account.notify}
+            onChange={(notify) => update.mutate({ id: account.id, notify })}
+          />
+        </label>
+        <Button variant="ghost" onClick={() => check.mutate(account.id)} disabled={check.isPending}>
+          {check.isPending ? "Testing…" : "Test"}
+        </Button>
+        <Button
+          variant="danger"
+          disabled={remove.isPending}
+          onClick={() => {
+            if (confirm(`Remove ${account.username}@${account.cluster} and its job history?`)) {
+              remove.mutate(account.id);
+            }
+          }}
+        >
+          Remove
+        </Button>
+      </div>
+    </div>
   );
 }
