@@ -1,3 +1,5 @@
+import hmac
+
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
 
@@ -6,7 +8,15 @@ from pulse.auth.passwords import hash_password, verify_password
 from pulse.config import Settings
 from pulse.constants import SESSION_COOKIE
 from pulse.models import LoginSession, User
-from pulse.schemas import AuthStatus, Credentials, Login, LoginSessionOut, Me, PasswordChange
+from pulse.schemas import (
+    AuthStatus,
+    Credentials,
+    Login,
+    LoginSessionOut,
+    Me,
+    PasswordChange,
+    Setup,
+)
 from pulse.services.auth import (
     authenticate,
     resolve_session,
@@ -32,15 +42,22 @@ async def auth_status(request: Request, session: SessionDep, services: ServicesD
 
 @router.post("/setup", status_code=status.HTTP_201_CREATED)
 async def setup(
-    body: Credentials,
+    body: Setup,
     request: Request,
     response: Response,
     session: SessionDep,
     services: ServicesDep,
 ) -> Me:
-    """Create the first (admin) account. Only works while there are no accounts."""
+    """Create the first (admin) account, with the setup code from the server log.
+
+    Only works while there are no accounts."""
     if await user_count(session) > 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Pulse is already set up; sign in instead.")
+    code = services.setup_code
+    if code is None or not hmac.compare_digest(_normalise(body.setup_code), _normalise(code)):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Wrong setup code. It's printed in the server log."
+        )
     return await _create_and_sign_in(
         body, request, response, session, services.settings, admin=True
     )
@@ -177,6 +194,10 @@ def _secure(request: Request, settings: Settings) -> bool:
     if settings.secure_cookies == "auto":
         return request.url.scheme == "https"
     return settings.secure_cookies == "always"
+
+
+def _normalise(code: str) -> str:
+    return code.strip().upper().replace("-", "").replace(" ", "")
 
 
 def _client_address(request: Request) -> str:

@@ -9,6 +9,8 @@ import { ApiError } from "./api/client";
 import { setSignedIn } from "./api/queries";
 import { DEFAULT_STALE_MS } from "./config/constants";
 import { routeTree } from "./routeTree.gen";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
 import "./styles.css";
 
 const queryClient = new QueryClient({

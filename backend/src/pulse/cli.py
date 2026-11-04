@@ -28,9 +28,9 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
 
     serve = commands.add_parser("serve", help="run the API server")
-    serve.add_argument("--host", default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8000)
-    serve.add_argument("--reload", action="store_true")
+    serve.add_argument("--host", help="defaults to PULSE_HOST (127.0.0.1)")
+    serve.add_argument("--port", type=int, help="defaults to PULSE_PORT (8000)")
+    serve.add_argument("--reload", action="store_true", help="restart on code changes (dev)")
 
     commands.add_parser("gen-vapid", help="print a new VAPID key pair for Web Push")
 
@@ -45,12 +45,17 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "serve":
+        settings = get_settings()
         uvicorn.run(
             "pulse.main:create_app",
             factory=True,
-            host=args.host,
-            port=args.port,
+            host=args.host or settings.host,
+            port=args.port or settings.port,
             reload=args.reload,
+            # Behind a reverse proxy: take the client address and https scheme
+            # from X-Forwarded-* headers, but only from these proxies.
+            proxy_headers=True,
+            forwarded_allow_ips=settings.trusted_proxies,
         )
     elif args.command == "gen-vapid":
         _print_vapid_keys()

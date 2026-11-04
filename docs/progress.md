@@ -3,6 +3,37 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Self-hosting: image, HTTPS, CI (`feat/deployment`)
+
+- **Container image:** a multi-stage `Dockerfile` (Bun installs and Node builds
+  the web app; slim Python runtime, non-root, `/data` volume, health check).
+  257 MB, runs in about 70 MB of RAM. Verified locally: setup code in the logs,
+  sign-in, live stream, security headers, data and sessions surviving a
+  restart, healthy status.
+- **HTTPS:** `compose.yaml` runs Pulse behind Caddy with automatic Let's Encrypt
+  certificates; only Caddy is exposed. `docs/deployment.md` also covers
+  Tailscale (private HTTPS, no domain), running without Docker (systemd
+  unit), push setup, users, backups and a security checklist.
+- **Hardening:** first-run setup needs a one-time code from the server log;
+  short env admin passwords fail at startup; CSP and other security headers,
+  HSTS over HTTPS; forwarded headers trusted only from configured proxies;
+  fonts bundled (no Google Fonts), and no inline scripts.
+- **CI:** checks for both packages plus an image build on every PR; multi-arch
+  images (amd64, arm64) published to GHCR from `main` and `v*` tags; Dependabot.
+- **Open source:** README for new users, `CONTRIBUTING.md`, `SECURITY.md`
+  (private vulnerability reporting). A license is still to be chosen.
+
+## 2026-11-04 — Authentication (`feat/auth`)
+
+- Username/password sign-in with scrypt hashes (standard library) and revocable
+  cookie sessions. The admin account comes from `PULSE_ADMIN_*` env vars or
+  Docker secrets and follows them on restart; otherwise first-run setup in the
+  browser.
+- Sign-up off by default; login rate limiting; CSRF origin check; per-user data
+  isolation tested; `pulse create-user` / `reset-password` CLI.
+- UI: sign-in and setup screens; Settings → Your account (password, devices,
+  sign out).
+
 ## 2026-11-04 — Analysis, phase 2 (`feat/analysis`)
 
 - **Runs page** (`/runs`):

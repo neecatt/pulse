@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Docker/Kubernetes secrets: a file /run/secrets/pulse_admin_password sets
@@ -19,6 +19,11 @@ class Settings(BaseSettings):
         extra="ignore",
         secrets_dir=_SECRETS_DIR if _SECRETS_DIR.is_dir() else None,
     )
+
+    # Where `pulse serve` listens. Behind a reverse proxy keep 127.0.0.1;
+    # the container image sets 0.0.0.0.
+    host: str = "127.0.0.1"
+    port: int = 8000
 
     # Local state (database, generated SSH key). Created on startup.
     data_dir: Path = Path("data")
@@ -76,6 +81,17 @@ class Settings(BaseSettings):
     vapid_subject: str = "mailto:admin@example.com"  # set your own contact in .env
     push_ttl_seconds: int = 6 * 3600  # how long a push service keeps an undelivered alert
     push_timeout_seconds: float = 10.0
+
+    @field_validator("admin_password")
+    @classmethod
+    def _admin_password_is_strong(cls, value: SecretStr | None) -> SecretStr | None:
+        from pulse.constants import PASSWORD_MIN_LENGTH
+
+        if value is not None and len(value.get_secret_value()) < PASSWORD_MIN_LENGTH:
+            raise ValueError(
+                f"PULSE_ADMIN_PASSWORD must be at least {PASSWORD_MIN_LENGTH} characters"
+            )
+        return value
 
     @property
     def ssh_key_file(self) -> Path:

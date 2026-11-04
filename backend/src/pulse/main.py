@@ -16,9 +16,9 @@ from pulse.auth.rate_limit import LoginRateLimiter
 from pulse.config import Settings, get_settings
 from pulse.db import create_engine, create_session_factory, init_db
 from pulse.domain import Clock
-from pulse.middleware import OriginCheckMiddleware
+from pulse.middleware import OriginCheckMiddleware, SecurityHeadersMiddleware
 from pulse.models import utcnow
-from pulse.services.auth import sync_admin_from_env
+from pulse.services.auth import make_setup_code, sync_admin_from_env
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.container import Services
 from pulse.services.notifier import Notifier
@@ -50,8 +50,9 @@ def create_app(
         broadcaster = Broadcaster()
         poller = Poller(sessions, slurm, notifier, broadcaster, settings, clock)
         limiter = LoginRateLimiter(settings.login_max_failures, settings.login_window_seconds)
+        setup_code = await make_setup_code(sessions)
         app.state.services = Services(
-            settings, sessions, slurm, notifier, broadcaster, poller, limiter
+            settings, sessions, slurm, notifier, broadcaster, poller, limiter, setup_code
         )
 
         task = asyncio.create_task(poller.run_forever()) if run_poller else None
@@ -73,6 +74,7 @@ def create_app(
         allow_headers=["*"],
     )
     app.add_middleware(OriginCheckMiddleware, allowed_origins=settings.cors_origins)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(api_router, prefix="/api")
     if settings.static_dir is not None:
         # Serve the built web app from the same process: one port, one command.
