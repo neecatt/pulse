@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import shlex
+import socket
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -177,7 +178,7 @@ class SshSlurmClient:
                     "Authorise the key shown in the app on that cluster."
                 ) from exc
             except (OSError, asyncssh.Error) as exc:
-                raise SlurmError(f"SSH to {account.host} failed: {exc}") from exc
+                raise SlurmError(_describe_connect_error(account, exc)) from exc
             self._conns[key] = conn
             return conn
 
@@ -214,6 +215,17 @@ def _ensure_key_pair(private_path: Path) -> str:
     if public_path.exists():
         return public_path.read_text().strip()
     return asyncssh.read_private_key(private_path).export_public_key().decode().strip()
+
+
+def _describe_connect_error(account: AccountRef, exc: Exception) -> str:
+    where = account.host if account.port == 22 else f"{account.host}:{account.port}"
+    if isinstance(exc, socket.gaierror):
+        return f"Can't find {account.host}. Check the hostname."
+    if isinstance(exc, ConnectionRefusedError):
+        return f"{where} refused the connection. Check the host and SSH port."
+    if isinstance(exc, TimeoutError):
+        return f"{where} didn't respond. It may be down, or only reachable via VPN."
+    return f"SSH to {where} failed: {exc}"
 
 
 def _host_key(conn: asyncssh.SSHClientConnection) -> str | None:
