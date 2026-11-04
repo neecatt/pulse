@@ -3,6 +3,23 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Configuration and constants (`feat/analysis`)
+
+- Each kind of value now has one home (rule in `AGENTS.md`):
+  - `pulse/constants.py` and `src/config/constants.ts` hold the shared limits
+    that were scattered across about 15 modules.
+  - Operator tunables (SSH command timeout and keepalive, metric discovery and
+    node-stats intervals, push TTL/timeout) moved into `Settings`, so `.env`
+    can override them.
+  - `src/config/env.ts` is the only reader of build-time env vars.
+  - New `frontend/.env.example`; `backend/.env.example` documents every setting.
+- Lint guards: `os.environ`/`os.getenv` outside `Settings` (ruff TID251) and
+  `import.meta.env` outside `config/env.ts` (ESLint) fail the build.
+- Audit: no secrets were hardcoded. VAPID keys, database URL and SSH settings
+  were already env-only, the generated SSH key lives in gitignored `data/`, and
+  agent tokens are stored as hashes.
+- Extracted a `useCopy` hook (copy feedback was implemented twice).
+
 ## 2026-11-04 — Training metrics, phase 1 (`feat/metrics`)
 
 Monitoring features from TensorBoard and W&B, without users changing their
