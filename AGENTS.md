@@ -76,6 +76,10 @@ Run lint, types, and tests for every package you touched before committing.
   push it, open a PR with `gh pr create`, and merge with a merge commit once
   checks pass. Never commit straight to `main`, never force-push or rewrite
   pushed history.
+- **Platform-neutral `main`.** `main` (and its Dockerfile) target generic
+  self-hosting. Hosting-specific setup lives on long-lived `deploy/<platform>`
+  branches (currently `deploy/railway`), created from `main` and kept up to date
+  by merging `main` into them. Never merge a deploy branch back into `main`.
 - **Conventional Commits.** `type(scope): summary` in the imperative, ≤72 chars.
   Types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`,
   `chore`, `style`. Scopes: `backend`, `frontend`, `docs`, `repo`. One logical

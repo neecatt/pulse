@@ -1,7 +1,8 @@
 # Deploying Pulse
 
 Pulse ships as one container image, `ghcr.io/neecatt/hpc-monitoring-app`
-(multi-architecture: amd64 and arm64). It serves the web app and the API on
+(multi-architecture: amd64 and arm64). It runs on any Docker host, and on
+container platforms that set a `PORT` variable: Pulse listens on it. It serves the web app and the API on
 port 8000, keeps everything in `/data` (SQLite database and Pulse's SSH key),
 and is configured only through `PULSE_*` environment variables.
 
@@ -36,54 +37,7 @@ exposed; the Pulse container isn't reachable directly, which is why
 with `docker compose logs pulse | grep "setup code"`. This keeps a fresh public
 instance from being claimed by whoever finds it first.
 
-## 2. Railway (hosted, no server to manage)
-
-[Railway](https://railway.com) builds the image from this repository and gives
-it an `https://….up.railway.app` address, so it works on your phone right away.
-`railway.json` already configures the build, a single instance (Pulse uses
-SQLite) and the health check. Pulse needs about 70 MB of RAM, which fits
-Railway's smallest plan.
-
-1. **Create the service:** in Railway, choose **New Project → Deploy from GitHub
-   repo** and pick this repository (or your fork), branch `main`.
-2. **Add storage:** right-click the service → **Attach volume**, mount path
-   `/data`. Without it, every deploy starts from an empty database and a new SSH
-   key.
-3. **Set variables** (service → **Variables**):
-
-   | Variable                                            | Value                                            |
-   | --------------------------------------------------- | ------------------------------------------------ |
-   | `PULSE_ADMIN_USERNAME`                              | your admin username                              |
-   | `PULSE_ADMIN_PASSWORD`                              | a long password (10+ characters)                 |
-   | `PULSE_TRUSTED_PROXIES`                             | `*` (Railway's proxy is the only way in)         |
-   | `PULSE_VAPID_PUBLIC_KEY`, `PULSE_VAPID_PRIVATE_KEY` | from `pulse gen-vapid` (see below)               |
-   | `PULSE_VAPID_SUBJECT`                               | `mailto:you@example.org`                         |
-   | `PULSE_SLURM_BACKEND`                               | leave unset for real clusters; `mock` for a demo |
-
-   Generate the push keys once on your computer and keep them: new keys would
-   disconnect every phone that has notifications on.
-
-   ```sh
-   backend/.venv/bin/pulse gen-vapid      # or: docker run --rm ghcr.io/neecatt/hpc-monitoring-app pulse gen-vapid
-   ```
-
-4. **Get the address:** service → **Settings → Networking → Generate Domain**.
-   Railway sends traffic to the port it gives Pulse in `PORT`; nothing to set.
-5. Open the address on your phone, sign in, and install it (see
-   [Push notifications](#push-notifications)).
-
-Railway redeploys on every push to `main`. Logs are under the service's
-**Deployments** tab.
-
-**Clusters from Railway:**
-
-- **Direct SSH accounts:** connect from Railway's servers. Some HPC centres only
-  accept SSH from allow-listed addresses or block cloud providers, and
-  Railway's outgoing address isn't fixed on the basic plans.
-- **Agent accounts:** work as long as the login node can reach the
-  `….up.railway.app` address.
-
-## 3. Private, no domain (Tailscale)
+## 2. Private, no domain (Tailscale)
 
 [Tailscale](https://tailscale.com) gives the machine a private HTTPS address
 like `https://pulse-server.tail1234.ts.net`, reachable only from your devices.
@@ -104,7 +58,7 @@ Install Tailscale on your phone to use the app there.
 - **Cookies:** `PULSE_SECURE_COOKIES=always` keeps cookies `Secure`. Docker's
   port forwarding hides that requests arrived over HTTPS, so Pulse can't detect it.
 
-## 4. Without Docker
+## 3. Without Docker
 
 ```sh
 git clone https://github.com/neecatt/hpc-monitoring-app.git /opt/pulse && cd /opt/pulse

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Start Pulse as the unprivileged "pulse" user.
 #
-# Some hosts (Railway, for one) mount volumes owned by root, which the pulse user
-# couldn't write to. When started as root, fix the data directory's ownership
+# Volumes and bind mounts can be owned by root, which the pulse user couldn't
+# write to. When started as root, fix the data directory's ownership
 # first, then drop privileges for good before running Pulse.
 set -eu
 

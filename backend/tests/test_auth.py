@@ -213,7 +213,7 @@ async def test_no_setup_code_once_an_admin_is_configured(env_admin_settings: Set
 
 
 def test_port_follows_platform_port_variable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PORT", "4321")  # e.g. injected by Railway
+    monkeypatch.setenv("PORT", "4321")  # set by a hosting platform
     assert Settings(_env_file=None).port == 4321  # type: ignore[call-arg]
     monkeypatch.setenv("PULSE_PORT", "9000")  # an explicit PULSE_PORT wins
     assert Settings(_env_file=None).port == 9000  # type: ignore[call-arg]

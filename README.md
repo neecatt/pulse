@@ -41,10 +41,8 @@ docker compose up -d        # Pulse + Caddy with automatic HTTPS
 ```
 
 HTTPS is required for push notifications and for installing the app on a phone.
-[docs/deployment.md](docs/deployment.md) covers this setup,
-[Railway](docs/deployment.md#2-railway-hosted-no-server-to-manage) (hosted,
-no server to manage), a private setup with Tailscale (no domain needed),
-running without Docker, backups and upgrades.
+[docs/deployment.md](docs/deployment.md) covers this setup, a private one
+with Tailscale (no domain needed), running without Docker, backups and upgrades.
 
 ## Connecting clusters
 
