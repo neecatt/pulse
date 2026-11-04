@@ -43,5 +43,8 @@ export const MAX_AUTO_HPARAM_COLUMNS = 6;
 export const UI_SETTINGS_STORAGE_KEY = "pulse.ui";
 export const THEME_COLORS = { light: "#fcfcfc", dark: "#0e0f10" } as const;
 
+// Passwords: must match PASSWORD_MIN_LENGTH in backend/src/pulse/constants.py.
+export const PASSWORD_MIN_LENGTH = 10;
+
 // Feedback timing
 export const COPIED_FEEDBACK_MS = 1500;

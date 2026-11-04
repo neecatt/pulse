@@ -1,6 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { HeadContent, Link, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 
+import { useMe } from "@/api/queries";
+import { AuthScreen } from "@/components/AuthScreen";
 import { AppShell } from "@/components/layout/AppShell";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
 
@@ -10,14 +12,22 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootLayout() {
-  const live = useLiveUpdates();
+  const { data: me, isPending } = useMe();
   return (
     <>
       <HeadContent />
-      <AppShell live={live}>
-        <Outlet />
-      </AppShell>
+      {isPending ? null : me ? <SignedInApp /> : <AuthScreen />}
     </>
+  );
+}
+
+/** Mounted only while signed in, so the live stream never runs without a session. */
+function SignedInApp() {
+  const live = useLiveUpdates();
+  return (
+    <AppShell live={live}>
+      <Outlet />
+    </AppShell>
   );
 }
 

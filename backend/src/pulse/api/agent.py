@@ -5,8 +5,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from pulse.agent import SCRIPT_PATH
-from pulse.api.accounts import hash_token
 from pulse.api.deps import ServicesDep, SessionDep
+from pulse.auth.tokens import hash_token
 from pulse.metrics.ingest import load_cursors
 from pulse.models import Account, User
 from pulse.schemas import AgentReport, AgentReportAck

@@ -16,7 +16,11 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(320), unique=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    is_admin: Mapped[bool] = mapped_column(default=False)
+    # Password comes from PULSE_ADMIN_PASSWORD; it can't be changed in the app.
+    password_from_env: Mapped[bool] = mapped_column(default=False)
     # EventKind value -> enabled. Missing keys fall back to DEFAULT_ALERTS.
     alert_prefs: Mapped[dict[str, bool]] = mapped_column(JSON, default=dict)
     # Monitoring overrides (see schemas.Monitoring); missing keys use server defaults.
@@ -29,6 +33,25 @@ class User(Base):
     push_subscriptions: Mapped[list["PushSubscription"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    login_sessions: Mapped[list["LoginSession"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class LoginSession(Base):
+    """A signed-in browser. The cookie holds a random token; only its hash is kept."""
+
+    __tablename__ = "login_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    user_agent: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+    user: Mapped[User] = relationship(back_populates="login_sessions")
 
 
 class Account(Base):

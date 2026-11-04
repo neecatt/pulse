@@ -2,10 +2,11 @@ from collections.abc import AsyncIterator
 from typing import Annotated, cast
 
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pulse.constants import SESSION_COOKIE
 from pulse.models import Account, User
+from pulse.services.auth import resolve_session
 from pulse.services.container import Services
 
 
@@ -24,27 +25,25 @@ async def get_session(services: ServicesDep) -> AsyncIterator[AsyncSession]:
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-async def get_current_user(session: SessionDep, services: ServicesDep) -> User:
-    # Single-user stub: every request acts as the default user. Replace with real
-    # authentication (OIDC / passkeys); all queries are already scoped by user.
-    user = await _load_current_user(session, services)
-    if user is None:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "default user not initialised")
+async def _authenticated(request: Request, session: AsyncSession, services: Services) -> User:
+    token = request.cookies.get(SESSION_COOKIE)
+    resolved = await resolve_session(session, token, services.settings) if token else None
+    if resolved is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "sign in required")
+    user, login = resolved
+    request.state.login_session_id = login.id
     return user
 
 
-async def get_current_user_id(services: ServicesDep) -> int:
-    """Current user id without holding a DB session, for long-lived responses."""
+async def get_current_user(request: Request, session: SessionDep, services: ServicesDep) -> User:
+    """The signed-in user, from the session cookie; 401 otherwise."""
+    return await _authenticated(request, session, services)
+
+
+async def get_current_user_id(request: Request, services: ServicesDep) -> int:
+    """Signed-in user id without holding a DB session, for long-lived responses."""
     async with services.sessions() as session:
-        user = await _load_current_user(session, services)
-    if user is None:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "default user not initialised")
-    return user.id
-
-
-async def _load_current_user(session: AsyncSession, services: Services) -> User | None:
-    email = services.settings.default_user_email
-    return await session.scalar(select(User).where(User.email == email))
+        return (await _authenticated(request, session, services)).id
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]

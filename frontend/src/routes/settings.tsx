@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "@/api/client";
 import { useHealth, usePreferences, useSetup, useUpdatePreferences } from "@/api/queries";
 import type { EventKind, Monitoring } from "@/api/types";
+import { AccountSettings } from "@/components/AccountSettings";
 import { Button } from "@/components/Button";
 import { CopyButton } from "@/components/CopyButton";
 import { Card, Section } from "@/components/Section";
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/settings")({
 function SettingsPage() {
   return (
     <div className="space-y-10">
+      <AccountSettings />
       <Appearance />
       <JobsDisplay />
       <Notifications />
