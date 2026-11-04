@@ -9,6 +9,10 @@ export interface UiSettings {
   /** How far back finished jobs are listed in the "All" view. */
   historyHours: 6 | 24 | 48;
   showSparklines: boolean;
+  /** Chart options, TensorBoard-style. Smoothing is an EMA weight, 0..0.99. */
+  chartSmoothing: number;
+  chartLogScale: boolean;
+  chartXAxis: "step" | "time";
 }
 
 export const UI_DEFAULTS: UiSettings = {
@@ -18,6 +22,9 @@ export const UI_DEFAULTS: UiSettings = {
   defaultView: "active",
   historyHours: 48,
   showSparklines: true,
+  chartSmoothing: 0.6,
+  chartLogScale: false,
+  chartXAxis: "step",
 };
 
 // Keep in sync with the pre-paint theme script in index.html.

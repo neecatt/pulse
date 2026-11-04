@@ -1,11 +1,12 @@
 """Slurm access over SSH to a cluster login node."""
 
 import asyncio
+import base64
 import logging
 import shlex
 import socket
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,7 +16,25 @@ from asyncssh.known_hosts import KnownHostsArg
 
 from pulse.config import Settings
 from pulse.domain import JobState
-from pulse.slurm.base import AccountRef, AccountSnapshot, JobTelemetry, SlurmError, SlurmJob
+from pulse.metrics.discovery import (
+    CHUNK_BYTES,
+    CONFIG_MAX_BYTES,
+    CONFIG_NAMES,
+    MAX_CONFIG_FILES,
+    MAX_METRIC_FILES,
+    PRUNE_DIRS,
+    SEARCH_DEPTH,
+    classify,
+)
+from pulse.slurm.base import (
+    AccountRef,
+    AccountSnapshot,
+    Cursors,
+    FileChunk,
+    JobTelemetry,
+    SlurmError,
+    SlurmJob,
+)
 from pulse.slurm.parsing import (
     SACCT_FIELDS,
     SAFE_JOB_ID,
@@ -31,12 +50,16 @@ LOG_TAIL_LINES = 40
 COMMAND_TIMEOUT_S = 30
 GPU_QUERY_TIMEOUT_S = 15
 KEEPALIVE_INTERVAL_S = 60
+DISCOVERY_INTERVAL_S = 60  # `find` on shared filesystems is slow; don't repeat it often
+CHUNK_MARKER = "@@pulse-chunk"
 NVIDIA_SMI_QUERY = (
     "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits"
 )
 
 _ConnKey = tuple[str, str, int]
 _GpuSample = tuple[float, tuple[float | None, float | None]]
+_Found = list[tuple[str, int]]  # (path, size)
+_Discovery = tuple[float, _Found]
 
 
 class SshSlurmClient:
@@ -56,6 +79,7 @@ class SshSlurmClient:
         self._locks: dict[_ConnKey, asyncio.Lock] = {}
         # GPU queries start a job step, so sample them less often than we poll.
         self._gpu_cache: dict[str, _GpuSample] = {}
+        self._discovery_cache: dict[str, _Discovery] = {}
 
     @property
     def public_key(self) -> str | None:
@@ -66,11 +90,13 @@ class SshSlurmClient:
             await self._run(conn, "sacct --version")
             return _host_key(conn)
 
-    async def snapshot(self, account: AccountRef) -> AccountSnapshot:
+    async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
         async with self._session(account) as conn:
             jobs = parse_sacct(await self._run(conn, self._sacct_command(account.username)))
             running = [j for j in jobs if j.state is JobState.RUNNING]
-            results = await asyncio.gather(*(self._telemetry(conn, j) for j in running))
+            results = await asyncio.gather(
+                *(self._telemetry(conn, j, cursors.get(j.slurm_id, {})) for j in running)
+            )
             return AccountSnapshot(
                 jobs=jobs,
                 telemetry={j.slurm_id: t for j, t in zip(running, results, strict=True)},
@@ -90,13 +116,18 @@ class SshSlurmClient:
             f"-S now-{hours}hours -o {','.join(SACCT_FIELDS)}"
         )
 
-    async def _telemetry(self, conn: asyncssh.SSHClientConnection, job: SlurmJob) -> JobTelemetry:
+    async def _telemetry(
+        self, conn: asyncssh.SSHClientConnection, job: SlurmJob, cursors: Mapping[str, int]
+    ) -> JobTelemetry:
         if not SAFE_JOB_ID.match(job.slurm_id):
             return JobTelemetry()
         try:
             info = await self._run(conn, f"scontrol show job -o {job.slurm_id}")
             log_tail, log_mtime = await self._log_tail(conn, parse_scontrol_field(info, "StdOut"))
             gpu_util, gpu_mem = await self._gpu_usage(conn, job) if job.gpus else (None, None)
+            files = await self._metric_files(
+                conn, job.slurm_id, parse_scontrol_field(info, "WorkDir"), cursors
+            )
         except SlurmError as exc:
             logger.info("telemetry unavailable for job %s: %s", job.slurm_id, exc)
             return JobTelemetry()
@@ -108,7 +139,74 @@ class SshSlurmClient:
             gpu_mem=gpu_mem,
             log_tail=log_tail,
             log_updated_at=log_mtime,
+            files=files,
         )
+
+    async def _metric_files(
+        self,
+        conn: asyncssh.SSHClientConnection,
+        slurm_id: str,
+        work_dir: str | None,
+        cursors: Mapping[str, int],
+    ) -> list[FileChunk]:
+        """New bytes of metric/config files under the job's working directory."""
+        if not work_dir:
+            return []
+        found = await self._discover(conn, slurm_id, work_dir)
+        reads = []  # (path, offset, size, max bytes)
+        for path, size in found:
+            offset = cursors.get(path, 0)
+            if classify(path) == "config":
+                if offset != size:
+                    reads.append((path, 0, size, CONFIG_MAX_BYTES))
+            elif offset != size:
+                start = 0 if offset > size else offset  # truncated or rewritten
+                reads.append((path, start, size, CHUNK_BYTES))
+        if not reads:
+            return []
+        script = "; ".join(
+            f"echo {CHUNK_MARKER}; "
+            f"tail -c +{start + 1} {shlex.quote(path)} | head -c {limit} | base64"
+            for path, start, _, limit in reads
+        )
+        output = await self._run(conn, script)
+        bodies = output.split(f"{CHUNK_MARKER}\n")[1:]
+        return [
+            FileChunk(path, start, size, base64.b64decode(body))
+            for (path, start, size, _), body in zip(reads, bodies, strict=False)
+        ]
+
+    async def _discover(
+        self, conn: asyncssh.SSHClientConnection, slurm_id: str, work_dir: str
+    ) -> _Found:
+        cached = self._discovery_cache.get(slurm_id)
+        if cached and time.monotonic() - cached[0] < DISCOVERY_INTERVAL_S:
+            # Sizes change every poll, so refresh them for the known files only.
+            return await self._sizes(conn, [path for path, _ in cached[1]])
+        prune = " -o ".join(f"-name {shlex.quote(d)}" for d in PRUNE_DIRS)
+        names = ["events.out.tfevents.*", "*metric*.jsonl", "*metric*.csv", "progress.csv"]
+        names += CONFIG_NAMES
+        match = " -o ".join(f"-name {shlex.quote(n)}" for n in names)
+        command = (
+            f"timeout 20 find {shlex.quote(work_dir)} -maxdepth {SEARCH_DEPTH} "
+            f"\\( {prune} \\) -prune -o -type f \\( {match} \\) "
+            "-printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -200; true"
+        )
+        found = select_files(await self._run(conn, command))
+        self._discovery_cache[slurm_id] = (time.monotonic(), found)
+        return found
+
+    async def _sizes(self, conn: asyncssh.SSHClientConnection, paths: list[str]) -> _Found:
+        if not paths:
+            return []
+        quoted = " ".join(shlex.quote(p) for p in paths)
+        output = await self._run(conn, f"stat --printf '%s\\t%n\\n' {quoted} 2>/dev/null; true")
+        sizes = []
+        for line in output.splitlines():
+            size, _, path = line.partition("\t")
+            if size.isdigit():
+                sizes.append((path, int(size)))
+        return sizes
 
     async def _log_tail(
         self, conn: asyncssh.SSHClientConnection, path: str | None
@@ -200,6 +298,24 @@ class SshSlurmClient:
             stderr = str(result.stderr or "").strip()[:200]
             raise SlurmError(f"`{_program(command)}` exited {result.exit_status}: {stderr}")
         return str(result.stdout or "")
+
+
+def select_files(find_output: str) -> _Found:
+    """Pick the newest metric and config files from ``find -printf '%T@\\t%s\\t%p\\n'``
+    output (already sorted newest first)."""
+    metrics: _Found = []
+    configs: _Found = []
+    for line in find_output.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) != 3 or not parts[1].isdigit():
+            continue
+        kind = classify(parts[2])
+        bucket, limit = (
+            (configs, MAX_CONFIG_FILES) if kind == "config" else (metrics, MAX_METRIC_FILES)
+        )
+        if kind is not None and len(bucket) < limit:
+            bucket.append((parts[2], int(parts[1])))
+    return metrics + configs
 
 
 def _ensure_key_pair(private_path: Path) -> str:

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountsRouteImport } from './routes/accounts'
 import { Route as ActivityRouteImport } from './routes/activity'
+import { Route as CompareRouteImport } from './routes/compare'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as JobsJobIdRouteImport } from './routes/jobs.$jobId'
 
@@ -30,6 +31,11 @@ const ActivityRoute = ActivityRouteImport.update({
   path: '/activity',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CompareRoute = CompareRouteImport.update({
+  id: '/compare',
+  path: '/compare',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/accounts': typeof AccountsRoute
   '/activity': typeof ActivityRoute
+  '/compare': typeof CompareRoute
   '/settings': typeof SettingsRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/accounts': typeof AccountsRoute
   '/activity': typeof ActivityRoute
+  '/compare': typeof CompareRoute
   '/settings': typeof SettingsRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
 }
@@ -60,22 +68,32 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/accounts': typeof AccountsRoute
   '/activity': typeof ActivityRoute
+  '/compare': typeof CompareRoute
   '/settings': typeof SettingsRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/accounts' | '/activity' | '/settings' | '/jobs/$jobId'
+  fullPaths:
+    '/' | '/accounts' | '/activity' | '/compare' | '/settings' | '/jobs/$jobId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/accounts' | '/activity' | '/settings' | '/jobs/$jobId'
+  to:
+    '/' | '/accounts' | '/activity' | '/compare' | '/settings' | '/jobs/$jobId'
   id:
-    '__root__' | '/' | '/accounts' | '/activity' | '/settings' | '/jobs/$jobId'
+    | '__root__'
+    | '/'
+    | '/accounts'
+    | '/activity'
+    | '/compare'
+    | '/settings'
+    | '/jobs/$jobId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountsRoute: typeof AccountsRoute
   ActivityRoute: typeof ActivityRoute
+  CompareRoute: typeof CompareRoute
   SettingsRoute: typeof SettingsRoute
   JobsJobIdRoute: typeof JobsJobIdRoute
 }
@@ -103,6 +121,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/compare': {
+      id: '/compare'
+      path: '/compare'
+      fullPath: '/compare'
+      preLoaderRoute: typeof CompareRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -124,6 +149,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountsRoute: AccountsRoute,
   ActivityRoute: ActivityRoute,
+  CompareRoute: CompareRoute,
   SettingsRoute: SettingsRoute,
   JobsJobIdRoute: JobsJobIdRoute,
 }

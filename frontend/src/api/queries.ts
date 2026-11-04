@@ -1,7 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "./client";
-import type { Account, AccountCreate, AccountUpdate, PreferencesUpdate } from "./types";
+import type {
+  Account,
+  AccountCreate,
+  AccountUpdate,
+  JobMetrics,
+  JobUpdate,
+  PreferencesUpdate,
+} from "./types";
 
 // Live data arrives over the /api/stream channel (see useLiveUpdates); this is
 // only a safety net in case the stream is down.
@@ -11,6 +18,8 @@ export const queryKeys = {
   accounts: ["accounts"] as const,
   jobs: ["jobs"] as const,
   job: (id: number) => ["jobs", id] as const,
+  // Under ["jobs"], so live updates refresh open charts too.
+  jobMetrics: (id: number) => ["jobs", id, "metrics"] as const,
   events: (limit: number) => ["events", limit] as const,
   preferences: ["preferences"] as const,
   pushConfig: ["push-config"] as const,
@@ -39,6 +48,42 @@ export function useJob(id: number) {
     queryKey: queryKeys.job(id),
     queryFn: () => api.jobs.get(id),
     refetchInterval: FALLBACK_REFRESH_MS,
+  });
+}
+
+export function useJobMetrics(id: number) {
+  return useQuery({
+    queryKey: queryKeys.jobMetrics(id),
+    queryFn: () => api.jobs.metrics(id),
+    refetchInterval: FALLBACK_REFRESH_MS,
+  });
+}
+
+/** Metrics for several jobs at once (compare view); results keep `ids` order. */
+export function useJobsMetrics(ids: number[]): {
+  data: (JobMetrics | undefined)[];
+  isPending: boolean;
+} {
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: queryKeys.jobMetrics(id),
+      queryFn: () => api.jobs.metrics(id),
+    })),
+    combine: (results) => ({
+      data: results.map((r) => r.data),
+      isPending: results.some((r) => r.isPending),
+    }),
+  });
+}
+
+export function useUpdateJob(id: number) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: JobUpdate) => api.jobs.update(id, body),
+    onSuccess: (job) => {
+      client.setQueryData(queryKeys.job(id), job);
+      void client.invalidateQueries({ queryKey: queryKeys.jobs, exact: true });
+    },
   });
 }
 
