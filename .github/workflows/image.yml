@@ -70,3 +70,4 @@ jobs:
           repository: ${{ env.DOCKERHUB_IMAGE }}
           short-description: Self-hosted monitor for Slurm jobs and training runs, with push alerts.
           readme-filepath: ./README.md
+          enable-url-completion: true  # relative links and images work on Docker Hub
