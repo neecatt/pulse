@@ -60,18 +60,43 @@ function CredentialsForm({ mode }: { mode: Mode }) {
   const signIn = useSignIn(mode);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [setupCode, setSetupCode] = useState("");
   const creating = mode !== "login";
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    signIn.mutate({ username: username.trim(), password });
+    signIn.mutate({
+      username: username.trim(),
+      password,
+      ...(mode === "setup" ? { setup_code: setupCode.trim() } : {}),
+    });
   };
 
   return (
     <form onSubmit={submit} className="space-y-3">
+      {mode === "setup" && (
+        <div className="space-y-1.5">
+          <input
+            required
+            autoFocus
+            autoComplete="one-time-code"
+            autoCapitalize="characters"
+            spellCheck={false}
+            value={setupCode}
+            onChange={(e) => setSetupCode(e.target.value)}
+            placeholder="Setup code, e.g. 3F2A-9C1B-77D0"
+            aria-label="Setup code"
+            className={`${inputClass} font-mono`}
+          />
+          <p className="text-xs text-muted-foreground">
+            Printed in the server log when Pulse starts. With Docker:{" "}
+            <code className="font-mono">docker compose logs pulse | grep "setup code"</code>
+          </p>
+        </div>
+      )}
       <input
         required
-        autoFocus
+        autoFocus={mode !== "setup"}
         autoComplete="username"
         autoCapitalize="none"
         autoCorrect="off"
