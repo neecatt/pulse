@@ -339,7 +339,7 @@ make demo        # build and run the Docker image locally
 ## Images
 
 [`neecat/pulse`](https://hub.docker.com/r/neecat/pulse) on Docker Hub, mirrored to
-`ghcr.io/neecatt/hpc-monitoring-app`, for amd64 and arm64:
+`ghcr.io/neecatt/pulse`, for amd64 and arm64:
 
 | Tag                      | Contents                                         |
 | ------------------------ | ------------------------------------------------ |
