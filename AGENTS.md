@@ -10,6 +10,32 @@ more HPC accounts (cluster + username), sees every job across all of them in one
 place, follows training progress, and gets push notifications when jobs start,
 finish, fail, stall, or approach their time limit.
 
+## Product principles (non-negotiable)
+
+Every change is judged against these three rules. If a change breaks one,
+redesign it, or raise the trade-off explicitly in the PR.
+
+1. **Lightweight and easy to run.** One process (`make start`), SQLite, no
+   external services (no Redis, brokers, Docker or cloud dependencies) unless
+   there's no alternative. Add a dependency only when it removes more
+   complexity than it adds. Be gentle on clusters: reuse SSH connections, keep
+   Slurm calls few and cheap, and throttle anything that creates job steps.
+2. **Fast and real-time.** Users see job changes as they happen. The server
+   pushes updates over `/api/stream` (Server-Sent Events) right after each
+   poll; the UI never waits on a timer to show new data. Polling is adaptive:
+   fast while someone is watching, slow otherwise. Pages render from cached
+   data immediately and refresh in place, with no full-page spinners.
+3. **Simple and intuitive controls.** Anything a user does takes the fewest
+   steps possible and needs no documentation:
+   - Accept input the way people already write it (an account is just
+     `jdoe@lumi.csc.fi`); derive everything else, and make extra fields optional.
+   - Do the work for the user (generate keys, pin host keys, test the
+     connection immediately) and show progress and results in place.
+   - Errors say what went wrong and what to do next, in plain language: never a
+     raw stack trace, errno or HTTP code.
+   - Sensible defaults everywhere; settings exist only when users genuinely
+     differ. No modals-in-modals, wizards or multi-page forms.
+
 ## Layout
 
 ```
@@ -63,8 +89,13 @@ Run lint, types, and tests for every package you touched before committing.
 - `pulse/slurm/` is the only code that knows about Slurm. `SlurmClient` is the
   interface; `MockSlurmClient` simulates a cluster (default, `PULSE_SLURM_BACKEND=mock`),
   `SshSlurmClient` runs `sacct --json` over SSH (`PULSE_SLURM_BACKEND=ssh`).
-- `pulse/services/poller.py` polls each account, stores snapshots, and turns
-  state changes into `Event`s via the pure `diff_jobs()` in `services/events.py`.
+- `pulse/services/poller.py` polls each account, stores snapshots, turns state
+  changes into `Event`s (rules in `services/events.py`), and publishes one live
+  update per cycle through `services/broadcaster.py` to `/api/stream`. The
+  interval is 10 s while any client is connected and 60 s otherwise.
+- `SshSlurmClient` keeps one connection per account open, authenticates with a
+  key Pulse generates in `data/` (shown in the UI via `/api/setup`), and pins
+  each account's host key on first connect.
 - `pulse/services/notifier.py` fans events out to Web Push subscriptions.
 - Auth is a single-user stub (`api/deps.py:get_current_user`). Every query is
   already scoped by `user_id`, so real auth only needs to replace that dependency.
@@ -83,7 +114,8 @@ src/
 - File-based routes live in `src/routes/`; `src/routeTree.gen.ts` is generated
   by the router plugin on `dev`/`build`. Commit it, never hand-edit it.
 - Server data goes through the hooks in `src/api/queries.ts`; no ad-hoc `fetch`
-  in components. Live views refetch every 15 s.
+  in components. `hooks/use-live-updates.ts` listens on `/api/stream` and
+  invalidates the affected queries; timed refetching is only a 60 s fallback.
 - Styling: Tailwind v4 with tokens in `src/styles.css` (light + dark via
   `prefers-color-scheme`). Keep the UI minimal: monospace for data, neutral
   chrome, colour only for job state (`run`/`pend`/`fail`) and account identity
