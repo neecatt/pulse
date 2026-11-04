@@ -55,13 +55,6 @@ function AccountsPage() {
           )}
         </div>
       </Section>
-
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        Pulse connects to the login node over SSH using the server's key and runs read-only{" "}
-        <code className="font-mono">sacct</code> / <code className="font-mono">scontrol</code>{" "}
-        commands. Authorise the server's public key in{" "}
-        <code className="font-mono">~/.ssh/authorized_keys</code> on each cluster.
-      </p>
     </div>
   );
 }

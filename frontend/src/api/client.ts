@@ -10,9 +10,11 @@ import type {
   PulseEvent,
   PushConfig,
   PushSubscriptionJSON,
+  SetupInfo,
 } from "./types";
 
 const BASE_URL = `${import.meta.env["VITE_API_URL"] ?? ""}/api`;
+export const STREAM_URL = `${BASE_URL}/stream`;
 
 export class ApiError extends Error {
   constructor(
@@ -59,6 +61,7 @@ export interface JobFilters {
 }
 
 export const api = {
+  setup: () => request<SetupInfo>("/setup"),
   accounts: {
     list: () => request<Account[]>("/accounts"),
     create: (body: AccountCreate) =>

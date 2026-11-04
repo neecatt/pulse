@@ -2,6 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { Activity, Bell, Layers, Server, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { cn } from "@/lib/utils";
+
 interface NavItem {
   to: "/" | "/activity" | "/accounts" | "/settings";
   label: string;
@@ -16,13 +18,21 @@ const NAV: NavItem[] = [
 ];
 
 /** Top bar on desktop, bottom tab bar on phones (app-like when installed). */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, live }: { children: ReactNode; live: boolean }) {
   return (
     <div className="min-h-dvh">
       <header className="pt-safe sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <Link to="/" className="flex items-center gap-2 font-mono text-sm font-medium">
-            <span className="size-2 animate-pulse rounded-full bg-run" /> pulse
+            <span
+              title={live ? "Live" : "Reconnecting…"}
+              className={cn(
+                "size-2 rounded-full",
+                live ? "animate-pulse bg-run" : "bg-muted-foreground/50",
+              )}
+            />
+            pulse
+            <span className="sr-only">{live ? "(live)" : "(reconnecting)"}</span>
           </Link>
           <nav className="hidden gap-6 text-sm text-muted-foreground md:flex">
             {NAV.map((item) => (
