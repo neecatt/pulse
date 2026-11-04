@@ -3,6 +3,31 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Analysis, phase 2 (`feat/analysis`)
+
+- **Runs page** (`/runs`):
+  - Sortable table with the primary metric, a validation metric and the
+    hyperparameters that actually vary (picked automatically; a column picker
+    customises them).
+  - Sweep chips narrow it to one job array; select runs to compare.
+  - **Parallel coordinates:** one axis per hyperparameter, log scale chosen
+    automatically for values like learning rates, and the metric axis. Lines
+    are coloured best to worst, and hover is synced with the table.
+- **Sweeps:** job array tasks (`123_4`) group by array id. On the jobs list a
+  sweep is one collapsible row with task counts by state and an "Analyse" link.
+- **Metric alerts** (new event kinds, configurable in Settings):
+  - NaN/Inf loss.
+  - Diverging: smoothed loss more than X% above its best smoothed value, so
+    noise and one-off good batches don't trigger it.
+  - Plateau: no new best loss for N minutes.
+  - Backed by running per-metric summaries, so no history scans.
+- **Per-node usage:** one `srun` step samples CPU, memory and every GPU on
+  each node at most once a minute (also for CPU-only jobs). The job page shows
+  per-node CPU/memory/GPU charts and a live per-GPU grid.
+- Mock cluster: a 6-task learning-rate sweep where one unstable task diverges,
+  then goes NaN, about 5 and 15 minutes after startup.
+- 110 backend tests, 58 frontend tests.
+
 ## 2026-11-04 — Configuration and constants (`feat/analysis`)
 
 - Each kind of value now has one home (rule in `AGENTS.md`):
