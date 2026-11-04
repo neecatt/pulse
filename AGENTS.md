@@ -143,6 +143,12 @@ Run lint, types, and tests for every package you touched before committing.
   except health, `/auth/*` and the agent's token-authenticated routes. Keep
   `OriginCheckMiddleware` (CSRF) and `SecurityHeadersMiddleware` as plain ASGI,
   since `BaseHTTPMiddleware` breaks streaming responses.
+- Passkeys (`auth/webauthn.py`, `api/passkeys.py`, `lib/passkeys.ts`) sit
+  alongside passwords and use the `webauthn` library; never hand-roll WebAuthn
+  verification. The relying party comes from `PULSE_PUBLIC_URL` or the request's
+  own host. Challenges are single-use and kept in memory, one more reason Pulse
+  runs as one instance. `tests/softauthn.py` is a software authenticator for
+  end-to-end tests.
 
 ## Frontend notes
 

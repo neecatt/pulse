@@ -3,6 +3,25 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-04 — Passkeys (`feat/passkeys`)
+
+- Sign in with a passkey (Face ID, Touch ID, Windows Hello, security keys) as
+  well as a password. The sign-in screen has a passkey button, and the
+  username field offers saved passkeys through browser autofill (WebAuthn
+  conditional mediation), so signing in is a tap. After a password sign-in, a
+  one-time hint offers to add one; Settings lists and removes them.
+- Server: `webauthn` library; discoverable credentials (no username needed);
+  single-use challenges with a 5-minute TTL; origin and domain checked, so a
+  passkey response replayed from another site is rejected; optional
+  `PULSE_PUBLIC_URL` pins the domain.
+- Tests: a software authenticator (`tests/softauthn.py`) drives registration
+  and sign-in through real verification (phishing origin, replay, removed and
+  foreign passkeys, per-user isolation). In the browser, Chrome's virtual
+  authenticator ran password sign-in → add passkey → sign out → automatic
+  passkey sign-in.
+- Also: settings validation errors no longer echo rejected values (a
+  too-short `PULSE_ADMIN_PASSWORD` used to appear in the log).
+
 ## 2026-11-04 — Railway deployment (`feat/railway`)
 
 - `railway.json`: Dockerfile build, one replica (SQLite and in-memory live
