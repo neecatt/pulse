@@ -13,7 +13,10 @@ from sqlalchemy.orm import selectinload
 
 from pulse.config import Settings
 from pulse.domain import Clock, EventKind, JobState
-from pulse.models import Account, Event, Job, JobMetric, User, utcnow
+from pulse.metrics.ingest import ingest_files, load_cursors, store_points
+from pulse.metrics.logs import parse_log_metrics
+from pulse.metrics.model import Point
+from pulse.models import Account, Event, Job, User, utcnow
 from pulse.schemas import EventOut, Monitoring
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.events import (
@@ -148,8 +151,9 @@ class Poller:
                 port=account.port,
                 host_key=account.host_key,
             )
+            cursors = await load_cursors(session, account_id)
         try:
-            snapshot: AccountSnapshot | SlurmError = await self._client.snapshot(ref)
+            snapshot: AccountSnapshot | SlurmError = await self._client.snapshot(ref, cursors)
         except SlurmError as exc:
             logger.info("account %s unreachable: %s", account_id, exc)
             snapshot = exc
@@ -173,7 +177,10 @@ class Poller:
             account = await session.get(
                 Account,
                 account_id,
-                options=[selectinload(Account.jobs), selectinload(Account.user)],
+                options=[
+                    selectinload(Account.jobs).selectinload(Job.metric_files),
+                    selectinload(Account.user),
+                ],
             )
             if account is None:
                 return None
@@ -188,7 +195,7 @@ class Poller:
             # The first snapshot of an account only records its jobs; announcing
             # every pre-existing job as "started" would flood the user.
             announce = account.last_polled_at is not None
-            events = self._apply_snapshot(session, account, snapshot, now, announce=announce)
+            events = await self._apply_snapshot(session, account, snapshot, now, announce=announce)
             account.last_polled_at = now
             account.last_error = None
             account.host_key = account.host_key or snapshot.host_key
@@ -206,7 +213,7 @@ class Poller:
         elapsed = (now - account.last_polled_at).total_seconds()
         return elapsed + TICK_SECONDS / 2 >= self.interval_for(account.user)
 
-    def _apply_snapshot(
+    async def _apply_snapshot(
         self,
         session: AsyncSession,
         account: Account,
@@ -218,17 +225,19 @@ class Poller:
         rows = {job.slurm_id: job for job in account.jobs}
         monitoring = Monitoring.resolve(account.user.monitoring_prefs, self._settings)
         events: list[Event] = []
+        new_points: list[tuple[Job, list[Point]]] = []
         for slurm_job in snapshot.jobs:
             row = rows.get(slurm_job.slurm_id)
             previous_state = row.state if row else None
             if row is None:
-                row = Job(slurm_id=slurm_job.slurm_id)
+                # Column defaults apply only on INSERT; set what's read before then.
+                row = Job(slurm_id=slurm_job.slurm_id, metric_files=[], hparams={}, tags=[])
                 account.jobs.append(row)
             _copy_job_fields(row, slurm_job)
 
             telemetry = snapshot.telemetry.get(slurm_job.slurm_id)
             if telemetry is not None:
-                _record_telemetry(session, row, telemetry, now)
+                new_points.append((row, _record_telemetry(row, telemetry)))
 
             detected = self._detect(row, slurm_job, previous_state, telemetry, now, monitoring)
             if announce:
@@ -237,6 +246,9 @@ class Poller:
                     for d in detected
                 )
         session.add_all(events)
+        await session.flush()  # new jobs need ids before their points are stored
+        for row, points in new_points:
+            await store_points(session, row, points, now)
         return events
 
     def _detect(
@@ -296,22 +308,29 @@ def _copy_job_fields(row: Job, job: SlurmJob) -> None:
     row.exit_code = job.exit_code
 
 
-def _record_telemetry(session: AsyncSession, row: Job, t: JobTelemetry, now: datetime) -> None:
+def _record_telemetry(row: Job, t: JobTelemetry) -> list[Point]:
+    """Update the job's live fields and return its new metric points."""
     log_advanced = t.log_updated_at is not None and t.log_updated_at != row.log_updated_at
-    samples: dict[str, float | None] = {"gpu_util": t.gpu_util, "gpu_mem": t.gpu_mem}
-    # Only sample loss when the log moved, so a hung job doesn't draw a flat line.
+    points: list[Point] = []
+    # Only read the log when it moved, so a hung job doesn't draw a flat line.
     if log_advanced:
-        samples["loss"] = t.loss
-    session.add_all(
-        JobMetric(job=row, name=name, ts=now, value=value)
-        for name, value in samples.items()
+        points = parse_log_metrics(t.log_tail)
+        if not points and t.loss is not None:
+            points = [Point("loss", t.loss)]  # loss without a step number
+    points.extend(
+        Point(name, value)
+        for name, value in (("gpu_util", t.gpu_util), ("gpu_mem", t.gpu_mem))
         if value is not None
     )
+    points.extend(ingest_files(row, t.files))
+
     row.epoch = t.epoch or row.epoch
-    row.last_loss = t.loss if t.loss is not None else row.last_loss
+    if row.primary_metric is None and t.loss is not None:
+        row.last_loss = t.loss
     # GPU usage is sampled less often than jobs are polled; keep the last reading.
     row.gpu_util = t.gpu_util if t.gpu_util is not None else row.gpu_util
     row.gpu_mem = t.gpu_mem if t.gpu_mem is not None else row.gpu_mem
     if t.log_tail:
         row.log_tail = t.log_tail
     row.log_updated_at = t.log_updated_at
+    return points

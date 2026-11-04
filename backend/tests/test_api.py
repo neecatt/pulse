@@ -73,8 +73,37 @@ async def test_poll_populates_jobs_then_emits_events(
     running = next(j for j in (await client.get("/api/jobs")).json() if j["name"] == "llama-7b-sft")
     detail = (await client.get(f"/api/jobs/{running['id']}")).json()
     assert detail["log_tail"]
-    assert len(detail["series"]["loss"]) == 3
+    assert len(detail["series"]["gpu_util"]) == 3  # one sample per poll
     assert 0 < detail["time_used"] < 1
+    assert detail["primary_metric"] == "loss"
+    assert len(detail["loss_trend"]) > 1
+
+    metrics = (await client.get(f"/api/jobs/{running['id']}/metrics")).json()
+    # From stdout ("[step N] ... loss=... lr=...") and the job's metrics.jsonl.
+    assert {"loss", "lr", "train/loss", "train/acc", "val/loss"} <= set(metrics["metrics"])
+    steps = [p["s"] for p in metrics["metrics"]["train/loss"]]
+    assert steps == sorted(steps) and len(steps) == len(set(steps))  # no duplicates
+    assert len(steps) > 500  # 14 h of history, read in 256 KB chunks over 3 polls
+    assert metrics["hparams"]["optimizer.name"] == "adamw"
+    assert "gpu_util" not in metrics["metrics"]
+
+
+async def test_job_notes_and_tags(client: AsyncClient, services: Services) -> None:
+    account = await add_account(client)
+    await services.poller.poll_account(account["id"])
+    job = (await client.get("/api/jobs")).json()[0]
+
+    body = {"note": "  baseline run  ", "tags": ["baseline", "lr-sweep", "baseline"]}
+    updated = (await client.patch(f"/api/jobs/{job['id']}", json=body)).json()
+    assert updated["note"] == "baseline run"
+    assert updated["tags"] == ["baseline", "lr-sweep"]
+
+    await services.poller.poll_account(account["id"])  # annotations survive polling
+    listed = next(j for j in (await client.get("/api/jobs")).json() if j["id"] == job["id"])
+    assert listed["tags"] == ["baseline", "lr-sweep"]
+
+    too_long = await client.patch(f"/api/jobs/{job['id']}", json={"tags": ["x" * 40]})
+    assert too_long.status_code == 422
 
 
 async def test_poll_records_error_for_unreachable_account(

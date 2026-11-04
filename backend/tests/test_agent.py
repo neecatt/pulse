@@ -1,5 +1,6 @@
 """The login-node agent script and the server endpoints it talks to."""
 
+import base64
 import importlib.util
 import os
 import socket
@@ -17,6 +18,7 @@ from httpx import AsyncClient
 from pulse.agent import SCRIPT_PATH
 from pulse.config import Settings
 from pulse.main import create_app
+from pulse.metrics import discovery
 from pulse.services.container import Services
 from pulse.slurm.parsing import SACCT_FIELDS
 from tests.conftest import FakeClock
@@ -46,6 +48,14 @@ def agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     bin_dir.mkdir()
     log = tmp_path / "train-77.out"
     log.write_text("epoch 3/10 loss=0.731\n" * 3)
+    work_dir = tmp_path / "run"
+    (work_dir / "logs").mkdir(parents=True)
+    (work_dir / "logs" / "metrics.jsonl").write_text(
+        '{"step": 1, "train/loss": 2.0}\n{"step": 2, "train/loss": 1.5}\n'
+    )
+    (work_dir / "hparams.yaml").write_text("lr: 0.001\nbatch_size: 32\n")
+    (work_dir / ".git").mkdir()
+    (work_dir / ".git" / "metrics.jsonl").write_text("ignored\n")
     running = "77|train|gpu|RUNNING|1|cpu=8,gres/gpu=2|cpu=8,gres/gpu=2|gpu07"
     write_exe(
         bin_dir,
@@ -53,7 +63,9 @@ def agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
         f'echo "{running}|1767268800|1767269400|Unknown|600|1200|0:0"\n'
         'echo "76|prep|cpu|PENDING|1||cpu=4|None assigned|1767268800|Unknown|Unknown|60|0|0:0"',
     )
-    write_exe(bin_dir, "scontrol", f'echo "JobId=77 StdOut={log} StdErr=/dev/null"')
+    write_exe(
+        bin_dir, "scontrol", f'echo "JobId=77 StdOut={log} StdErr=/dev/null WorkDir={work_dir}"'
+    )
     write_exe(bin_dir, "srun", 'echo "60, 4000, 8000"; echo "80, 4000, 8000"')
     crontab_file = tmp_path / "crontab.txt"
     write_exe(
@@ -68,7 +80,9 @@ def agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.setattr(module, "CONFIG_DIR", str(config_dir))
     monkeypatch.setattr(module, "CONFIG_PATH", str(config_dir / "config.json"))
     monkeypatch.setattr(module, "LOCK_PATH", str(config_dir / "lock"))
+    monkeypatch.setattr(module, "STATE_PATH", str(config_dir / "state.json"))
     module.crontab_file = crontab_file  # type: ignore[attr-defined]
+    module.work_dir = work_dir  # type: ignore[attr-defined]
     return module
 
 
@@ -76,8 +90,53 @@ def test_agent_requests_the_columns_the_server_parses() -> None:
     assert load_agent().SACCT_FIELDS == SACCT_FIELDS
 
 
+def test_agent_finds_the_same_files_as_the_server() -> None:
+    agent = load_agent()
+    for name in (
+        "CHUNK_BYTES",
+        "CONFIG_MAX_BYTES",
+        "MAX_METRIC_FILES",
+        "MAX_CONFIG_FILES",
+        "SEARCH_DEPTH",
+        "PRUNE_DIRS",
+        "CONFIG_NAMES",
+    ):
+        assert getattr(agent, name) == getattr(discovery, name), name
+    for path in (
+        "/a/events.out.tfevents.1.host",
+        "/a/metrics.jsonl",
+        "/a/x_metrics.csv",
+        "/a/progress.csv",
+        "/a/hparams.yaml",
+        "/a/config.json",
+        "/a/data.csv",
+        "/a/n.txt",
+    ):
+        assert agent.classify(path) == discovery.classify(path), path
+
+
+def test_collect_sends_new_file_bytes_only(agent: ModuleType) -> None:
+    jsonl = str(agent.work_dir / "logs" / "metrics.jsonl")
+    config = str(agent.work_dir / "hparams.yaml")
+
+    files = {f["path"]: f for f in agent.collect(False, {}, {})["jobs"]["77"]["files"]}
+    assert set(files) == {jsonl, config}  # .git is pruned
+    assert files[jsonl]["offset"] == 0
+    assert base64.b64decode(files[jsonl]["data"]).count(b"\n") == 2
+
+    size = files[jsonl]["size"]
+    cursors = {"77": {jsonl: size, config: files[config]["size"]}}
+    assert agent.collect(False, cursors, {})["jobs"]["77"]["files"] == []
+
+    with open(jsonl, "a") as handle:
+        handle.write('{"step": 3, "train/loss": 1.1}\n')
+    (again,) = agent.collect(False, cursors, {})["jobs"]["77"]["files"]
+    assert again["offset"] == size
+    assert base64.b64decode(again["data"]) == b'{"step": 3, "train/loss": 1.1}\n'
+
+
 def test_collect_sends_raw_output_for_running_jobs(agent: ModuleType) -> None:
-    payload = agent.collect(include_gpu=True)
+    payload = agent.collect(True, {}, {})
 
     assert payload["error"] is None
     assert payload["sacct"].count("\n") == 2
@@ -86,12 +145,12 @@ def test_collect_sends_raw_output_for_running_jobs(agent: ModuleType) -> None:
     assert job["log_tail"][-1] == "epoch 3/10 loss=0.731"
     assert isinstance(job["log_mtime"], int)
     assert "60, 4000" in job["nvidia_smi"]
-    assert "nvidia_smi" not in agent.collect(include_gpu=False)["jobs"]["77"]
+    assert "nvidia_smi" not in agent.collect(False, {}, {})["jobs"]["77"]
 
 
 def test_collect_reports_slurm_failures(agent: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", "/nonexistent")
-    assert "sacct failed" in agent.collect(include_gpu=False)["error"]
+    assert "sacct failed" in agent.collect(False, {}, {})["error"]
 
 
 async def create_agent_account(client: AsyncClient) -> tuple[int, str]:
@@ -103,7 +162,7 @@ async def create_agent_account(client: AsyncClient) -> tuple[int, str]:
 
 async def test_report_requires_a_valid_token(client: AsyncClient, agent: ModuleType) -> None:
     await create_agent_account(client)
-    payload = agent.collect(include_gpu=False)
+    payload = agent.collect(False, {}, {})
     for header in ({}, {"Authorization": "Bearer nope"}, {"Authorization": "Basic x"}):
         response = await client.post("/api/agent/report", json=payload, headers=header)
         assert response.status_code == 401
@@ -120,17 +179,24 @@ async def test_reports_feed_jobs_events_and_status(
         "error": "Waiting for the agent's first report from the login node.",
     }
 
-    ack = await client.post("/api/agent/report", json=agent.collect(True), headers=auth)
-    assert ack.json() == {"next_report_in": 60}  # nobody watching: idle pace
+    ack = (
+        await client.post("/api/agent/report", json=agent.collect(True, {}, {}), headers=auth)
+    ).json()
+    assert ack["next_report_in"] == 60  # nobody watching: idle pace
+    jsonl = agent.work_dir / "logs" / "metrics.jsonl"
+    assert ack["cursors"]["77"][str(jsonl)] == len(jsonl.read_bytes())
     jobs = {j["slurm_id"]: j for j in (await client.get("/api/jobs")).json()}
     assert jobs["77"]["state"] == "RUNNING"
     assert jobs["77"]["epoch"] == "3/10"
     assert jobs["77"]["gpu_util"] == 70.0
     assert (await client.post(f"/api/accounts/{account_id}/check")).json()["ok"] is True
+    metrics = (await client.get(f"/api/jobs/{jobs['77']['id']}/metrics")).json()
+    assert [p["v"] for p in metrics["metrics"]["train/loss"]] == [2.0, 1.5]
+    assert metrics["hparams"] == {"lr": 0.001, "batch_size": 32}
 
     # Second report without GPU data keeps the last GPU reading.
     clock.advance(30)
-    await client.post("/api/agent/report", json=agent.collect(False), headers=auth)
+    await client.post("/api/agent/report", json=agent.collect(False, {}, {}), headers=auth)
     assert (await client.get("/api/jobs/1")).json()["gpu_util"] == 70.0
 
     # An agent-side error surfaces on the account.
@@ -147,7 +213,7 @@ async def test_new_token_revokes_the_old_one(client: AsyncClient, agent: ModuleT
     await client.post(f"/api/accounts/{account_id}/agent-token")
     response = await client.post(
         "/api/agent/report",
-        json=agent.collect(False),
+        json=agent.collect(False, {}, {}),
         headers={"Authorization": f"Bearer {old}"},
     )
     assert response.status_code == 401
@@ -163,7 +229,9 @@ async def test_poller_skips_agents_and_flags_silent_ones(
 ) -> None:
     _, token = await create_agent_account(client)
     await client.post(
-        "/api/agent/report", json=agent.collect(False), headers={"Authorization": f"Bearer {token}"}
+        "/api/agent/report",
+        json=agent.collect(False, {}, {}),
+        headers={"Authorization": f"Bearer {token}"},
     )
     await services.poller.poll_all()
     assert (await client.get("/api/accounts")).json()[0]["last_error"] is None
