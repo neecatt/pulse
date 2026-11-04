@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSshTarget } from "./ssh-target";
+import { describeSshTarget, parseSshTarget } from "./ssh-target";
 
 describe("parseSshTarget", () => {
   it.each([
@@ -12,14 +12,58 @@ describe("parseSshTarget", () => {
     ["ssh -i ~/.ssh/id jdoe@host.org", { username: "jdoe", host: "host.org", port: 22 }],
     ["ssh://jdoe@host.org:2222", { username: "jdoe", host: "host.org", port: 2222 }],
     ["ssh jdoe@host.org squeue", { username: "jdoe", host: "host.org", port: 22 }],
+    [
+      "ssh -J csnhr.nhr.fau.de b268dc21@alex.nhr.fau.de",
+      {
+        username: "b268dc21",
+        host: "alex.nhr.fau.de",
+        port: 22,
+        jump: { host: "csnhr.nhr.fau.de", port: 22 },
+      },
+    ],
+    [
+      "ssh -J gate@bastion.org:2222 -p 2200 jdoe@node.org",
+      {
+        username: "jdoe",
+        host: "node.org",
+        port: 2200,
+        jump: { host: "bastion.org", port: 2222, username: "gate" },
+      },
+    ],
+    [
+      "ssh -o ProxyJump=bastion.org jdoe@node.org",
+      { username: "jdoe", host: "node.org", port: 22, jump: { host: "bastion.org", port: 22 } },
+    ],
+    [
+      "ssh -J jdoe@bastion.org jdoe@node.org", // same user: not repeated
+      { username: "jdoe", host: "node.org", port: 22, jump: { host: "bastion.org", port: 22 } },
+    ],
   ])("%s", (input, expected) => {
     expect(parseSshTarget(input)).toEqual(expected);
   });
 
-  it.each(["", "ssh", "lumi.csc.fi", "jdoe@", "j doe@host", "jdoe@host:99999", "x;rm@host"])(
-    "rejects %j",
-    (input) => {
-      expect(parseSshTarget(input)).toBeNull();
-    },
-  );
+  it.each([
+    "",
+    "ssh",
+    "lumi.csc.fi",
+    "jdoe@",
+    "j doe@host",
+    "jdoe@host:99999",
+    "x;rm@host",
+    "ssh -J a.org,b.org jdoe@host.org", // chains of jump hosts aren't supported
+    "ssh -J 'bad host' jdoe@host.org",
+  ])("rejects %j", (input) => {
+    expect(parseSshTarget(input)).toBeNull();
+  });
+});
+
+describe("describeSshTarget", () => {
+  it("shows the login, port and jump host", () => {
+    const target = parseSshTarget("ssh -J gate@bastion.org:2222 -p 2200 jdoe@node.org");
+    expect(target && describeSshTarget(target)).toBe(
+      "jdoe on node.org:2200 via gate@bastion.org:2222",
+    );
+    const simple = parseSshTarget("jdoe@node.org");
+    expect(simple && describeSshTarget(simple)).toBe("jdoe on node.org");
+  });
 });
