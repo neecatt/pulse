@@ -53,7 +53,8 @@ def fake_slurm(process: asyncssh.SSHServerProcess[str]) -> None:
     elif command.startswith("stat -c %Y"):
         process.stdout.write(f"{int(time.time())}\n[step 10] epoch 2/5 loss=0.512\n")
     elif "srun" in command:
-        process.stdout.write("80, 1000, 2000\n90, 1000, 2000\n")
+        process.stdout.write("gpu001\tcpu\t40\ngpu001\tgpu\t0\t80\t1000\t2000\n")
+        process.stdout.write("gpu001\tgpu\t1\t90\t1000\t2000\n")
     else:
         process.exit(127)
         return

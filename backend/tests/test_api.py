@@ -142,6 +142,8 @@ async def test_monitoring_preferences(client: AsyncClient) -> None:
         "idle_refresh_seconds": 60,
         "stall_minutes": 15,
         "time_limit_warning_percent": 90,
+        "diverge_percent": 50,
+        "plateau_minutes": 60,
     }
 
     body = {"monitoring": {"stall_minutes": 30, "time_limit_warning_percent": 80}}

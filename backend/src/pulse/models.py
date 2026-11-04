@@ -94,6 +94,12 @@ class Job(Base):
     # Metric used for last_loss and the list sparkline ("loss", "train/loss", ...).
     primary_metric: Mapped[str | None] = mapped_column(String(128))
     hparams: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Per metric: last/min/max/ema/... (see metrics/summary.py).
+    metric_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Latest per-node usage: {node: {cpu, mem, gpus: [{util, mem}]}}.
+    node_stats: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Job array the task belongs to ("123" for "123_4"); groups sweeps.
+    array_id: Mapped[str | None] = mapped_column(String(64), index=True)
 
     # User annotations; kept across polls because jobs are upserted, not replaced.
     note: Mapped[str | None] = mapped_column(String(2000))
@@ -102,6 +108,9 @@ class Job(Base):
     # One-shot alert latches, so each warning fires once per job
     warned_time_limit: Mapped[bool] = mapped_column(default=False)
     warned_stall: Mapped[bool] = mapped_column(default=False)
+    warned_nan: Mapped[bool] = mapped_column(default=False)
+    warned_divergence: Mapped[bool] = mapped_column(default=False)
+    warned_plateau: Mapped[bool] = mapped_column(default=False)
 
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 

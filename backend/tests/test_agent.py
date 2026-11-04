@@ -20,7 +20,7 @@ from pulse.config import Settings
 from pulse.main import create_app
 from pulse.metrics import discovery
 from pulse.services.container import Services
-from pulse.slurm.parsing import SACCT_FIELDS
+from pulse.slurm.parsing import NODE_STATS_SCRIPT, SACCT_FIELDS
 from tests.conftest import FakeClock
 
 ACCOUNT = {"username": "alice", "host": "login.secure-hpc.example.org", "connection": "agent"}
@@ -66,7 +66,12 @@ def agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     write_exe(
         bin_dir, "scontrol", f'echo "JobId=77 StdOut={log} StdErr=/dev/null WorkDir={work_dir}"'
     )
-    write_exe(bin_dir, "srun", 'echo "60, 4000, 8000"; echo "80, 4000, 8000"')
+    write_exe(
+        bin_dir,
+        "srun",
+        "printf 'gpu07\\tcpu\\t50\\ngpu07\\tgpu\\t0\\t60\\t4000\\t8000\\n"
+        "gpu07\\tgpu\\t1\\t80\\t4000\\t8000\\n'",
+    )
     crontab_file = tmp_path / "crontab.txt"
     write_exe(
         bin_dir,
@@ -88,6 +93,10 @@ def agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
 def test_agent_requests_the_columns_the_server_parses() -> None:
     assert load_agent().SACCT_FIELDS == SACCT_FIELDS
+
+
+def test_agent_samples_nodes_with_the_server_script() -> None:
+    assert load_agent().NODE_STATS_SCRIPT == NODE_STATS_SCRIPT
 
 
 def test_agent_finds_the_same_files_as_the_server() -> None:
@@ -144,8 +153,8 @@ def test_collect_sends_raw_output_for_running_jobs(agent: ModuleType) -> None:
     job = payload["jobs"]["77"]
     assert job["log_tail"][-1] == "epoch 3/10 loss=0.731"
     assert isinstance(job["log_mtime"], int)
-    assert "60, 4000" in job["nvidia_smi"]
-    assert "nvidia_smi" not in agent.collect(False, {}, {})["jobs"]["77"]
+    assert "gpu07\tgpu\t0\t60" in job["node_stats"]
+    assert "node_stats" not in agent.collect(False, {}, {})["jobs"]["77"]
 
 
 def test_collect_reports_slurm_failures(agent: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:

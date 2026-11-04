@@ -71,8 +71,8 @@ def _summary_value(data: bytes) -> tuple[str, float] | None:
             (number,) = struct.unpack("<f", value)
         elif field == 8 and isinstance(value, bytes):
             number = _scalar_tensor(value)
-    if tag is None or number is None or number != number:  # drop NaN
-        return None
+    if tag is None or number is None:
+        return None  # NaN/Inf are kept: storage drops them but alerts need them
     return tag, float(number)
 
 

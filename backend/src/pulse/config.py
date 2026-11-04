@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     poll_concurrency: int = 8
     stall_minutes: int = 15
     time_limit_warning_ratio: float = 0.9
+    diverge_percent: int = 50  # smoothed loss this far above its best
+    plateau_minutes: int = 60  # no new best loss for this long
 
     # Web Push (generate with `pulse gen-vapid`)
     vapid_public_key: str | None = None
