@@ -1,0 +1,27 @@
+from fastapi import APIRouter, Query
+from sqlalchemy import select
+
+from pulse.api.deps import CurrentUser, SessionDep
+from pulse.models import Account, Event
+from pulse.schemas import EventOut
+
+router = APIRouter(prefix="/events", tags=["events"])
+
+
+@router.get("")
+async def list_events(
+    session: SessionDep,
+    user: CurrentUser,
+    account_id: int | None = None,
+    limit: int = Query(default=50, ge=1, le=500),
+) -> list[EventOut]:
+    query = (
+        select(Event)
+        .join(Account)
+        .where(Account.user_id == user.id)
+        .order_by(Event.created_at.desc(), Event.id.desc())
+        .limit(limit)
+    )
+    if account_id is not None:
+        query = query.where(Event.account_id == account_id)
+    return [EventOut.model_validate(e) for e in await session.scalars(query)]
