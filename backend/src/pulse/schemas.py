@@ -84,6 +84,10 @@ class Credentials(BaseModel):
     password: Password
 
 
+class Setup(Credentials):
+    setup_code: str = Field(max_length=32)
+
+
 class Login(BaseModel):
     username: str = Field(max_length=64)
     password: str = Field(max_length=PASSWORD_MAX_LENGTH)

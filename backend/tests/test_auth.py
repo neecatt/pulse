@@ -8,7 +8,7 @@ from pydantic import SecretStr
 from pulse.auth.passwords import hash_password, verify_password
 from pulse.config import Settings
 from pulse.main import create_app
-from tests.conftest import ADMIN
+from tests.conftest import ADMIN, setup_body
 
 
 def test_password_hashing() -> None:
@@ -28,13 +28,23 @@ async def test_api_requires_sign_in(anon: AsyncClient) -> None:
     assert (await anon.get("/api/agent/script")).status_code == 200
 
 
-async def test_first_run_setup_then_locked(anon: AsyncClient) -> None:
+async def test_first_run_setup_needs_the_logged_code(app: FastAPI, anon: AsyncClient) -> None:
+    wrong = await anon.post("/api/auth/setup", json=ADMIN | {"setup_code": "0000-0000-0000"})
+    assert wrong.status_code == 403
+    code = app.state.services.setup_code
+    relaxed = code.lower().replace("-", " ")  # typed loosely still works
+    assert (
+        await anon.post("/api/auth/setup", json=ADMIN | {"setup_code": relaxed})
+    ).status_code == 201
+
+
+async def test_first_run_setup_then_locked(app: FastAPI, anon: AsyncClient) -> None:
     assert (await anon.get("/api/auth/status")).json() == {
         "setup_required": True,
         "signup_allowed": False,
         "user": None,
     }
-    created = await anon.post("/api/auth/setup", json=ADMIN)
+    created = await anon.post("/api/auth/setup", json=setup_body(app))
     assert created.status_code == 201
     assert created.json()["is_admin"] is True
     assert "httponly" in created.headers["set-cookie"].lower()
@@ -42,7 +52,9 @@ async def test_first_run_setup_then_locked(anon: AsyncClient) -> None:
     assert (await anon.get("/api/auth/me")).json()["username"] == "admin"
     assert (await anon.get("/api/auth/status")).json()["user"]["username"] == "admin"
 
-    again = await anon.post("/api/auth/setup", json={"username": "eve", "password": "x" * 12})
+    again = await anon.post(
+        "/api/auth/setup", json=setup_body(app, {"username": "eve", "password": "x" * 12})
+    )
     assert again.status_code == 409
     assert (await anon.get("/api/auth/status")).json()["setup_required"] is False
 
@@ -57,10 +69,14 @@ async def test_login_logout(client: AsyncClient, anon: AsyncClient) -> None:
     assert (await anon.get("/api/jobs")).status_code == 200
 
 
-async def test_weak_credentials_are_rejected(anon: AsyncClient) -> None:
-    short = await anon.post("/api/auth/setup", json={"username": "admin", "password": "short"})
+async def test_weak_credentials_are_rejected(app: FastAPI, anon: AsyncClient) -> None:
+    short = await anon.post(
+        "/api/auth/setup", json=setup_body(app, {"username": "admin", "password": "short"})
+    )
     assert short.status_code == 422
-    bad_name = await anon.post("/api/auth/setup", json={"username": "a b", "password": "x" * 12})
+    bad_name = await anon.post(
+        "/api/auth/setup", json=setup_body(app, {"username": "a b", "password": "x" * 12})
+    )
     assert bad_name.status_code == 422
 
 
@@ -95,7 +111,9 @@ async def test_users_only_see_their_own_data(app: FastAPI, settings: Settings) -
         AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as alice,
         AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as bob,
     ):
-        await alice.post("/api/auth/setup", json={"username": "alice", "password": "x" * 12})
+        await alice.post(
+            "/api/auth/setup", json=setup_body(app, {"username": "alice", "password": "x" * 12})
+        )
         signup = await bob.post("/api/auth/signup", json={"username": "bob", "password": "y" * 12})
         assert signup.status_code == 201 and signup.json()["is_admin"] is False
 
@@ -165,3 +183,29 @@ async def test_admin_from_environment(env_admin_settings: Settings) -> None:
             "/api/auth/login", json={"username": "root", "password": "rotated-in-env-file"}
         )
         assert new.status_code == 200
+
+
+async def test_security_headers(anon: AsyncClient) -> None:
+    response = await anon.get("/api/health")
+    assert "script-src 'self'" in response.headers["content-security-policy"]
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert "strict-transport-security" not in response.headers  # plain http here
+
+
+async def test_hsts_over_https(app: FastAPI) -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as https:
+        response = await https.get("/api/health")
+    assert response.headers["strict-transport-security"].startswith("max-age=")
+
+
+def test_short_admin_password_is_rejected_at_startup() -> None:
+    with pytest.raises(ValueError, match="at least 10 characters"):
+        Settings(admin_username="admin", admin_password=SecretStr("admin"), _env_file=None)  # type: ignore[call-arg]
+
+
+async def test_no_setup_code_once_an_admin_is_configured(env_admin_settings: Settings) -> None:
+    app = create_app(env_admin_settings, run_poller=False)
+    async with app.router.lifespan_context(app):
+        assert app.state.services.setup_code is None
