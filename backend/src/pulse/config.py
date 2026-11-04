@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Docker/Kubernetes secrets: a file /run/secrets/pulse_admin_password sets
@@ -18,12 +18,15 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
         secrets_dir=_SECRETS_DIR if _SECRETS_DIR.is_dir() else None,
+        # Never echo rejected values (passwords, keys) into error messages and logs.
+        hide_input_in_errors=True,
     )
 
     # Where `pulse serve` listens. Behind a reverse proxy keep 127.0.0.1;
     # the container image sets 0.0.0.0.
     host: str = "127.0.0.1"
-    port: int = 8000
+    # PULSE_PORT, or PORT as set by hosting platforms (Railway, Render, Fly, Heroku).
+    port: int = Field(default=8000, validation_alias=AliasChoices("PULSE_PORT", "PORT"))
 
     # Local state (database, generated SSH key). Created on startup.
     data_dir: Path = Path("data")
