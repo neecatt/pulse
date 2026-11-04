@@ -58,11 +58,16 @@ async def anon(app: FastAPI) -> AsyncIterator[AsyncClient]:
         yield c
 
 
+def setup_body(app: FastAPI, credentials: dict[str, str] = ADMIN) -> dict[str, str]:
+    """First-run setup request, with the one-time code the server logged."""
+    return credentials | {"setup_code": app.state.services.setup_code}
+
+
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     """A client signed in as the admin created through first-run setup."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        response = await c.post("/api/auth/setup", json=ADMIN)
+        response = await c.post("/api/auth/setup", json=setup_body(app))
         assert response.status_code == 201, response.text
         yield c
 

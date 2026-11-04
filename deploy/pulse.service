@@ -1,0 +1,28 @@
+# Run Pulse without Docker, as a systemd service behind a reverse proxy.
+#
+#   sudo cp deploy/pulse.service /etc/systemd/system/
+#   sudo systemctl enable --now pulse
+#
+# Assumes the repository at /opt/pulse with `make install` and `bun run build`
+# done, and settings in /opt/pulse/backend/.env (owned by the pulse user, mode 600).
+
+[Unit]
+Description=Pulse HPC monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pulse
+WorkingDirectory=/opt/pulse/backend
+Environment=PULSE_STATIC_DIR=/opt/pulse/frontend/dist
+ExecStart=/opt/pulse/backend/.venv/bin/pulse serve
+Restart=on-failure
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/pulse/backend/data
+
+[Install]
+WantedBy=multi-user.target

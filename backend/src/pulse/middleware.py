@@ -3,9 +3,41 @@ with streaming responses such as the live update stream."""
 
 import json
 
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from pulse.constants import CONTENT_SECURITY_POLICY, HSTS_MAX_AGE_SECONDS
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+class SecurityHeadersMiddleware:
+    """Hardening headers on every response; HSTS only when served over HTTPS."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        https = scope.get("scheme") == "https"
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+                headers.setdefault("X-Content-Type-Options", "nosniff")
+                headers.setdefault("X-Frame-Options", "DENY")
+                headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+                headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+                if https:
+                    headers.setdefault(
+                        "Strict-Transport-Security", f"max-age={HSTS_MAX_AGE_SECONDS}"
+                    )
+            await send(message)
+
+        await self._app(scope, receive, send_with_headers)
 
 
 class OriginCheckMiddleware:

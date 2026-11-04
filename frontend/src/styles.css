@@ -27,8 +27,9 @@
   --color-acc-3: var(--acc-3);
   --color-acc-4: var(--acc-4);
   --color-acc-5: var(--acc-5);
-  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  /* Bundled with the app (@fontsource): no requests to third-party font CDNs. */
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
   --radius-lg: 0.625rem;
 }
 

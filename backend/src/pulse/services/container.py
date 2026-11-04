@@ -21,3 +21,4 @@ class Services:
     broadcaster: Broadcaster
     poller: Poller
     login_limiter: LoginRateLimiter
+    setup_code: str | None  # required to create the first account; None once set up

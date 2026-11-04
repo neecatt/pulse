@@ -1,6 +1,7 @@
 """Accounts, sign-in sessions and the environment-managed admin."""
 
 import logging
+import secrets
 from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, select, update
@@ -33,8 +34,6 @@ async def sync_admin_from_env(
         if not (settings.admin_username and settings.admin_password):
             await session.execute(update(User).values(password_from_env=False))
             await session.commit()
-            if await user_count(session) == 0:
-                logger.warning("No users yet: open Pulse in a browser to create the admin account.")
             return
 
         password = settings.admin_password.get_secret_value()
@@ -50,6 +49,24 @@ async def sync_admin_from_env(
         user.is_admin = True
         user.password_from_env = True
         await session.commit()
+
+
+async def make_setup_code(sessions: async_sessionmaker[AsyncSession]) -> str | None:
+    """A one-time code required to create the first account, or None if not needed.
+
+    Printed to the server log, so only someone with access to the server can claim
+    a fresh instance; otherwise whoever reached a new public URL first would.
+    """
+    async with sessions() as session:
+        if await user_count(session) > 0:
+            return None
+    code = "-".join(secrets.token_hex(2).upper() for _ in range(3))
+    logger.warning(
+        "No accounts yet. Open Pulse in a browser and enter setup code %s to create the "
+        "admin account (or set PULSE_ADMIN_USERNAME and PULSE_ADMIN_PASSWORD).",
+        code,
+    )
+    return code
 
 
 async def user_count(session: AsyncSession) -> int:

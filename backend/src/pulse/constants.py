@@ -61,6 +61,26 @@ POLL_TICK_SECONDS = 5  # how often the poller checks which accounts are due
 # Web Push
 PUSH_EXPIRED_STATUSES = frozenset({404, 410})
 
+# Security headers. Everything the web app loads is same-origin (fonts are
+# bundled); inline styles are allowed because React sets style attributes.
+CONTENT_SECURITY_POLICY = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "manifest-src 'self'",
+        "worker-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]
+)
+HSTS_MAX_AGE_SECONDS = 365 * 24 * 3600
+
 # Authentication
 SESSION_COOKIE = "pulse_session"
 SESSION_RENEW_SECONDS = 3600  # extend a session's expiry at most hourly

@@ -39,7 +39,7 @@ export const MAX_COMPARE = RUN_COLORS.length;
 // Runs table: hyperparameter columns picked automatically (those that differ).
 export const MAX_AUTO_HPARAM_COLUMNS = 6;
 
-// Per-device settings storage; keep in sync with the pre-paint script in index.html.
+// Per-device settings storage; keep in sync with the pre-paint script in public/theme.js.
 export const UI_SETTINGS_STORAGE_KEY = "pulse.ui";
 export const THEME_COLORS = { light: "#fcfcfc", dark: "#0e0f10" } as const;
 
