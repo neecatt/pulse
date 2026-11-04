@@ -33,3 +33,4 @@ __pycache__/
 
 # Local tooling output
 .playwright-mcp/
+backend/data/
