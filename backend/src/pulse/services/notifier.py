@@ -6,14 +6,16 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+import requests
 from pywebpush import WebPushException, webpush
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from pulse.config import Settings
-from pulse.constants import DEFAULT_VAPID_SUBJECT, PUSH_EXPIRED_STATUSES
+from pulse.constants import DEFAULT_VAPID_SUBJECT, PUSH_EXPIRED_STATUSES, PUSH_SERVICE_HOSTS
 from pulse.domain import resolve_alerts
 from pulse.models import Event, PushSubscription, User
+from pulse.net import is_push_endpoint
 from pulse.services.push_keys import PushKeys
 
 logger = logging.getLogger(__name__)
@@ -24,10 +26,19 @@ class Notifier:
         self._settings = settings
         self._keys = keys
         self._subject = settings.vapid_subject or settings.public_url or DEFAULT_VAPID_SUBJECT
+        self._push_hosts = (*PUSH_SERVICE_HOSTS, *settings.push_extra_hosts)
+        # Never follow redirects: a push service doesn't send them, and following one
+        # could lead the server to an address it was never allowed to reach.
+        self._http = requests.Session()
+        self._http.max_redirects = 0
 
     @property
     def public_key(self) -> str:
         return self._keys.public_key
+
+    def accepts(self, endpoint: str) -> bool:
+        """Whether Pulse will deliver to this push endpoint (see PUSH_SERVICE_HOSTS)."""
+        return is_push_endpoint(endpoint, self._push_hosts)
 
     async def send_events(
         self, session: AsyncSession, user_id: int, events: Sequence[Event]
@@ -62,6 +73,9 @@ class Notifier:
 
     async def _deliver(self, sub: PushSubscription, payload: dict[str, Any]) -> tuple[bool, bool]:
         """Returns (delivered, subscription_expired)."""
+        if not self.accepts(sub.endpoint):  # stored before endpoints were checked
+            logger.warning("dropping push subscription %s to an unsupported host", sub.id)
+            return False, True
         try:
             await asyncio.to_thread(
                 webpush,
@@ -75,6 +89,7 @@ class Notifier:
                 vapid_claims={"sub": self._subject},
                 ttl=self._settings.push_ttl_seconds,
                 timeout=self._settings.push_timeout_seconds,
+                requests_session=self._http,
             )
         except WebPushException as exc:
             status = exc.response.status_code if exc.response is not None else None

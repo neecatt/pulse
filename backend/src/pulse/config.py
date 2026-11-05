@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     vapid_public_key: str | None = None
     vapid_private_key: str | None = None
     vapid_subject: str | None = None  # contact for push services; defaults to public_url
+    # More push service hosts to allow, besides the major browsers' (constants.py).
+    push_extra_hosts: list[str] = []
     push_ttl_seconds: int = 6 * 3600  # how long a push service keeps an undelivered alert
     push_timeout_seconds: float = 10.0
 

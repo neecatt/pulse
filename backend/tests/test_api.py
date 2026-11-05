@@ -160,7 +160,10 @@ async def test_push_subscription_lifecycle(client: AsyncClient) -> None:
     config = (await client.get("/api/push/config")).json()
     assert len(config["public_key"]) == 87  # generated on startup: base64url P-256 point
 
-    sub = {"endpoint": "https://push.example.com/abc", "keys": {"p256dh": "k", "auth": "a"}}
+    sub = {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+        "keys": {"p256dh": "k", "auth": "a"},
+    }
     assert (await client.post("/api/push/subscriptions", json=sub)).status_code == 204
     assert (await client.post("/api/push/subscriptions", json=sub)).status_code == 204  # upsert
 
