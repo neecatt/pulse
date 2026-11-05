@@ -20,7 +20,7 @@ class DetectedEvent:
 _TERMINAL_EVENTS: dict[JobState, EventKind] = {
     JobState.COMPLETED: EventKind.JOB_COMPLETED,
     JobState.FAILED: EventKind.JOB_FAILED,
-    JobState.TIMEOUT: EventKind.JOB_FAILED,
+    JobState.TIMEOUT: EventKind.JOB_TIMED_OUT,
     JobState.CANCELLED: EventKind.JOB_CANCELLED,
 }
 
@@ -49,7 +49,7 @@ def _terminal_message(job: SlurmJob) -> str:
         case JobState.CANCELLED:
             return f"{job.name} was cancelled"
         case JobState.TIMEOUT:
-            return f"{job.name} hit its time limit"
+            return f"{job.name} ran until its time limit ({format_duration(job.elapsed_s)})"
         case _:
             detail = job.reason or (f"exit code {job.exit_code}" if job.exit_code else "")
             return f"{job.name} failed" + (f" — {detail}" if detail else "")

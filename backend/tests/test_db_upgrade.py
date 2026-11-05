@@ -6,7 +6,8 @@ import pytest
 from sqlalchemy import select, text
 
 from pulse.db import create_engine, create_session_factory, init_db
-from pulse.models import Account, User
+from pulse.domain import EventKind, JobState
+from pulse.models import Account, Event, Job, User
 
 # The accounts table as v0.1.0 created it, before jump hosts.
 OLD_ACCOUNTS = """
@@ -51,4 +52,31 @@ async def test_old_database_gains_new_columns(old_database: str) -> None:
 
         tables = (await session.execute(text("SELECT name FROM sqlite_master"))).scalars()
         assert "passkeys" in set(tables)  # missing tables are still created
+    await engine.dispose()
+
+
+async def test_past_time_limits_are_no_longer_called_failures(old_database: str) -> None:
+    engine = create_engine(old_database)
+    await init_db(engine)
+    sessions = create_session_factory(engine)
+    async with sessions() as session:
+        for job_id, state in ((1, JobState.TIMEOUT), (2, JobState.FAILED)):
+            session.add(
+                Job(
+                    id=job_id,
+                    account_id=1,
+                    slurm_id=str(job_id),
+                    name="t",
+                    partition="gpu",
+                    state=state,
+                )
+            )
+            session.add(Event(account_id=1, job_id=job_id, kind=EventKind.JOB_FAILED, message="m"))
+        await session.commit()
+
+    await init_db(engine)  # what an upgraded server does on start
+
+    async with sessions() as session:
+        kinds = dict((await session.execute(select(Event.job_id, Event.kind))).all())
+    assert kinds == {1: EventKind.JOB_TIMED_OUT, 2: EventKind.JOB_FAILED}
     await engine.dispose()
