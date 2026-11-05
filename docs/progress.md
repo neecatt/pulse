@@ -3,6 +3,11 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Release 0.2.2
+
+- Jobs that run until their time limit are no longer reported as failed (see
+  below).
+
 ## 2026-11-05 — Time limits aren't failures (`fix/timeout-not-failed`)
 
 - A job that runs until its time limit (Slurm `TIMEOUT`) was reported as
