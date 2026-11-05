@@ -11,7 +11,8 @@ data_dir="${PULSE_DATA_DIR:-/data}"
 if [ "$(id -u)" = "0" ]; then
   mkdir -p "$data_dir"
   chown -R pulse:pulse "$data_dir"
-  exec setpriv --reuid=1000 --regid=1000 --init-groups "$@"
+  # setpriv keeps root's environment; give the pulse user its own home.
+  HOME=/home/pulse exec setpriv --reuid=1000 --regid=1000 --init-groups "$@"
 fi
 
 exec "$@"

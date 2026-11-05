@@ -270,6 +270,12 @@ class SshSlurmClient:
                     known_hosts=self._known_hosts(hop),
                     connect_timeout=self._settings.ssh_connect_timeout_seconds,
                     keepalive_interval=self._settings.ssh_keepalive_seconds,
+                    # Use only Pulse's own key and pins: no ~/.ssh/config, no
+                    # ssh-agent, no X.509 certificate folders from $HOME.
+                    config=None,
+                    agent_path=None,
+                    x509_trusted_certs=None,
+                    x509_trusted_cert_paths=[],
                     **({"tunnel": tunnel} if tunnel is not None else {}),
                 )
             except asyncssh.HostKeyNotVerifiable as exc:
