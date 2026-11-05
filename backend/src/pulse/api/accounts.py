@@ -6,8 +6,9 @@ from sqlalchemy import func, select
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep, get_owned_account
 from pulse.auth.tokens import hash_token, new_token
 from pulse.constants import ACCOUNT_PALETTE_SIZE
-from pulse.models import Account
+from pulse.models import Account, User
 from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate, AgentToken
+from pulse.services.teams import visible_account_ids
 from pulse.slurm import SlurmError
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -18,10 +19,19 @@ _GENERIC_LABELS = {"login", "ssh", "gateway", "access", "frontend", "hpc", "clus
 
 @router.get("")
 async def list_accounts(session: SessionDep, user: CurrentUser) -> list[AccountOut]:
-    accounts = await session.scalars(
-        select(Account).where(Account.user_id == user.id).order_by(Account.id)
+    """Your accounts, then the ones teammates share with you (read-only)."""
+    rows = await session.execute(
+        select(Account, User.username)
+        .join(User, Account.user_id == User.id)
+        .where(Account.id.in_(visible_account_ids(user.id)))
+        .order_by(Account.user_id != user.id, User.username, Account.id)
     )
-    return [AccountOut.model_validate(a) for a in accounts]
+    return [
+        AccountOut.model_validate(account).model_copy(
+            update={"owner": None if account.user_id == user.id else owner}
+        )
+        for account, owner in rows.all()
+    ]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

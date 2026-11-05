@@ -41,14 +41,19 @@ class Notifier:
         return is_push_endpoint(endpoint, self._push_hosts)
 
     async def send_events(
-        self, session: AsyncSession, user_id: int, events: Sequence[Event]
+        self,
+        session: AsyncSession,
+        user_id: int,
+        events: Sequence[Event],
+        shared_by: str | None = None,
     ) -> None:
-        """Push each event the user has alerts enabled for to all their devices."""
+        """Push each event the user has alerts enabled for to all their devices.
+        ``shared_by`` names the account's owner when it's a teammate's account."""
         if not events:
             return
         user = await self._load_user(session, user_id)
         alerts = resolve_alerts(user.alert_prefs)
-        payloads = [_event_payload(e) for e in events if alerts[e.kind]]
+        payloads = [_event_payload(e, shared_by) for e in events if alerts[e.kind]]
         await self._fan_out(session, user, payloads)
 
     async def send_test(self, session: AsyncSession, user_id: int) -> int:
@@ -120,10 +125,11 @@ class Notifier:
         return user
 
 
-def _event_payload(event: Event) -> dict[str, Any]:
+def _event_payload(event: Event, shared_by: str | None = None) -> dict[str, Any]:
     account = event.account
+    label = f"{account.username}@{account.cluster}"
     return {
-        "title": f"{account.username}@{account.cluster}",
+        "title": f"{shared_by} · {label}" if shared_by else label,
         "body": event.message,
         "url": f"/jobs/{event.job_id}" if event.job_id else "/",
         "tag": f"job-{event.job_id}" if event.job_id else f"event-{event.id}",

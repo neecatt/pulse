@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -29,6 +30,7 @@ from pulse.services.events import (
     state_change_event,
 )
 from pulse.services.notifier import Notifier
+from pulse.services.teams import audience, audiences, team_members
 from pulse.slurm import AccountSnapshot, JobTelemetry, SlurmClient, SlurmError, SlurmJob
 from pulse.slurm.base import NodeStats
 from pulse.slurm.parsing import mean_gpu_usage
@@ -41,6 +43,8 @@ class PollResult:
     user_id: int
     account_id: int
     events: list[dict[str, Any]] = field(default_factory=list)
+    # Everyone who sees this account live: the owner, plus their team if it's shared.
+    viewers: set[int] = field(default_factory=set)
 
 
 class Poller:
@@ -78,10 +82,12 @@ class Poller:
                 force = True  # trigger(): new account, app opened, settings changed
             self._wakeup.clear()
 
-    def interval_for(self, user: User) -> int:
-        """Seconds between polls of a user's accounts: fast while they're watching."""
-        monitoring = Monitoring.resolve(user.monitoring_prefs, self._settings)
-        if self._broadcaster.has_subscribers_for(user.id):
+    def interval_for(self, owner: User, viewers: Iterable[int] = ()) -> int:
+        """Seconds between polls of an account, by its owner's settings: fast while
+        the owner, or a teammate it's shared with, is watching."""
+        monitoring = Monitoring.resolve(owner.monitoring_prefs, self._settings)
+        watching = {owner.id, *viewers}
+        if any(self._broadcaster.has_subscribers_for(uid) for uid in watching):
             return monitoring.live_refresh_seconds
         return monitoring.idle_refresh_seconds
 
@@ -94,7 +100,8 @@ class Poller:
                 .where(Account.connection == "direct")
                 .options(selectinload(Account.user))
             )
-            account_ids = [a.id for a in direct if force or self._is_due(a, now)]
+            teams = await audiences(session)
+            account_ids = [a.id for a in direct if force or self._is_due(a, now, teams)]
             stale = await self._flag_silent_agents(session)
         limit = asyncio.Semaphore(self._settings.poll_concurrency)
 
@@ -123,15 +130,19 @@ class Poller:
                 "directly instead (with a jump host if needed). Otherwise see "
                 "~/.config/pulse-agent/agent.log on the login node."
             )
-            results.append(PollResult(user_id=account.user_id, account_id=account.id))
+            viewers = await audience(session, account)
+            results.append(
+                PollResult(user_id=account.user_id, account_id=account.id, viewers=viewers)
+            )
         await session.commit()
         return results
 
     def _publish(self, results: list[PollResult]) -> None:
-        """One live update per user per cycle, so clients refetch once."""
+        """One live update per viewer per cycle, so clients refetch once."""
         by_user: dict[int, list[PollResult]] = {}
         for result in results:
-            by_user.setdefault(result.user_id, []).append(result)
+            for viewer in result.viewers or {result.user_id}:
+                by_user.setdefault(viewer, []).append(result)
         for user_id, items in by_user.items():
             self._broadcaster.publish(
                 user_id,
@@ -184,7 +195,11 @@ class Poller:
             if account is None:
                 return None
             now = self._clock()
-            result = PollResult(user_id=account.user_id, account_id=account.id)
+            result = PollResult(
+                user_id=account.user_id,
+                account_id=account.id,
+                viewers=await audience(session, account),
+            )
             if isinstance(snapshot, SlurmError):
                 account.last_error = str(snapshot)[:500]
                 account.last_polled_at = now
@@ -203,14 +218,21 @@ class Poller:
             result.events = [EventOut.model_validate(e).model_dump(mode="json") for e in events]
             if events and account.notify:
                 await self._notifier.send_events(session, account.user_id, events)
+            if events and account.shared:
+                for member in await team_members(session, account.user_id):
+                    if member.alerts:  # members opt in to the team's alerts
+                        await self._notifier.send_events(
+                            session, member.user_id, events, shared_by=account.user.username
+                        )
             return result
 
-    def _is_due(self, account: Account, now: datetime) -> bool:
+    def _is_due(self, account: Account, now: datetime, teams: dict[int, set[int]]) -> bool:
         if account.last_polled_at is None:
             return True
+        viewers = teams.get(account.user_id, set()) if account.shared else set()
         # A tick of slack so a 10 s interval doesn't slip to 15 s on a 5 s tick.
         elapsed = (now - account.last_polled_at).total_seconds()
-        return elapsed + POLL_TICK_SECONDS / 2 >= self.interval_for(account.user)
+        return elapsed + POLL_TICK_SECONDS / 2 >= self.interval_for(account.user, viewers)
 
     async def _apply_snapshot(
         self,

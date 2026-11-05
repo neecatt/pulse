@@ -54,6 +54,7 @@ class AccountCreate(BaseModel):
 class AccountUpdate(BaseModel):
     cluster: ClusterName | None = None
     notify: bool | None = None
+    shared: bool | None = None  # visible to the owner's team
 
 
 class AccountOut(ORMModel):
@@ -70,6 +71,10 @@ class AccountOut(ORMModel):
     jump_username: str | None
     last_polled_at: datetime | None
     last_error: str | None
+    shared: bool
+    # Username of the account's owner when it's shared with you by a teammate;
+    # None for your own accounts (only those can be changed).
+    owner: str | None = None
 
 
 class AgentToken(BaseModel):
@@ -299,6 +304,64 @@ class EventOut(ORMModel):
     kind: EventKind
     message: str
     created_at: datetime
+
+
+# Teams
+
+TeamName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+
+
+class TeamCreate(BaseModel):
+    name: TeamName
+
+
+class TeamMemberOut(BaseModel):
+    user_id: int
+    username: str
+    joined_at: datetime
+
+
+class TeamInviteOut(ORMModel):
+    id: int
+    created_at: datetime
+    expires_at: datetime
+
+
+class NewTeamInvite(TeamInviteOut):
+    token: str  # shown once; the link is /join/<token>
+
+
+class OwnedTeam(BaseModel):
+    id: int
+    name: str
+    members: list[TeamMemberOut]
+    invites: list[TeamInviteOut]  # pending, not yet used or expired
+
+
+class TeamMembership(BaseModel):
+    """A team you belong to, owned by someone else."""
+
+    team_id: int
+    name: str
+    owner: str
+    alerts: bool
+    joined_at: datetime
+
+
+class TeamOverview(BaseModel):
+    owned: OwnedTeam | None
+    memberships: list[TeamMembership]
+
+
+class MembershipUpdate(BaseModel):
+    alerts: bool
+
+
+class InviteInfo(BaseModel):
+    """What an invite link shows before you join."""
+
+    team: str
+    owner: str
 
 
 # Preferences & push

@@ -60,6 +60,57 @@ class Passkey(Base):
     user: Mapped[User] = relationship(back_populates="passkeys")
 
 
+class Team(Base):
+    """A user's team: members see the accounts the owner shares, read-only."""
+
+    __tablename__ = "teams"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,  # one team per owner
+    )
+    name: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+    owner: Mapped[User] = relationship()
+    members: Mapped[list["TeamMember"]] = relationship(
+        back_populates="team", cascade="all, delete-orphan"
+    )
+    invites: Mapped[list["TeamInvite"]] = relationship(
+        back_populates="team", cascade="all, delete-orphan"
+    )
+
+
+class TeamMember(Base):
+    __tablename__ = "team_members"
+    __table_args__ = (UniqueConstraint("team_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # Push alerts for the team's shared jobs; off until the member opts in.
+    alerts: Mapped[bool] = mapped_column(default=False)
+    joined_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+    team: Mapped[Team] = relationship(back_populates="members")
+    user: Mapped[User] = relationship()
+
+
+class TeamInvite(Base):
+    """A single-use invite link. Only the token's hash is stored."""
+
+    __tablename__ = "team_invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+    team: Mapped[Team] = relationship(back_populates="invites")
+
+
 class LoginSession(Base):
     """A signed-in browser. The cookie holds a random token; only its hash is kept."""
 
@@ -103,6 +154,8 @@ class Account(Base):
     # "direct": Pulse polls the cluster. "agent": an agent on the login node reports in.
     connection: Mapped[str] = mapped_column(String(16), default="direct")
     agent_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    # Visible (read-only) to the members of the owner's team.
+    shared: Mapped[bool] = mapped_column(default=False)
 
     user: Mapped[User] = relationship(back_populates="accounts")
 

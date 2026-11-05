@@ -11,6 +11,7 @@ from pulse.metrics.ingest import load_cursors
 from pulse.models import Account, User
 from pulse.schemas import AgentReport, AgentReportAck
 from pulse.services.agent_reports import snapshot_from_report
+from pulse.services.teams import audience
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -40,7 +41,7 @@ async def agent_report(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid agent token")
     user = await session.get(User, account.user_id)
     assert user is not None  # enforced by the foreign key
-    next_report_in = services.poller.interval_for(user)
+    next_report_in = services.poller.interval_for(user, await audience(session, account))
     account_id = account.id
     await session.rollback()  # release the connection before the (separate) ingest
 

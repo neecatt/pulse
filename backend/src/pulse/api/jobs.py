@@ -18,6 +18,7 @@ from pulse.schemas import (
     MetricPoint,
     StepPoint,
 )
+from pulse.services.teams import can_view, visible_account_ids
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -31,7 +32,7 @@ async def list_jobs(
     account_id: int | None = None,
     state: JobState | None = None,
 ) -> list[JobOut]:
-    query = select(Job).join(Account).where(Account.user_id == user.id)
+    query = select(Job).where(Job.account_id.in_(visible_account_ids(user.id)))
     if account_id is not None:
         query = query.where(Job.account_id == account_id)
     if state is not None:
@@ -49,7 +50,7 @@ async def list_jobs(
 
 @router.get("/{job_id}")
 async def get_job(job_id: int, session: SessionDep, user: CurrentUser) -> JobDetailOut:
-    job = await _get_owned_job(session, user, job_id)
+    job = await _get_visible_job(session, user, job_id)
     rows = await session.execute(
         select(JobMetric.name, JobMetric.ts, JobMetric.value)
         .where(JobMetric.job_id == job.id, system_metric_filter())
@@ -72,7 +73,7 @@ async def get_job(job_id: int, session: SessionDep, user: CurrentUser) -> JobDet
 async def update_job(
     job_id: int, body: JobUpdate, session: SessionDep, user: CurrentUser
 ) -> JobDetailOut:
-    """Set a job's note and/or tags."""
+    """Set a job's note and/or tags. Only the account's owner can; team members read."""
     job = await _get_owned_job(session, user, job_id)
     if body.note is not None:
         job.note = body.note.strip() or None
@@ -90,7 +91,7 @@ async def get_job_metrics(
     max_points: int = Query(default=CHART_POINTS, ge=10, le=5000),
 ) -> JobMetrics:
     """All training metrics of a job (system metrics excluded), downsampled per metric."""
-    job = await _get_owned_job(session, user, job_id)
+    job = await _get_visible_job(session, user, job_id)
     rows = await session.execute(
         select(JobMetric.name, JobMetric.step, JobMetric.ts, JobMetric.value)
         .where(JobMetric.job_id == job.id, ~system_metric_filter())
@@ -106,6 +107,14 @@ async def get_job_metrics(
         hparams=job.hparams,
         files=list(files),
     )
+
+
+async def _get_visible_job(session: AsyncSession, user: User, job_id: int) -> Job:
+    """A job the user may read: their own, or one on an account shared with their team."""
+    job = await session.get(Job, job_id)
+    if job is None or not await can_view(session, user.id, job.account_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
+    return job
 
 
 async def _get_owned_job(session: AsyncSession, user: User, job_id: int) -> Job:
