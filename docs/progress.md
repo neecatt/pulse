@@ -3,6 +3,10 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Release 0.2.4
+
+- The landing page fits phones (see below).
+
 ## 2026-11-05 — Landing page on phones (`fix/landing-mobile`)
 
 - The hero grid sized its one phone column to the preview's longest line, so
