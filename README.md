@@ -7,9 +7,9 @@ Self-hosted monitoring for HPC jobs and training runs, with push alerts when som
 
 <p>
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/jobs-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/jobs-light.png">
-  <img src="docs/assets/readme/jobs-dark.png" alt="Pulse's jobs view: running jobs from three clusters with loss sparklines, a summary of running, queued and GPU counts, and recent alerts" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner-dark.jpg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/banner-light.jpg">
+  <img src="docs/assets/readme/banner-dark.jpg" alt="Pulse: every Slurm job, every cluster, in your pocket. The jobs list on a laptop and live training curves on a phone." width="100%">
 </picture>
 </p>
 
@@ -50,6 +50,14 @@ It's built to be easy to run and kind to clusters:
 ## Features
 
 **Jobs, live**
+
+<p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/jobs-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/jobs-light.png">
+  <img src="docs/assets/readme/jobs-dark.png" alt="Pulse's jobs view: running jobs from three clusters with loss sparklines, a summary of running, queued and GPU counts, and recent alerts" width="100%">
+</picture>
+</p>
 
 - One list for every job on every linked account, colour-coded by cluster, with filters
   per account, search by name, id or tag, and an _Active / All_ switch.

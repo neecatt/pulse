@@ -1,0 +1,131 @@
+<!doctype html>
+<!--
+  Source of the README banner (banner-dark.jpg, banner-light.jpg).
+  To re-render: put screenshots of the demo (PULSE_SLURM_BACKEND=mock) next to
+  this file as laptop-{dark,light}.png (1440x900 at 2x, jobs list) and
+  phone-job-{dark,light}.png (390x844 at 3x, a job's training metrics), open
+  banner.html?theme=dark (or light) in a 1600x820 viewport at 2x, screenshot it,
+  and save it as a 2400px-wide JPEG. Fonts come from frontend/node_modules.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: Geist; src: url("../../../../frontend/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; }
+  @font-face { font-family: GeistMono; src: url("../../../../frontend/node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; }
+
+  :root {
+    --bg: oklch(0.145 0.004 250);
+    --bg2: oklch(0.19 0.006 250);
+    --fg: oklch(0.96 0 0);
+    --muted: oklch(0.68 0.008 250);
+    --run: oklch(0.86 0.2 130);
+    --glow: oklch(0.86 0.2 130 / 0.16);
+    --grid: oklch(1 0 0 / 0.045);
+    --chip-bg: oklch(1 0 0 / 0.05);
+    --chip-border: oklch(1 0 0 / 0.1);
+    --shadow: 0 40px 80px oklch(0 0 0 / 0.55);
+  }
+  body.light {
+    --bg: oklch(0.985 0.002 250);
+    --bg2: oklch(0.95 0.006 140);
+    --fg: oklch(0.2 0.005 250);
+    --muted: oklch(0.48 0.01 250);
+    --run: oklch(0.62 0.17 140);
+    --glow: oklch(0.75 0.17 140 / 0.18);
+    --grid: oklch(0.2 0.005 250 / 0.05);
+    --chip-bg: oklch(1 0 0 / 0.8);
+    --chip-border: oklch(0.2 0.005 250 / 0.1);
+    --shadow: 0 40px 80px oklch(0.3 0.02 250 / 0.22);
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1600px; height: 820px; overflow: hidden; }
+  body {
+    font-family: Geist, system-ui, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(900px 520px at 1080px 470px, var(--glow), transparent 70%),
+      linear-gradient(160deg, var(--bg) 40%, var(--bg2));
+    position: relative;
+  }
+  /* faint dot grid */
+  body::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: radial-gradient(var(--grid) 1.4px, transparent 1.4px);
+    background-size: 28px 28px;
+    mask-image: linear-gradient(90deg, black 10%, transparent 75%);
+  }
+
+  .pulse-line { position: absolute; left: 0; top: 0; width: 1600px; height: 820px; }
+  .pulse-line path { fill: none; stroke: url(#fade); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+  .pulse-line .halo { stroke-width: 12; opacity: 0.14; filter: blur(6px); }
+
+  .copy { position: absolute; left: 96px; top: 150px; width: 600px; }
+  .wordmark { font-family: GeistMono, monospace; font-size: 34px; font-weight: 500; letter-spacing: -0.01em; display: flex; align-items: center; gap: 14px; }
+  .wordmark .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--run); box-shadow: 0 0 0 6px var(--glow), 0 0 24px var(--run); }
+  h1 { margin-top: 40px; font-size: 66px; line-height: 1.04; font-weight: 640; letter-spacing: -0.035em; }
+  h1 em { font-style: normal; color: var(--run); }
+  .sub { margin-top: 26px; font-size: 24px; line-height: 1.4; color: var(--muted); max-width: 560px; }
+  .chips { margin-top: 36px; display: flex; flex-wrap: wrap; gap: 12px; }
+  .chip { font-family: GeistMono, monospace; font-size: 17px; padding: 9px 16px; border-radius: 999px; background: var(--chip-bg); border: 1px solid var(--chip-border); color: var(--fg); display: flex; align-items: center; gap: 9px; }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--run); display: inline-block; }
+
+  /* laptop */
+  .laptop { position: absolute; left: 706px; top: 112px; width: 820px; filter: drop-shadow(var(--shadow)); }
+  .lid { background: #0b0c0e; border-radius: 22px 22px 8px 8px; padding: 18px 18px 22px; border: 1px solid oklch(1 0 0 / 0.12); }
+  .lid .cam { width: 7px; height: 7px; border-radius: 50%; background: #2a2d33; margin: -10px auto 5px; }
+  .screen { border-radius: 6px; overflow: hidden; aspect-ratio: 16 / 10; background: #000; }
+  .screen img { width: 100%; display: block; }
+  .base { height: 20px; margin: 0 -46px; background: linear-gradient(#cfd2d8, #9a9ea6); border-radius: 2px 2px 18px 18px; position: relative; }
+  .base::after { content: ""; position: absolute; left: 50%; top: 0; width: 140px; height: 7px; transform: translateX(-50%); background: #8a8e96; border-radius: 0 0 8px 8px; }
+
+  /* phone */
+  .phone { position: absolute; left: 1268px; top: 250px; width: 262px; padding: 11px; background: #0b0c0e; border-radius: 44px; border: 1px solid oklch(1 0 0 / 0.16); box-shadow: 0 0 0 2px #2a2d33 inset; filter: drop-shadow(var(--shadow)); }
+  .phone .screen { aspect-ratio: 390 / 844; border-radius: 34px; position: relative; }
+  .phone .island { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 76px; height: 22px; border-radius: 12px; background: #000; z-index: 2; }
+</style>
+</head>
+<body>
+  <svg class="pulse-line" viewBox="0 0 1600 820" aria-hidden="true">
+    <defs>
+      <linearGradient id="fade" x1="0" x2="1600" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="var(--run)" stop-opacity="0"/>
+        <stop offset="0.08" stop-color="var(--run)" stop-opacity="1"/>
+        <stop offset="0.62" stop-color="var(--run)" stop-opacity="0.9"/>
+        <stop offset="0.82" stop-color="var(--run)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path class="halo" d="M0 772 H560 l14 -22 l18 52 l22 -112 l22 92 l14 -24 H1320"/>
+    <path d="M0 772 H560 l14 -22 l18 52 l22 -112 l22 92 l14 -24 H1320"/>
+  </svg>
+
+  <div class="copy">
+    <div class="wordmark"><span class="dot"></span>pulse</div>
+    <h1>Every Slurm job.<br>Every cluster.<br><em>In your pocket.</em></h1>
+    <p class="sub">Live jobs, training curves and push alerts across all your HPC accounts. Self-hosted in one container.</p>
+    <div class="chips">
+      <span class="chip"><i></i>live</span>
+      <span class="chip"><i></i>push alerts</span>
+      <span class="chip"><i></i>metrics</span>
+      <span class="chip"><i></i>self-hosted</span>
+    </div>
+  </div>
+
+  <div class="laptop">
+    <div class="lid"><div class="cam"></div><div class="screen"><img id="laptop" src=""></div></div>
+    <div class="base"></div>
+  </div>
+
+  <div class="phone">
+    <div class="screen"><div class="island"></div><img id="phone" src=""></div>
+  </div>
+
+  <script>
+    const theme = new URLSearchParams(location.search).get("theme") || "dark";
+    document.body.classList.toggle("light", theme === "light");
+    document.getElementById("laptop").src = `laptop-${theme}.png`;
+    document.getElementById("phone").src = `phone-job-${theme}.png`;
+  </script>
+</body>
+</html>
