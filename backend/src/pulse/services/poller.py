@@ -148,7 +148,8 @@ class Poller:
             account = await session.get(Account, account_id)
             if account is None:
                 return None
-            ref = account.ref()
+            owner = await session.get(User, account.user_id)
+            ref = account.ref(public_only=not (owner and owner.is_admin))
             cursors = await load_cursors(session, account_id)
         try:
             snapshot: AccountSnapshot | SlurmError = await self._client.snapshot(ref, cursors)
