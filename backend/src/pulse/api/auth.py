@@ -24,9 +24,11 @@ from pulse.services.auth import (
     start_session,
     user_count,
 )
+from pulse.services.demo import create_guest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _TOO_MANY = "Too many failed attempts. Try again in a few minutes."
+_GUEST = "Demo accounts are temporary. Create your own account to keep using Pulse."
 
 
 @router.get("/status")
@@ -37,6 +39,7 @@ async def auth_status(request: Request, session: SessionDep, services: ServicesD
     return AuthStatus(
         setup_required=await user_count(session) == 0,
         signup_allowed=services.settings.allow_signup,
+        demo=services.settings.demo,
         user=Me.model_validate(resolved[0]) if resolved else None,
     )
 
@@ -92,6 +95,26 @@ async def signup(
     )
 
 
+@router.post("/demo", status_code=status.HTTP_201_CREATED)
+async def try_demo(
+    request: Request, response: Response, session: SessionDep, services: ServicesDep
+) -> Me:
+    """Sign in as a new demo guest: simulated clusters, deleted after a day."""
+    if not services.settings.demo:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There's no demo on this server.")
+    address = f"ip:{client_address(request)}"
+    if services.demo_limiter.blocked(address):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many demos from your network. Try again in a while.",
+        )
+    services.demo_limiter.record_failure(address)  # every guest counts
+    user = await create_guest(session, services.clock())
+    await issue_session_cookie(user, request, response, session, services.settings)
+    services.poller.trigger()  # fill the simulated clusters right away
+    return Me.model_validate(user)
+
+
 @router.post("/login")
 async def login(
     body: Login,
@@ -133,13 +156,16 @@ async def me(user: CurrentUser) -> Me:
 async def change_password(
     body: PasswordChange, request: Request, session: SessionDep, user: CurrentUser
 ) -> None:
-    """Change your password and sign out your other devices."""
+    """Change your password (or set a first one, after a passkey sign-up) and sign
+    out your other devices."""
     if user.password_from_env:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "This password is set by PULSE_ADMIN_PASSWORD; change it there and restart Pulse.",
         )
-    if not verify_password(body.current_password, user.password_hash):
+    if user.is_guest:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, _GUEST)
+    if user.has_password and not verify_password(body.current_password, user.password_hash):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Current password is wrong.")
     user.password_hash = hash_password(body.new_password)
     await revoke_sessions(session, user.id, keep=request.state.login_session_id)

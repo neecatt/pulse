@@ -17,6 +17,7 @@ from pulse.auth.webauthn import ChallengeStore
 from pulse.config import Settings, get_settings
 from pulse.constants import (
     AGENT_REPORT_PATH,
+    DEMO_GUESTS_PER_ADDRESS,
     MAX_AGENT_REPORT_BYTES,
     MAX_REQUEST_BYTES,
     SIGNUP_WINDOW_SECONDS,
@@ -78,6 +79,8 @@ def create_app(
             signup_limiter,
             setup_code,
             ChallengeStore(),
+            LoginRateLimiter(DEMO_GUESTS_PER_ADDRESS, SIGNUP_WINDOW_SECONDS),
+            clock,
         )
 
         task = asyncio.create_task(poller.run_forever()) if run_poller else None

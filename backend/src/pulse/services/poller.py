@@ -21,6 +21,7 @@ from pulse.metrics.model import Point
 from pulse.models import Account, Event, Job, User, utcnow
 from pulse.schemas import EventOut, Monitoring
 from pulse.services.broadcaster import Broadcaster
+from pulse.services.demo import remove_expired_guests
 from pulse.services.events import (
     DetectedEvent,
     MetricLatches,
@@ -97,6 +98,9 @@ class Poller:
         """Poll every direct account that is due (or all of them when forced)."""
         now = self._clock()
         async with self._sessions() as session:
+            if self._settings.demo:
+                await remove_expired_guests(session, now)
+                await session.commit()
             direct = await session.scalars(
                 select(Account)
                 .where(Account.connection == "direct")
@@ -210,8 +214,9 @@ class Poller:
                 return result
 
             # The first snapshot of an account only records its jobs; announcing
-            # every pre-existing job as "started" would flood the user.
-            announce = account.last_polled_at is not None
+            # every pre-existing job as "started" would flood the user. A demo
+            # account does announce them, so its activity isn't empty at first.
+            announce = account.last_polled_at is not None or account.simulated
             events = await self._apply_snapshot(session, account, snapshot, now, announce=announce)
             account.last_polled_at = now
             account.last_error = None

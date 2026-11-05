@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from pulse.auth.rate_limit import LoginRateLimiter
 from pulse.auth.webauthn import ChallengeStore
 from pulse.config import Settings
+from pulse.domain import Clock
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.notifier import Notifier
 from pulse.services.poller import Poller
@@ -25,3 +26,5 @@ class Services:
     signup_limiter: LoginRateLimiter
     setup_code: str | None  # required to create the first account; None once set up
     passkey_challenges: ChallengeStore
+    demo_limiter: LoginRateLimiter  # "Try the demo" guests per address
+    clock: Clock  # the poller's notion of now (injected in tests)

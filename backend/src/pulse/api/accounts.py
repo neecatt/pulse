@@ -116,7 +116,13 @@ async def create_account(
     fields = body.model_dump(exclude={"cluster"})
     cluster = body.cluster or cluster_name_from_host(body.host)
     account = Account(
-        user_id=user.id, color=count % ACCOUNT_PALETTE_SIZE, cluster=cluster, **fields
+        user_id=user.id,
+        color=count % ACCOUNT_PALETTE_SIZE,
+        cluster=cluster,
+        # A demo guest's accounts are always simulated: guests can't make Pulse
+        # connect anywhere, whatever host they type.
+        simulated=user.is_guest,
+        **fields,
     )
     session.add(account)
     await session.commit()

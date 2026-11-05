@@ -42,6 +42,7 @@ async def test_first_run_setup_then_locked(app: FastAPI, anon: AsyncClient) -> N
     assert (await anon.get("/api/auth/status")).json() == {
         "setup_required": True,
         "signup_allowed": False,
+        "demo": False,
         "user": None,
     }
     created = await anon.post("/api/auth/setup", json=setup_body(app))

@@ -40,6 +40,8 @@ async def stream(
 @router.get("/setup")
 async def setup(services: ServicesDep, user: CurrentUser) -> SetupInfo:
     """What the signed-in user needs to add accounts, including their own SSH key."""
+    if user.is_guest:  # a demo guest's accounts are simulated: no key to install
+        return SetupInfo(slurm_backend="mock", ssh_public_key=None)
     return SetupInfo(
         slurm_backend=services.settings.slurm_backend,
         ssh_public_key=services.slurm.public_key_for(user.id),

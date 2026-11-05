@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     admin_username: str | None = None
     admin_password: SecretStr | None = None
     allow_signup: bool = False  # let anyone with the URL create an account
+    # A public site: a landing page and a "Try the demo" button that signs visitors
+    # into a temporary guest account with simulated clusters (deleted after a day).
+    # Real accounts keep using real Slurm.
+    demo: bool = False
     session_days: int = 30
     # "auto": Secure cookies when the request arrived over HTTPS (behind a proxy,
     # set trusted_proxies so the original scheme is known).
