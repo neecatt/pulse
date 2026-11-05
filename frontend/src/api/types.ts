@@ -209,11 +209,18 @@ export interface Me {
   is_admin: boolean;
   /** The password is set by PULSE_ADMIN_PASSWORD and can't be changed in the app. */
   password_from_env: boolean;
+  /** False after a passkey-only sign-up, until a backup password is set. */
+  has_password: boolean;
+  /** A temporary demo account (simulated clusters, deleted after a day). */
+  is_guest: boolean;
+  created_at: string;
 }
 
 export interface AuthStatus {
   setup_required: boolean;
   signup_allowed: boolean;
+  /** A public site: show the landing page and "Try the demo". */
+  demo: boolean;
   /** Who this browser is signed in as; null when signed out. */
   user: Me | null;
 }

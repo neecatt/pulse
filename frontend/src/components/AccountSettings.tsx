@@ -4,6 +4,7 @@ import {
   useChangePassword,
   useLoginSessions,
   useMe,
+  usePasskeys,
   useRevokeOtherSessions,
   useSignOut,
 } from "@/api/queries";
@@ -25,6 +26,23 @@ export function AccountSettings() {
   const signOut = useSignOut();
   if (!me) return null;
 
+  if (me.is_guest) {
+    return (
+      <Section title="Your account">
+        <Card className="divide-y">
+          <SettingRow
+            label="Demo account"
+            hint="Simulated clusters, deleted a day after you started. Sign out to create your own account."
+          >
+            <Button variant="ghost" onClick={() => signOut.mutate()} disabled={signOut.isPending}>
+              Sign out
+            </Button>
+          </SettingRow>
+        </Card>
+      </Section>
+    );
+  }
+
   return (
     <Section title="Your account">
       <Card className="divide-y">
@@ -41,7 +59,7 @@ export function AccountSettings() {
             <span />
           </SettingRow>
         ) : (
-          <PasswordChange />
+          <PasswordChange hasPassword={me.has_password} />
         )}
         <PasskeySettings />
         <Devices />
@@ -50,8 +68,10 @@ export function AccountSettings() {
   );
 }
 
-function PasswordChange() {
+/** Change the password, or set a first one as a backup after a passkey sign-up. */
+function PasswordChange({ hasPassword }: { hasPassword: boolean }) {
   const change = useChangePassword();
+  const { data: passkeys = [] } = usePasskeys();
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -71,29 +91,35 @@ function PasswordChange() {
   };
 
   if (!open) {
+    const hint = change.isSuccess
+      ? "Saved. Your other devices were signed out."
+      : hasPassword
+        ? undefined
+        : passkeys.length <= 1
+          ? "You sign in with a passkey only. Add a password (or a second passkey) as a backup."
+          : "Optional: you sign in with your passkeys.";
     return (
-      <SettingRow
-        label="Password"
-        hint={change.isSuccess ? "Changed. Your other devices were signed out." : undefined}
-      >
+      <SettingRow label="Password" hint={hint}>
         <Button variant="ghost" onClick={() => setOpen(true)}>
-          Change
+          {hasPassword ? "Change" : "Set a password"}
         </Button>
       </SettingRow>
     );
   }
   return (
     <form onSubmit={submit} className="space-y-3 p-4">
-      <input
-        required
-        type="password"
-        autoComplete="current-password"
-        value={current}
-        onChange={(e) => setCurrent(e.target.value)}
-        placeholder="Current password"
-        aria-label="Current password"
-        className={inputClass}
-      />
+      {hasPassword && (
+        <input
+          required
+          type="password"
+          autoComplete="current-password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          placeholder="Current password"
+          aria-label="Current password"
+          className={inputClass}
+        />
+      )}
       <input
         required
         type="password"
@@ -111,7 +137,7 @@ function PasswordChange() {
           Cancel
         </Button>
         <Button type="submit" disabled={change.isPending}>
-          {change.isPending ? "Saving…" : "Change password"}
+          {change.isPending ? "Saving…" : hasPassword ? "Change password" : "Set password"}
         </Button>
       </div>
     </form>

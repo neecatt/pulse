@@ -4,6 +4,7 @@ import { KeyRound } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { setSignedIn, useAuthStatus, useSignIn } from "@/api/queries";
+import type { AuthStatus } from "@/api/types";
 import { PASSWORD_MIN_LENGTH } from "@/config/constants";
 import {
   isCancelled,
@@ -11,6 +12,7 @@ import {
   passkeyErrorMessage,
   passkeysSupported,
   signInWithPasskey,
+  signUpWithPasskey,
 } from "@/lib/passkeys";
 
 import { Button } from "./Button";
@@ -23,35 +25,115 @@ type Mode = "login" | "setup" | "signup";
 /** Sign-in screen; on a fresh server it creates the admin account instead. */
 export function AuthScreen() {
   const { data: status } = useAuthStatus();
-  const [signingUp, setSigningUp] = useState(false);
-  const mode: Mode = status?.setup_required ? "setup" : signingUp ? "signup" : "login";
-
   return (
     <div className="grid min-h-dvh place-items-center px-4">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="space-y-2 text-center">
-          <div className="inline-flex items-center gap-2 font-mono text-sm font-medium">
-            <span className="size-2 animate-pulse rounded-full bg-run" /> pulse
-          </div>
-          <h1 className="text-xl font-medium tracking-tight">{TITLES[mode]}</h1>
-          <p className="text-sm text-muted-foreground">{HINTS[mode]}</p>
-        </div>
-        {status && mode === "login" && <PasskeySignIn />}
-        {status && <CredentialsForm key={mode} mode={mode} />}
-        {status?.signup_allowed && mode !== "setup" && (
-          <p className="text-center text-xs text-muted-foreground">
-            {signingUp ? "Already have an account?" : "New here?"}{" "}
-            <button
-              type="button"
-              onClick={() => setSigningUp(!signingUp)}
-              className="text-foreground underline underline-offset-4"
-            >
-              {signingUp ? "Sign in" : "Create an account"}
-            </button>
-          </p>
-        )}
-      </div>
+      <div className="w-full max-w-sm">{status && <AuthPanel status={status} />}</div>
     </div>
+  );
+}
+
+/** Sign in, sign up or first-run setup, whichever applies; the landing page embeds it. */
+export function AuthPanel({
+  status,
+  start = "login",
+}: {
+  status: AuthStatus;
+  start?: "login" | "signup";
+}) {
+  const [signingUp, setSigningUp] = useState(start === "signup");
+  const mode: Mode = status.setup_required ? "setup" : signingUp ? "signup" : "login";
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2 text-center">
+        <div className="inline-flex items-center gap-2 font-mono text-sm font-medium">
+          <span className="size-2 animate-pulse rounded-full bg-run" /> pulse
+        </div>
+        <h1 className="text-xl font-medium tracking-tight">{TITLES[mode]}</h1>
+        <p className="text-sm text-muted-foreground">{HINTS[mode]}</p>
+      </div>
+      {mode === "login" && <PasskeySignIn />}
+      {mode === "signup" ? <SignUp /> : <CredentialsForm key={mode} mode={mode} />}
+      {status.signup_allowed && mode !== "setup" && (
+        <p className="text-center text-xs text-muted-foreground">
+          {signingUp ? "Already have an account?" : "New here?"}{" "}
+          <button
+            type="button"
+            onClick={() => setSigningUp(!signingUp)}
+            className="text-foreground underline underline-offset-4"
+          >
+            {signingUp ? "Sign in" : "Create an account"}
+          </button>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Sign-up: a passkey by default (no password, no email), a password if preferred. */
+function SignUp() {
+  const [withPassword, setWithPassword] = useState(!passkeysSupported());
+  return (
+    <div className="space-y-3">
+      {withPassword ? <CredentialsForm mode="signup" /> : <PasskeySignUp />}
+      {passkeysSupported() && (
+        <p className="text-center text-xs text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => setWithPassword(!withPassword)}
+            className="underline underline-offset-4 hover:text-foreground"
+          >
+            {withPassword ? "Use a passkey instead" : "Use a password instead"}
+          </button>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PasskeySignUp() {
+  const client = useQueryClient();
+  const [username, setUsername] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      setSignedIn(client, await signUpWithPasskey(username.trim()));
+    } catch (err) {
+      if (!isCancelled(err)) setError(passkeyErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={(e) => void submit(e)} className="space-y-3">
+      <input
+        required
+        autoFocus
+        autoComplete="username"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        placeholder="Pick a username"
+        aria-label="Username"
+        className={inputClass}
+      />
+      {error && <p className="text-xs text-fail">{error}</p>}
+      <Button type="submit" disabled={busy} className="h-10 w-full">
+        <KeyRound className="size-4" />
+        {busy ? "Waiting for your passkey…" : "Create account with a passkey"}
+      </Button>
+      <p className="text-center text-xs text-muted-foreground">
+        No password or email. Face ID, Touch ID or your screen lock signs you in.
+      </p>
+    </form>
   );
 }
 

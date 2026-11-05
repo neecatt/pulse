@@ -40,6 +40,13 @@ export async function addPasskey(): Promise<Passkey> {
   return api.passkeys.register(challenge_id, credential, describeDevice(navigator.userAgent));
 }
 
+/** Create an account with just a username and a passkey on this device. */
+export async function signUpWithPasskey(username: string): Promise<Me> {
+  const { challenge_id, options } = await api.passkeys.signupOptions(username);
+  const credential = await startRegistration({ optionsJSON: options });
+  return api.passkeys.signup(challenge_id, credential, describeDevice(navigator.userAgent));
+}
+
 /** True when the user just closed or cancelled the passkey prompt. */
 export function isCancelled(error: unknown): boolean {
   const cause = error instanceof WebAuthnError ? error.cause : error;
