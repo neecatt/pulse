@@ -7,7 +7,8 @@ import {
   useDeleteAccount,
   useIssueAgentToken,
   useJobs,
-  useTeams,
+  useMyTeams,
+  useShareAccount,
   useUpdateAccount,
 } from "@/api/queries";
 import type { Account } from "@/api/types";
@@ -15,6 +16,7 @@ import { AccountDot } from "@/components/AccountDot";
 import { AccountForm } from "@/components/AccountForm";
 import { AgentInstall } from "@/components/AgentInstall";
 import { Button } from "@/components/Button";
+import { ShareSwitches } from "@/components/ShareSwitches";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { Toggle } from "@/components/Toggle";
 import { accountLabel } from "@/lib/accounts";
@@ -27,11 +29,9 @@ export const Route = createFileRoute("/accounts")({
 
 function AccountsPage() {
   const { data, error, isPending } = useAccounts();
-  const { data: teams } = useTeams();
   const [adding, setAdding] = useState(false);
   const own = data?.filter((a) => a.owner === null);
   const shared = data?.filter((a) => a.owner !== null) ?? [];
-  const team = teams?.owned ?? null;
 
   return (
     <div className="space-y-6">
@@ -51,7 +51,7 @@ function AccountsPage() {
           ) : own?.length ? (
             <Card className="divide-y">
               {own.map((a) => (
-                <AccountRow key={a.id} account={a} teamName={team?.name ?? null} />
+                <AccountRow key={a.id} account={a} />
               ))}
             </Card>
           ) : (
@@ -94,8 +94,10 @@ function SharedAccountRow({ account }: { account: Account }) {
   );
 }
 
-function AccountRow({ account, teamName }: { account: Account; teamName: string | null }) {
+function AccountRow({ account }: { account: Account }) {
   const update = useUpdateAccount();
+  const share = useShareAccount();
+  const teams = useMyTeams();
   const remove = useDeleteAccount();
   const check = useCheckAccount();
   const issueToken = useIssueAgentToken();
@@ -145,19 +147,12 @@ function AccountRow({ account, teamName }: { account: Account; teamName: string 
         )}
       </div>
       <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-        {teamName && (
-          <label
-            className="flex items-center gap-2 text-xs text-muted-foreground"
-            title={`Let ${teamName} see this account's jobs, read-only`}
-          >
-            Team
-            <Toggle
-              label={`Share ${account.username}@${account.cluster} with ${teamName}`}
-              checked={account.shared}
-              onChange={(shared) => update.mutate({ id: account.id, shared })}
-            />
-          </label>
-        )}
+        <ShareSwitches
+          teams={teams}
+          shared={account.shared_with}
+          what={`${account.username}@${account.cluster}'s jobs`}
+          onChange={(teamId, shared) => share.mutate({ id: account.id, teamId, shared })}
+        />
         <label className="mr-auto flex items-center gap-2 text-xs text-muted-foreground sm:mr-0">
           Alerts
           <Toggle

@@ -136,6 +136,8 @@ export const api = {
     check: (id: number) => request<AccountCheck>(`/accounts/${id}/check`, { method: "POST" }),
     issueAgentToken: (id: number) =>
       request<{ token: string }>(`/accounts/${id}/agent-token`, { method: "POST" }),
+    share: (id: number, teamId: number, shared: boolean) =>
+      request<void>(`/accounts/${id}/shares/${teamId}`, { method: shared ? "PUT" : "DELETE" }),
   },
   jobs: {
     list: (filters: JobFilters = {}) => request<Job[]>(`/jobs${query({ ...filters })}`),
@@ -143,6 +145,8 @@ export const api = {
     metrics: (id: number) => request<JobMetrics>(`/jobs/${id}/metrics`),
     update: (id: number, body: JobUpdate) =>
       request<JobDetail>(`/jobs/${id}`, { method: "PATCH", body: json(body) }),
+    share: (id: number, teamId: number, shared: boolean) =>
+      request<void>(`/jobs/${id}/shares/${teamId}`, { method: shared ? "PUT" : "DELETE" }),
   },
   runs: {
     list: (arrayId?: string) => request<Run[]>(`/runs${query({ array_id: arrayId })}`),

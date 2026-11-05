@@ -31,8 +31,8 @@ export interface Account {
   jump_username: string | null;
   last_polled_at: string | null;
   last_error: string | null;
-  /** Visible, read-only, to the owner's team. */
-  shared: boolean;
+  /** Teams you share it with, read-only (your own accounts only). */
+  shared_with: number[];
   /** Owner's username when a teammate shares it with you; null for your own accounts. */
   owner: string | null;
 }
@@ -50,7 +50,7 @@ export interface AccountCreate {
   jump_username?: string;
 }
 
-export type AccountUpdate = Partial<Pick<Account, "cluster" | "notify" | "shared">>;
+export type AccountUpdate = Partial<Pick<Account, "cluster" | "notify">>;
 
 export interface AccountCheck {
   ok: boolean;
@@ -121,6 +121,8 @@ export interface JobDetail extends Job {
   node_stats: Record<string, NodeStats>;
   /** System metrics: gpu_util, gpu_mem and per node sys/<node>/{cpu,mem,gpu,gpu_mem}. */
   series: Record<string, MetricPoint[]>;
+  /** Teams this one job is shared with (your own jobs only). */
+  shared_with: number[];
 }
 
 export interface JobUpdate {
@@ -269,6 +271,8 @@ export interface OwnedTeam {
   members: TeamMember[];
   /** Pending invites, not yet used or expired. */
   invites: TeamInvite[];
+  /** Your alerts for teammates' shared jobs. */
+  alerts: boolean;
 }
 
 /** A team you belong to, owned by someone else. */

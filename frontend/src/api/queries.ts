@@ -179,6 +179,15 @@ export function useUpdateJob(id: number) {
   });
 }
 
+export function useShareJob(id: number) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, shared }: { teamId: number; shared: boolean }) =>
+      api.jobs.share(id, teamId, shared),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.job(id) }),
+  });
+}
+
 export function useEvents(limit = 50) {
   return useQuery({
     queryKey: queryKeys.events(limit),
@@ -225,6 +234,15 @@ export function useUpdateAccount() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ...body }: AccountUpdate & { id: number }) => api.accounts.update(id, body),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.accounts }),
+  });
+}
+
+export function useShareAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, teamId, shared }: { id: number; teamId: number; shared: boolean }) =>
+      api.accounts.share(id, teamId, shared),
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.accounts }),
   });
 }
@@ -286,6 +304,14 @@ export const useSetTeamAlerts = () =>
 export const useDeleteTeam = () => useAccessMutation(() => api.teams.remove());
 export const useLeaveTeam = () => useAccessMutation(api.teams.leave);
 export const useAcceptInvite = () => useAccessMutation(api.teams.accept);
+
+/** Every team you can share with: your own and the ones you joined. */
+export function useMyTeams(): { id: number; name: string }[] {
+  const { data } = useTeams();
+  if (!data) return [];
+  const joined = data.memberships.map((m) => ({ id: m.team_id, name: m.name }));
+  return data.owned ? [{ id: data.owned.id, name: data.owned.name }, ...joined] : joined;
+}
 
 /** The team an invite link is for; works signed out. */
 export function useInviteInfo(token: string) {

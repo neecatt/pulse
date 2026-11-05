@@ -78,6 +78,7 @@ function OwnTeam({ team }: { team: OwnedTeam }) {
   const remove = useDeleteTeam();
   const removeMember = useRemoveMember();
   const revoke = useRevokeInvite();
+  const setAlerts = useSetTeamAlerts();
   return (
     <Card className="divide-y">
       <TeamName team={team} />
@@ -108,6 +109,13 @@ function OwnTeam({ team }: { team: OwnedTeam }) {
           </Button>
         </SettingRow>
       ))}
+      <SettingRow label="Alerts for members' jobs" hint="When members share jobs with the team">
+        <Toggle
+          label={`Alerts for ${team.name}`}
+          checked={team.alerts}
+          onChange={(alerts) => setAlerts.mutate({ teamId: team.id, alerts })}
+        />
+      </SettingRow>
       <SettingRow
         label="Delete team"
         hint="Members lose access, and your accounts stop being shared."
@@ -224,7 +232,7 @@ function Membership({ membership }: { membership: TeamMembership }) {
     <Card className="divide-y">
       <SettingRow
         label={membership.name}
-        hint={`Shared by ${membership.owner} · you can view, not change, their jobs`}
+        hint={`Run by ${membership.owner} · teammates' shared jobs are view-only`}
       >
         <Button
           variant="ghost"
