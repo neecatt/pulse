@@ -30,20 +30,26 @@ make dev        # runs against a simulated cluster, no HPC access needed
 
 ## Releasing (maintainers)
 
-Releases are git tags; CI builds and publishes the image.
+1. **Bump the version** in `backend/pyproject.toml`, `backend/src/pulse/__init__.py`
+   and `frontend/package.json`, note the changes in `docs/progress.md`, and merge
+   that as a pull request.
+2. **Publish** from an up-to-date `main`, signed in to Docker Hub (`docker login`)
+   and GitHub (`gh auth login`):
 
-```sh
-git checkout main && git pull
-git tag -a v0.2.0 -m "Pulse 0.2.0"
-git push origin v0.2.0
-```
+   ```sh
+   make release VERSION=0.2.0 NOTES=notes.md   # NOTES optional: else notes come from the merged PRs
+   DRY_RUN=1 make release VERSION=0.2.0        # print the steps without doing them
+   ```
 
-This publishes `neecat/pulse:0.2.0`, `:0.2` and `:latest` (from 1.0 on also
-`:1`). A tag with a suffix (`v0.2.0-rc.1`) publishes only that tag, never
-`latest`. Every push to `main` publishes `:edge`.
+   It runs the checks, builds and pushes `neecat/pulse:0.2.0`, `:0.2` and
+   `:latest` for amd64 and arm64, and only then pushes the `v0.2.0` tag and
+   creates the GitHub release, so a release never exists without its image. A
+   version with a suffix (`0.2.0-rc.1`) publishes only its own tag and is marked
+   as a pre-release.
 
-Bump `version` in `backend/pyproject.toml`, `backend/src/pulse/__init__.py` and
-`frontend/package.json` before tagging, and note changes in `docs/progress.md`.
+With GitHub Actions available, pushing the tag also triggers CI, which builds
+the same tags again and mirrors them to `ghcr.io/neecatt/pulse`. Every push to
+`main` publishes `:edge` there.
 
 ## Reporting bugs
 
