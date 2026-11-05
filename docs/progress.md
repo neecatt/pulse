@@ -3,6 +3,11 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Release 0.1.2
+
+- Push notifications without setup (generated VAPID keys), sturdier push
+  delivery, and the README banner and support links.
+
 ## 2026-11-05 — Push keys without setup (`feat/auto-push-keys`)
 
 - Pulse generates its VAPID key pair on first start and keeps it in
