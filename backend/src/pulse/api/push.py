@@ -10,9 +10,7 @@ router = APIRouter(prefix="/push", tags=["push"])
 
 @router.get("/config")
 async def push_config(services: ServicesDep) -> PushConfig:
-    return PushConfig(
-        enabled=services.notifier.enabled, public_key=services.settings.vapid_public_key
-    )
+    return PushConfig(public_key=services.notifier.public_key)
 
 
 @router.post("/subscriptions", status_code=status.HTTP_204_NO_CONTENT)

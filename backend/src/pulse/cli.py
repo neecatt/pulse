@@ -2,7 +2,6 @@
 
 import argparse
 import asyncio
-import base64
 import contextlib
 import getpass
 import re
@@ -10,8 +9,6 @@ import sys
 from collections.abc import AsyncIterator
 
 import uvicorn
-from cryptography.hazmat.primitives import serialization
-from py_vapid import Vapid01
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +18,7 @@ from pulse.constants import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, USERNAME_P
 from pulse.db import create_engine, create_session_factory, init_db
 from pulse.models import User
 from pulse.services.auth import revoke_sessions
+from pulse.services.push_keys import generate_push_keys
 
 
 def main() -> None:
@@ -32,7 +30,9 @@ def main() -> None:
     serve.add_argument("--port", type=int, help="defaults to PULSE_PORT (8000)")
     serve.add_argument("--reload", action="store_true", help="restart on code changes (dev)")
 
-    commands.add_parser("gen-vapid", help="print a new VAPID key pair for Web Push")
+    commands.add_parser(
+        "gen-vapid", help="print a VAPID key pair (optional: Pulse makes one in data_dir)"
+    )
 
     create = commands.add_parser("create-user", help="add a user (asks for the password)")
     create.add_argument("username")
@@ -122,15 +122,6 @@ async def _db() -> AsyncIterator[AsyncSession]:
 
 
 def _print_vapid_keys() -> None:
-    vapid = Vapid01()
-    vapid.generate_keys()
-    private = vapid.private_key.private_numbers().private_value.to_bytes(32, "big")
-    public = vapid.public_key.public_bytes(
-        serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
-    )
-    print(f"PULSE_VAPID_PRIVATE_KEY={_b64url(private)}")
-    print(f"PULSE_VAPID_PUBLIC_KEY={_b64url(public)}")
-
-
-def _b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+    keys = generate_push_keys()
+    print(f"PULSE_VAPID_PRIVATE_KEY={keys.private_key}")
+    print(f"PULSE_VAPID_PUBLIC_KEY={keys.public_key}")

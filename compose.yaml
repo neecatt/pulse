@@ -15,6 +15,8 @@ services:
     environment:
       # Only Caddy can reach this container, so its X-Forwarded-* headers are trusted.
       PULSE_TRUSTED_PROXIES: "*"
+      # The address users open; pins passkeys and is the contact sent to push services.
+      PULSE_PUBLIC_URL: ${PULSE_PUBLIC_URL:-https://${PULSE_DOMAIN}}
     volumes:
       - pulse-data:/data
     expose:

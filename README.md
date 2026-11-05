@@ -187,18 +187,13 @@ Open `https://<your domain>`, sign in, and add your clusters.
 > Docker. Behind a proxy, set `PULSE_TRUSTED_PROXIES` so Pulse sees the real scheme.
 
 > [!WARNING]
-> **Keep `/data` on a persistent volume.** It holds the database _and Pulse's SSH key_.
-> Lose it and you'll have to add the new key on every cluster again.
+> **Keep `/data` on a persistent volume.** It holds the database, _Pulse's SSH key_ and its
+> push keys. Lose it and you'll have to add the new SSH key on every cluster again, and turn
+> notifications back on on every device.
 
-**Turn on push notifications.** Generate a key pair once and add it to `.env`:
-
-```sh
-docker compose run --rm pulse pulse gen-vapid
-```
-
-Then restart (`docker compose up -d`), open **Settings → Notifications** and allow them.
-On an iPhone, add Pulse to the home screen first (Share → _Add to Home Screen_) and enable
-notifications from the installed app.
+**Push notifications** work out of the box: Pulse creates its push keys on first start. Open
+**Settings → Notifications** and allow them. On an iPhone, add Pulse to the home screen
+first (Share → _Add to Home Screen_) and enable notifications from the installed app.
 
 **Upgrade** with `docker compose pull && docker compose up -d`. The database schema updates
 itself.
@@ -270,29 +265,29 @@ It's always read-only, and all of it runs over one SSH connection that stays ope
 Everything is set with `PULSE_*` environment variables, from `.env` or from Docker secrets
 in `/run/secrets`. Every setting is optional.
 
-| Variable                                                                                                  | What it does                                                                                                                                        | Default                    |
-| --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| `PULSE_ADMIN_USERNAME`, `PULSE_ADMIN_PASSWORD`                                                            | Admin account. The password follows the variable, so change it there and restart. Unset: create the admin in the browser with the logged setup code | _(unset)_                  |
-| `PULSE_DOMAIN`                                                                                            | Public hostname Caddy gets a certificate for (compose only)                                                                                         | —                          |
-| `PULSE_PUBLIC_URL`                                                                                        | Pins the address passkeys belong to                                                                                                                 | the request's host         |
-| `PULSE_TRUSTED_PROXIES`                                                                                   | Proxies allowed to set `X-Forwarded-*`; `*` behind a platform proxy                                                                                 | `127.0.0.1`                |
-| `PULSE_VAPID_PUBLIC_KEY`, `PULSE_VAPID_PRIVATE_KEY`                                                       | Push notification keys, from `pulse gen-vapid`                                                                                                      | _(push off)_               |
-| `PULSE_VAPID_SUBJECT`                                                                                     | Contact sent with push messages                                                                                                                     | `mailto:admin@example.com` |
-| `PULSE_ALLOW_SIGNUP`                                                                                      | Let anyone with the URL create an account                                                                                                           | `false`                    |
-| `PULSE_SESSION_DAYS`                                                                                      | How long a sign-in lasts                                                                                                                            | `30`                       |
-| `PULSE_SLURM_BACKEND`                                                                                     | `ssh` for real clusters, `mock` for a simulated one                                                                                                 | `ssh` in the image         |
-| `PULSE_SSH_KEY_PATH`                                                                                      | Use an existing private key instead of the generated one                                                                                            | `/data/pulse_ed25519`      |
-| `PULSE_SSH_KNOWN_HOSTS`                                                                                   | Strict host-key checking against a `known_hosts` file                                                                                               | pin on first use           |
-| `PULSE_POLL_INTERVAL_LIVE_SECONDS`                                                                        | Poll interval while someone has Pulse open                                                                                                          | `10`                       |
-| `PULSE_POLL_INTERVAL_IDLE_SECONDS`                                                                        | Poll interval otherwise                                                                                                                             | `60`                       |
-| `PULSE_NODE_STATS_INTERVAL_SECONDS`                                                                       | Per-node usage sampling (each sample starts a job step)                                                                                             | `60`                       |
-| `PULSE_STALL_MINUTES`, `PULSE_TIME_LIMIT_WARNING_RATIO`, `PULSE_DIVERGE_PERCENT`, `PULSE_PLATEAU_MINUTES` | Default alert thresholds; users can change their own in the app                                                                                     | `15`, `0.9`, `50`, `60`    |
-| `PULSE_PORT` (or `PORT`)                                                                                  | Port Pulse listens on                                                                                                                               | `8000`                     |
+| Variable                                                                                                  | What it does                                                                                                                                        | Default                 |
+| --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `PULSE_ADMIN_USERNAME`, `PULSE_ADMIN_PASSWORD`                                                            | Admin account. The password follows the variable, so change it there and restart. Unset: create the admin in the browser with the logged setup code | _(unset)_               |
+| `PULSE_DOMAIN`                                                                                            | Public hostname Caddy gets a certificate for (compose only)                                                                                         | —                       |
+| `PULSE_PUBLIC_URL`                                                                                        | Pins the address passkeys belong to                                                                                                                 | the request's host      |
+| `PULSE_TRUSTED_PROXIES`                                                                                   | Proxies allowed to set `X-Forwarded-*`; `*` behind a platform proxy                                                                                 | `127.0.0.1`             |
+| `PULSE_VAPID_PUBLIC_KEY`, `PULSE_VAPID_PRIVATE_KEY`                                                       | Your own push keys (from `pulse gen-vapid`); only needed to move them between servers                                                               | generated in `/data`    |
+| `PULSE_VAPID_SUBJECT`                                                                                     | Contact sent with push messages                                                                                                                     | `PULSE_PUBLIC_URL`      |
+| `PULSE_ALLOW_SIGNUP`                                                                                      | Let anyone with the URL create an account                                                                                                           | `false`                 |
+| `PULSE_SESSION_DAYS`                                                                                      | How long a sign-in lasts                                                                                                                            | `30`                    |
+| `PULSE_SLURM_BACKEND`                                                                                     | `ssh` for real clusters, `mock` for a simulated one                                                                                                 | `ssh` in the image      |
+| `PULSE_SSH_KEY_PATH`                                                                                      | Use an existing private key instead of the generated one                                                                                            | `/data/pulse_ed25519`   |
+| `PULSE_SSH_KNOWN_HOSTS`                                                                                   | Strict host-key checking against a `known_hosts` file                                                                                               | pin on first use        |
+| `PULSE_POLL_INTERVAL_LIVE_SECONDS`                                                                        | Poll interval while someone has Pulse open                                                                                                          | `10`                    |
+| `PULSE_POLL_INTERVAL_IDLE_SECONDS`                                                                        | Poll interval otherwise                                                                                                                             | `60`                    |
+| `PULSE_NODE_STATS_INTERVAL_SECONDS`                                                                       | Per-node usage sampling (each sample starts a job step)                                                                                             | `60`                    |
+| `PULSE_STALL_MINUTES`, `PULSE_TIME_LIMIT_WARNING_RATIO`, `PULSE_DIVERGE_PERCENT`, `PULSE_PLATEAU_MINUTES` | Default alert thresholds; users can change their own in the app                                                                                     | `15`, `0.9`, `50`, `60` |
+| `PULSE_PORT` (or `PORT`)                                                                                  | Port Pulse listens on                                                                                                                               | `8000`                  |
 
 The full list, with SSH timeouts and cookie settings, is in
 [`backend/.env.example`](backend/.env.example).
 
-**Command line:** `pulse serve`, `pulse gen-vapid`, `pulse create-user <name>` and
+**Command line:** `pulse serve`, `pulse create-user <name>`, `pulse gen-vapid` and
 `pulse reset-password <name>`, which also signs that user out everywhere. In Docker, use
 `docker compose exec pulse pulse …`.
 
@@ -327,6 +322,7 @@ Everything lives in `/data` (a Docker volume):
 | ------------------------------------ | -------------------------------------------------------------------------------------- |
 | `pulse.db`                           | Users, linked accounts, jobs, metrics, events, push subscriptions, passkey public keys |
 | `pulse_ed25519`, `pulse_ed25519.pub` | Pulse's SSH key. Keep it private, and back it up                                       |
+| `vapid.json`                         | Pulse's push keys. Every device's notifications depend on them                         |
 
 Back up `/data` and you've backed up everything. Passkey private keys never leave your
 devices. Pulse stores only hashes of passwords and session tokens.

@@ -11,26 +11,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from pulse.config import Settings
-from pulse.constants import PUSH_EXPIRED_STATUSES
+from pulse.constants import DEFAULT_VAPID_SUBJECT, PUSH_EXPIRED_STATUSES
 from pulse.domain import resolve_alerts
 from pulse.models import Event, PushSubscription, User
+from pulse.services.push_keys import PushKeys
 
 logger = logging.getLogger(__name__)
 
 
 class Notifier:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, keys: PushKeys) -> None:
         self._settings = settings
+        self._keys = keys
+        self._subject = settings.vapid_subject or settings.public_url or DEFAULT_VAPID_SUBJECT
 
     @property
-    def enabled(self) -> bool:
-        return bool(self._settings.vapid_public_key and self._settings.vapid_private_key)
+    def public_key(self) -> str:
+        return self._keys.public_key
 
     async def send_events(
         self, session: AsyncSession, user_id: int, events: Sequence[Event]
     ) -> None:
         """Push each event the user has alerts enabled for to all their devices."""
-        if not self.enabled or not events:
+        if not events:
             return
         user = await self._load_user(session, user_id)
         alerts = resolve_alerts(user.alert_prefs)
@@ -39,8 +42,6 @@ class Notifier:
 
     async def send_test(self, session: AsyncSession, user_id: int) -> int:
         """Send a test notification; returns the number of devices reached."""
-        if not self.enabled:
-            return 0
         user = await self._load_user(session, user_id)
         payload = {"title": "Pulse", "body": "Notifications are working.", "url": "/"}
         return await self._fan_out(session, user, [payload])
@@ -69,9 +70,9 @@ class Notifier:
                     "keys": {"p256dh": sub.p256dh, "auth": sub.auth},
                 },
                 data=json.dumps(payload),
-                vapid_private_key=self._settings.vapid_private_key,
+                vapid_private_key=self._keys.private_key,
                 # pywebpush mutates the claims dict, so build a fresh one per call.
-                vapid_claims={"sub": self._settings.vapid_subject},
+                vapid_claims={"sub": self._subject},
                 ttl=self._settings.push_ttl_seconds,
                 timeout=self._settings.push_timeout_seconds,
             )
@@ -79,6 +80,12 @@ class Notifier:
             status = exc.response.status_code if exc.response is not None else None
             if status in PUSH_EXPIRED_STATUSES:
                 return False, True
+            logger.warning("push to subscription %s failed: %s", sub.id, exc)
+            return False, False
+        except ValueError as exc:  # keys a browser would never send; it can't ever work
+            logger.warning("dropping malformed push subscription %s: %s", sub.id, exc)
+            return False, True
+        except OSError as exc:  # push service unreachable (requests errors are OSErrors)
             logger.warning("push to subscription %s failed: %s", sub.id, exc)
             return False, False
         return True, False
