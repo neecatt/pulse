@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — No deploy branches (`docs/drop-deploy-branches`)
+
+- Removed the `deploy/railway` branch: Railway now runs the published
+  `neecat/pulse` image, configured with `PULSE_*` variables (behind Railway's
+  proxy that includes `PULSE_TRUSTED_PROXIES=*`).
+
 ## 2026-11-05 — Release 0.2.0
 
 - Teams (see below): invite links, sharing accounts or single jobs with a team,
