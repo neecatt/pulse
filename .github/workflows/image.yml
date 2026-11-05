@@ -5,7 +5,7 @@ name: Image
 #   tag v1.2.3        -> :1.2.3, :1.2, :1 and :latest
 #   tag v1.2.3-rc.1   -> :1.2.3-rc.1 only (pre-releases never become latest)
 # to Docker Hub (vars.DOCKERHUB_IMAGE, default neecat/pulse) when the
-# DOCKERHUB_TOKEN secret is set, and always to GHCR as a mirror.
+# DOCKERHUB_TOKEN secret is set, and always to ghcr.io/<owner>/pulse as a mirror.
 on:
   push:
     branches: [main]
@@ -42,7 +42,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ghcr.io/${{ github.repository }}
+            ghcr.io/${{ github.repository_owner }}/pulse
             ${{ env.HAS_DOCKERHUB == 'true' && format('docker.io/{0}', env.DOCKERHUB_IMAGE) || '' }}
           flavor: latest=false
           tags: |
