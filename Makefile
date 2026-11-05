@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 VENV := backend/.venv
 
-.PHONY: help install dev start check clean image demo
+.PHONY: help install dev start check clean image demo release
 
 help: ## List commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
@@ -32,6 +32,9 @@ image: ## Build the Docker image (pulse:local)
 
 demo: image ## Run the image with a simulated cluster on http://localhost:8000
 	docker run --rm -p 8000:8000 -e PULSE_SLURM_BACKEND=mock pulse:local
+
+release: ## Publish VERSION=x.y.z from this machine (image, tag, GitHub release)
+	@scripts/release.sh "$(VERSION)" "$(NOTES)"
 
 clean: ## Remove build output and local data
 	rm -rf frontend/dist backend/data
