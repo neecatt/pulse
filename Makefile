@@ -14,7 +14,8 @@ install: ## Install backend and frontend dependencies
 
 dev: ## Run API (:8000) and web app with hot reload (:5173)
 	@trap 'kill 0' INT TERM EXIT; \
-	(cd backend && .venv/bin/pulse serve --reload) & \
+	(cd backend && PULSE_CORS_ORIGINS=$${PULSE_CORS_ORIGINS:-'["http://localhost:5173"]'} \
+		.venv/bin/pulse serve --reload) & \
 	(cd frontend && bun run dev) & \
 	wait
 

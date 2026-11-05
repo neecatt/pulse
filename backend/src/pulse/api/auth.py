@@ -26,6 +26,7 @@ from pulse.services.auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+_TOO_MANY = "Too many failed attempts. Try again in a few minutes."
 
 
 @router.get("/status")
@@ -53,8 +54,12 @@ async def setup(
     Only works while there are no accounts."""
     if await user_count(session) > 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Pulse is already set up; sign in instead.")
+    address = f"ip:{_client_address(request)}"
+    if services.login_limiter.blocked(address):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, _TOO_MANY)
     code = services.setup_code
     if code is None or not hmac.compare_digest(_normalise(body.setup_code), _normalise(code)):
+        services.login_limiter.record_failure(address)
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Wrong setup code. It's printed in the server log."
         )
@@ -73,6 +78,13 @@ async def signup(
 ) -> Me:
     if not services.settings.allow_signup:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-ups are disabled on this server.")
+    address = f"ip:{_client_address(request)}"
+    if services.signup_limiter.blocked(address):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many new accounts from your network. Try again later.",
+        )
+    services.signup_limiter.record_failure(address)  # every attempt counts
     if await session.scalar(select(User.id).where(User.username == body.username)):
         raise HTTPException(status.HTTP_409_CONFLICT, "That username is taken.")
     return await _create_and_sign_in(
@@ -91,10 +103,7 @@ async def login(
     limiter = services.login_limiter
     keys = (f"ip:{_client_address(request)}", f"user:{body.username.strip().lower()}")
     if limiter.blocked(*keys):
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "Too many failed sign-ins. Try again in a few minutes.",
-        )
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, _TOO_MANY)
     user = await authenticate(session, body.username.strip(), body.password)
     if user is None:
         limiter.record_failure(*keys)

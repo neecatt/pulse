@@ -30,6 +30,10 @@ class AccountRef:
     host_key: str | None = None
     # Jump host (like ssh -J / ProxyJump) when the login node isn't directly reachable.
     jump: Hop | None = None
+    # The Pulse user the account belongs to: Pulse signs in with that user's own key.
+    owner_id: int = 0
+    # Connect only to public internet addresses (for users who don't run the server).
+    public_only: bool = False
 
     @property
     def target(self) -> Hop:
@@ -110,9 +114,8 @@ class SlurmError(Exception):
 
 
 class SlurmClient(Protocol):
-    @property
-    def public_key(self) -> str | None:
-        """Public key users must authorise on their cluster, if the client uses one."""
+    def public_key_for(self, user_id: int) -> str | None:
+        """The key a user authorises on their clusters, if the client uses one."""
 
     async def check(self, account: AccountRef) -> HostKeys:
         """Verify the account is reachable and return the host keys seen.

@@ -43,7 +43,7 @@ async def test_old_database_gains_new_columns(old_database: str) -> None:
         assert account.host == "lumi.csc.fi"  # existing data kept
         assert account.jump_host is None
         assert account.jump_port == 22  # filled with the column's default
-        assert account.ref().jump is None
+        assert account.ref(public_only=False).jump is None
         user = await session.get(User, 1)
         assert user is not None
         assert user.alert_prefs == {}  # callable default (JSON) filled in too

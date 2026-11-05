@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     # Local state (database, generated SSH key). Created on startup.
     data_dir: Path = Path("data")
     database_url: str = "sqlite+aiosqlite:///./data/pulse.db"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    # Other origins allowed to call the API with the user's cookies (make dev adds
+    # the Vite dev server). Empty in production: the web app is served by Pulse itself.
+    cors_origins: list[str] = []
     # Built frontend to serve from the API process (e.g. ../frontend/dist).
     static_dir: Path | None = None
 
@@ -85,6 +87,8 @@ class Settings(BaseSettings):
     vapid_public_key: str | None = None
     vapid_private_key: str | None = None
     vapid_subject: str | None = None  # contact for push services; defaults to public_url
+    # More push service hosts to allow, besides the major browsers' (constants.py).
+    push_extra_hosts: list[str] = []
     push_ttl_seconds: int = 6 * 3600  # how long a push service keeps an undelivered alert
     push_timeout_seconds: float = 10.0
 

@@ -15,9 +15,20 @@ from pulse.api import api_router
 from pulse.auth.rate_limit import LoginRateLimiter
 from pulse.auth.webauthn import ChallengeStore
 from pulse.config import Settings, get_settings
+from pulse.constants import (
+    AGENT_REPORT_PATH,
+    MAX_AGENT_REPORT_BYTES,
+    MAX_REQUEST_BYTES,
+    SIGNUP_WINDOW_SECONDS,
+    SIGNUPS_PER_ADDRESS,
+)
 from pulse.db import create_engine, create_session_factory, init_db
 from pulse.domain import Clock
-from pulse.middleware import OriginCheckMiddleware, SecurityHeadersMiddleware
+from pulse.middleware import (
+    BodySizeLimitMiddleware,
+    OriginCheckMiddleware,
+    SecurityHeadersMiddleware,
+)
 from pulse.models import utcnow
 from pulse.services.auth import make_setup_code, sync_admin_from_env
 from pulse.services.broadcaster import Broadcaster
@@ -42,6 +53,8 @@ def create_app(
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError):  # e.g. a mount Pulse doesn't own
+            settings.data_dir.chmod(0o700)  # keys and the database: Pulse's user only
         engine = create_engine(settings.database_url)
         await init_db(engine)
         sessions = create_session_factory(engine)
@@ -52,6 +65,7 @@ def create_app(
         broadcaster = Broadcaster()
         poller = Poller(sessions, slurm, notifier, broadcaster, settings, clock)
         limiter = LoginRateLimiter(settings.login_max_failures, settings.login_window_seconds)
+        signup_limiter = LoginRateLimiter(SIGNUPS_PER_ADDRESS, SIGNUP_WINDOW_SECONDS)
         setup_code = await make_setup_code(sessions)
         app.state.services = Services(
             settings,
@@ -61,6 +75,7 @@ def create_app(
             broadcaster,
             poller,
             limiter,
+            signup_limiter,
             setup_code,
             ChallengeStore(),
         )
@@ -85,6 +100,12 @@ def create_app(
     )
     app.add_middleware(OriginCheckMiddleware, allowed_origins=settings.cors_origins)
     app.add_middleware(SecurityHeadersMiddleware)
+    # Outermost: oversized bodies are refused before any other work.
+    app.add_middleware(
+        BodySizeLimitMiddleware,
+        default_limit=MAX_REQUEST_BYTES,
+        limits={AGENT_REPORT_PATH: MAX_AGENT_REPORT_BYTES},
+    )
     app.include_router(api_router, prefix="/api")
     if settings.static_dir is not None:
         # Serve the built web app from the same process: one port, one command.
