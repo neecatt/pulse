@@ -353,8 +353,7 @@ class PreferencesUpdate(BaseModel):
 
 
 class PushConfig(BaseModel):
-    enabled: bool
-    public_key: str | None
+    public_key: str  # VAPID key browsers subscribe with
 
 
 class PushKeys(BaseModel):

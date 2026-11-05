@@ -186,8 +186,8 @@ export interface LiveUpdate {
 }
 
 export interface PushConfig {
-  enabled: boolean;
-  public_key: string | null;
+  /** VAPID key browsers subscribe with. */
+  public_key: string;
 }
 
 export interface PushSubscriptionJSON {

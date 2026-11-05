@@ -35,7 +35,8 @@ export function usePush() {
     status,
     busy,
     error,
-    serverEnabled: Boolean(config?.enabled && publicKey),
+    /** False until the server's push key has loaded. */
+    ready: publicKey !== null,
     enable: () => (publicKey ? run(() => enablePush(publicKey)) : Promise.resolve()),
     disable: () => run(disablePush),
   };

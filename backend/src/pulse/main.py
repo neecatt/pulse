@@ -24,6 +24,7 @@ from pulse.services.broadcaster import Broadcaster
 from pulse.services.container import Services
 from pulse.services.notifier import Notifier
 from pulse.services.poller import Poller
+from pulse.services.push_keys import load_push_keys
 from pulse.slurm import SlurmClient, create_slurm_client
 
 
@@ -47,7 +48,7 @@ def create_app(
         await sync_admin_from_env(sessions, settings)
 
         slurm = slurm_client or create_slurm_client(settings)
-        notifier = Notifier(settings)
+        notifier = Notifier(settings, load_push_keys(settings))
         broadcaster = Broadcaster()
         poller = Poller(sessions, slurm, notifier, broadcaster, settings, clock)
         limiter = LoginRateLimiter(settings.login_max_failures, settings.login_window_seconds)
