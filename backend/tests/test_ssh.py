@@ -236,7 +236,7 @@ class JumpHost:
 
 @pytest.fixture
 async def jump_host(client: SshSlurmClient, cluster: FakeCluster) -> AsyncIterator[JumpHost]:
-    """An SSH server that only forwards connections, like csnhr.nhr.fau.de."""
+    """An SSH server that only forwards connections, like an HPC centre's gateway."""
     server_key = asyncssh.generate_private_key("ssh-ed25519")
     forwarded: list[tuple[str, int]] = []
 

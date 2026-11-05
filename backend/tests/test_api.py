@@ -178,9 +178,9 @@ async def test_push_subscription_lifecycle(client: AsyncClient) -> None:
 
 
 async def test_account_with_jump_host(client: AsyncClient) -> None:
-    body = ACCOUNT | {"jump_host": "csnhr.nhr.fau.de", "username": "b268dc21"}
+    body = ACCOUNT | {"jump_host": "gateway.example.edu", "username": "jdoe42"}
     created = (await client.post("/api/accounts", json=body)).json()
-    assert created["jump_host"] == "csnhr.nhr.fau.de"
+    assert created["jump_host"] == "gateway.example.edu"
     assert created["jump_port"] == 22
     assert created["jump_username"] is None  # same as the login username
 

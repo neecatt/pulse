@@ -13,12 +13,12 @@ describe("parseSshTarget", () => {
     ["ssh://jdoe@host.org:2222", { username: "jdoe", host: "host.org", port: 2222 }],
     ["ssh jdoe@host.org squeue", { username: "jdoe", host: "host.org", port: 22 }],
     [
-      "ssh -J csnhr.nhr.fau.de b268dc21@alex.nhr.fau.de",
+      "ssh -J gateway.example.edu jdoe42@alex.example.edu",
       {
-        username: "b268dc21",
-        host: "alex.nhr.fau.de",
+        username: "jdoe42",
+        host: "alex.example.edu",
         port: 22,
-        jump: { host: "csnhr.nhr.fau.de", port: 22 },
+        jump: { host: "gateway.example.edu", port: 22 },
       },
     ],
     [

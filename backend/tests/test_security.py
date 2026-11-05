@@ -10,6 +10,7 @@ from pulse import constants
 from pulse.auth.rate_limit import LoginRateLimiter
 from pulse.auth.webauthn import ChallengeStore
 from pulse.config import Settings
+from pulse.metrics.hparams import parse_config
 from pulse.services.container import Services
 
 
@@ -122,3 +123,13 @@ async def test_setup_code_guesses_are_limited(anon: AsyncClient, settings: Setti
         for _ in range(settings.login_max_failures + 1)
     ]
     assert statuses[0] == 403 and statuses[-1] == 429
+
+
+def test_self_referencing_config_does_not_recurse_forever() -> None:
+    hparams = parse_config("config.yaml", b"model: &m {lr: 0.1, again: *m}\nseed: 3\n")
+    assert hparams["seed"] == 3
+    assert hparams["model.lr"] == 0.1  # read as far as the depth limit
+
+
+def test_dev_origin_is_not_trusted_by_default() -> None:
+    assert Settings(_env_file=None).cors_origins == []  # type: ignore[call-arg]
