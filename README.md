@@ -353,19 +353,6 @@ make demo        # build and run the Docker image locally
 | `latest`, `0.1`, `0.1.0` | Releases. Pin a version for predictable upgrades |
 | `edge`                   | The newest code on `main`                        |
 
-## How Pulse is built
-
-Pulse is developed with [Claude Code](https://claude.com/claude-code), Anthropic's coding
-agent. Much of the code, tests and documentation were drafted in Claude Code sessions, and
-[`AGENTS.md`](AGENTS.md) holds the project context those sessions start from.
-
-- **A person decides and ships.** What goes in, what gets merged and every release are the
-  maintainer's call.
-- **Tests hold the logic in place.** Slurm parsing, metric readers, alert rules, SSH (against
-  real in-process SSH servers, jump hosts included) and the API are covered by tests that
-  run on every pull request.
-- **Pulse itself doesn't use AI.** Nothing in it calls an AI service.
-
 ## Support
 
 Pulse is free and stays free: MIT licensed, no paid tier, nothing held back. If it saves you
