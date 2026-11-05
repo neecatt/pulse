@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Release 0.2.0
+
+- Teams (see below): invite links, sharing accounts or single jobs with a team,
+  live read-only views and opt-in alerts for teammates, with a security pass on
+  what teammates can see.
+
 ## 2026-11-05 — Teams (`feat/teams`)
 
 - An owner creates a team and invites members with single-use links (7 days,
