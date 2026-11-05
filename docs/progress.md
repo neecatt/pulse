@@ -3,6 +3,16 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Roadmap (`docs/roadmap`)
+
+- `ROADMAP.md` lists planned features: job actions, an in-app terminal, job
+  submission, queue estimates, cluster and quota status, a full log viewer,
+  more alert channels, teams and a Prometheus export. Features that act on a
+  cluster share ground rules: admin opt-in, the user's own key, confirmation
+  and an activity log, direct connections only.
+- v0.1.4 was built and pushed from a laptop because GitHub Actions is blocked
+  by an account billing lock; GitHub Releases v0.1.0–v0.1.4 were created by hand.
+
 ## 2026-11-05 — Release 0.1.4
 
 - Security hardening before going public (see below): per-user SSH keys,
