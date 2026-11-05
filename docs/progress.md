@@ -3,6 +3,15 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Time limits aren't failures (`fix/timeout-not-failed`)
+
+- A job that runs until its time limit (Slurm `TIMEOUT`) was reported as
+  failed: red badge, "Job failed" alert and activity, counted in "Failed ·
+  24h". Training for a fixed time and keeping the best checkpoint is a normal
+  way to work, so it now has its own event (`job_timed_out`, "Reached time
+  limit", alert on by default), a neutral "TIME LIMIT" badge, and isn't counted
+  as failed. Past events are relabelled on startup.
+
 ## 2026-11-05 — Release 0.2.1
 
 - Team sharing polish (see below): "Share all my jobs" per team, instant
