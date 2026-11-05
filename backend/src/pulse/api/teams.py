@@ -56,6 +56,7 @@ async def overview(session: SessionDep, user: CurrentUser) -> TeamOverview:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_team(body: TeamCreate, session: SessionDep, user: CurrentUser) -> TeamOverview:
+    _refuse_guests(user)
     if await _owned_team(session, user.id) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "You already have a team.")
     team = Team(owner_id=user.id, name=body.name)
@@ -100,6 +101,7 @@ async def remove_member(
 @router.post("/mine/invites", status_code=status.HTTP_201_CREATED)
 async def create_invite(session: SessionDep, user: CurrentUser) -> NewTeamInvite:
     """A single-use link that lets one person join. Only its hash is kept."""
+    _refuse_guests(user)  # an invite creates a real account, even with sign-ups off
     team = await _require_owned_team(session, user.id)
     now = utcnow()
     await session.execute(delete(TeamInvite).where(TeamInvite.expires_at <= now))
@@ -263,6 +265,13 @@ async def _valid_invite(session: AsyncSession, token: str) -> TeamInvite:
     if invite is None or invite.expires_at <= utcnow():
         raise HTTPException(status.HTTP_404_NOT_FOUND, _INVALID_INVITE)
     return invite
+
+
+def _refuse_guests(user: User) -> None:
+    if user.is_guest:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Teams need a real account. Create one to invite people."
+        )
 
 
 async def _owned_team(session: AsyncSession, user_id: int) -> Team | None:

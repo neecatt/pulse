@@ -98,9 +98,9 @@ class Poller:
         """Poll every direct account that is due (or all of them when forced)."""
         now = self._clock()
         async with self._sessions() as session:
-            if self._settings.demo:
-                await remove_expired_guests(session, now)
-                await session.commit()
+            # Even with PULSE_DEMO off now, guests made while it was on expire.
+            await remove_expired_guests(session, now)
+            await session.commit()
             direct = await session.scalars(
                 select(Account)
                 .where(Account.connection == "direct")
@@ -237,6 +237,10 @@ class Poller:
         if account.last_polled_at is None:
             return True
         viewers = teams.get(account.id, set())
+        if account.simulated and not any(
+            self._broadcaster.has_subscribers_for(u) for u in {account.user_id, *viewers}
+        ):
+            return False  # a demo nobody is looking at costs nothing
         # A tick of slack so a 10 s interval doesn't slip to 15 s on a 5 s tick.
         elapsed = (now - account.last_polled_at).total_seconds()
         return elapsed + POLL_TICK_SECONDS / 2 >= self.interval_for(account.user, viewers)

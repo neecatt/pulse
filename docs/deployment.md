@@ -136,6 +136,12 @@ PULSE_ALLOW_SIGNUP=true
 PULSE_PUBLIC_URL=https://pulse.example.org
 ```
 
+Guests can't create teams or invite links, use the agent, or add more than a
+few clusters. New guests and sign-ups are limited per address and in total
+(300 an hour each). Behind a proxy, set `PULSE_TRUSTED_PROXIES` as narrowly as
+your platform allows: with `*`, a client's own `X-Forwarded-For` is believed,
+and only the total limits still hold.
+
 Keep your own monitoring on a **separate** instance (its own volume, sign-ups
 off), so nothing you own sits on a server strangers can sign up to. Both run the
 same image; for example `pulse.example.org` (public, demo) and

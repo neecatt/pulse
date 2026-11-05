@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from webauthn import (
     generate_authentication_options,
     generate_registration_options,
@@ -26,7 +27,7 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from pulse.api.auth import client_address, issue_session_cookie
+from pulse.api.auth import issue_session_cookie, limit_signups
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep
 from pulse.auth.webauthn import relying_party
 from pulse.constants import PASSKEY_MAX_PER_USER, PASSKEY_RP_NAME
@@ -97,13 +98,7 @@ async def signup_options(
     only exists once the passkey is verified."""
     if not services.settings.allow_signup:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-ups are disabled on this server.")
-    address = f"ip:{client_address(request)}"
-    if services.signup_limiter.blocked(address):
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "Too many new accounts from your network. Try again later.",
-        )
-    services.signup_limiter.record_failure(address)  # every attempt counts
+    limit_signups(request, services)
     if await session.scalar(select(User.id).where(User.username == body.username)):
         raise HTTPException(status.HTTP_409_CONFLICT, _TAKEN)
     rp = relying_party(request, services.settings)
@@ -149,17 +144,24 @@ async def signup(
         raise HTTPException(status.HTTP_409_CONFLICT, _TAKEN)  # taken in the meantime
     user = User(username=pending.username)
     session.add(user)
-    await session.flush()
-    session.add(
-        Passkey(
-            user_id=user.id,
-            credential_id=verified.credential_id,
-            public_key=verified.credential_public_key,
-            sign_count=verified.sign_count,
-            transports=_transports(body.credential),
-            name=(body.name or "").strip() or "Passkey",
+    try:
+        await session.flush()
+        session.add(
+            Passkey(
+                user_id=user.id,
+                credential_id=verified.credential_id,
+                public_key=verified.credential_public_key,
+                sign_count=verified.sign_count,
+                transports=_transports(body.credential),
+                name=(body.name or "").strip() or "Passkey",
+            )
         )
-    )
+        await session.flush()
+    except IntegrityError as exc:  # same username, or a passkey already registered
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "That username or passkey is already in use."
+        ) from exc
     await issue_session_cookie(user, request, response, session, services.settings)
     return Me.model_validate(user)
 

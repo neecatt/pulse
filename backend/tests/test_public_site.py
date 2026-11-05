@@ -2,17 +2,20 @@
 accounts, and sign-up with just a passkey."""
 
 from collections.abc import AsyncIterator
+from datetime import timedelta
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import update
 
 from pulse.config import Settings
 from pulse.constants import DEMO_GUEST_TTL_SECONDS
 from pulse.main import create_app
+from pulse.models import LoginSession, utcnow
 from pulse.services import demo
 from pulse.services.container import Services
-from pulse.slurm import AccountRef, AccountSnapshot, HostKeys, WithSimulated
+from pulse.slurm import AccountRef, AccountSnapshot, HostKeys, WithSimulated, create_slurm_client
 from pulse.slurm.base import Cursors
 from pulse.slurm.mock import MockSlurmClient
 from tests.conftest import FakeClock
@@ -203,3 +206,100 @@ async def test_the_oldest_guests_make_way_when_there_are_too_many(
     assert alive == [401, 200, 200]
     for c in clients:
         await c.aclose()
+
+
+async def test_guests_cannot_mint_real_accounts_or_upload_data(site: FastAPI) -> None:
+    services: Services = site.state.services
+    services.settings.allow_signup = False  # a demo-only site
+    async with new_client(site) as guest:
+        await guest.post("/api/auth/demo")
+        # Invite links create real accounts even with sign-ups off: not for guests.
+        assert (await guest.post("/api/teams", json={"name": "Lab"})).status_code == 403
+        assert (await guest.post("/api/teams/mine/invites")).status_code == 403
+        # No agent token, so no uploads into the server.
+        agent = await guest.post(
+            "/api/accounts", json={"username": "me", "host": "x.example", "connection": "agent"}
+        )
+        assert agent.status_code == 403
+        # A few clusters, not thousands to poll.
+        added = [
+            (
+                await guest.post("/api/accounts", json={"username": f"u{i}", "host": "x.example"})
+            ).status_code
+            for i in range(4)
+        ]
+        assert added == [201, 201, 201, 409]  # two came with the demo
+
+
+async def test_new_accounts_are_capped_across_all_addresses(
+    settings: Settings, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Per-address limits can be dodged behind a proxy that passes on a forged
+    X-Forwarded-For; the total cap still holds."""
+    monkeypatch.setattr("pulse.main.NEW_ACCOUNTS_PER_WINDOW", 2)
+    settings.demo = settings.allow_signup = True
+    application = create_app(
+        settings, slurm_client=MockSlurmClient(clock), clock=clock, run_poller=False
+    )
+    async with application.router.lifespan_context(application), new_client(application) as c:
+        demos = [(await c.post("/api/auth/demo")).status_code for _ in range(3)]
+        assert demos == [201, 201, 429]
+        signups = [
+            (
+                await c.post(
+                    "/api/auth/signup", json={"username": f"user{i}", "password": "p" * 12}
+                )
+            ).status_code
+            for i in range(3)
+        ]
+        assert signups == [201, 201, 429]  # counted apart from guests
+
+
+async def test_demo_accounts_are_polled_only_while_someone_watches(
+    site: FastAPI, clock: FakeClock
+) -> None:
+    services: Services = site.state.services
+    async with new_client(site) as guest:
+        me = (await guest.post("/api/auth/demo")).json()
+        await services.poller.poll_all(force=False)  # first look: filled at once
+        polled = {a["id"]: a["last_polled_at"] for a in (await guest.get("/api/accounts")).json()}
+        clock.advance(3600)
+        await services.poller.poll_all(force=False)
+        after = {a["id"]: a["last_polled_at"] for a in (await guest.get("/api/accounts")).json()}
+        assert after == polled  # nobody watching: nothing polled
+        async with services.broadcaster.subscribe(me["id"]):
+            await services.poller.poll_all(force=False)
+        watched = {a["id"]: a["last_polled_at"] for a in (await guest.get("/api/accounts")).json()}
+        assert all(watched[i] != polled[i] for i in polled)
+
+
+def test_simulated_accounts_never_go_over_ssh_even_with_demo_off(settings: Settings) -> None:
+    settings.slurm_backend = "ssh"
+    settings.demo = False
+    assert isinstance(create_slurm_client(settings), WithSimulated)
+
+
+async def test_guests_expire_even_after_demo_is_switched_off(
+    site: FastAPI, clock: FakeClock
+) -> None:
+    services: Services = site.state.services
+    async with new_client(site) as guest:
+        await guest.post("/api/auth/demo")
+        services.settings.demo = False
+        clock.advance(DEMO_GUEST_TTL_SECONDS + 1)
+        await services.poller.poll_all()
+        assert (await guest.get("/api/auth/me")).status_code == 401
+
+
+async def test_a_first_password_needs_a_recent_sign_in(site: FastAPI) -> None:
+    services: Services = site.state.services
+    async with new_client(site) as user:
+        await signup_with_passkey(user, SoftAuthenticator("http://test"), "grace")
+        async with services.sessions() as session:  # the sign-in was 11 minutes ago
+            await session.execute(
+                update(LoginSession).values(created_at=utcnow() - timedelta(minutes=11))
+            )
+            await session.commit()
+        stale = await user.post("/api/auth/password", json={"new_password": "a long password"})
+        assert stale.status_code == 403
+        assert "sign in again" in stale.json()["detail"]

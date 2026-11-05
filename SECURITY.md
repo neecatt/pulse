@@ -43,11 +43,17 @@ falls short.
   addresses, and push messages only go to the browsers' push services, so a user
   can't point the server at its own network.
 - **Demo guests** (`PULSE_DEMO`) only ever get simulated clusters, whatever
-  host they type: the server decides, and never opens a connection for them.
-  Guests are rate-limited per address, capped in number, and deleted with all
-  their data after a day. Passkey sign-up creates the account only after the
-  passkey verifies, and follows the same sign-up switch and rate limit as
-  passwords.
+  host they type: the server decides, and never opens a connection for them,
+  even after `PULSE_DEMO` is switched off. Guests can't create teams or invite
+  links (an invite makes a real account even with sign-ups off), use the agent
+  (no uploads), or add more than 5 clusters; their clusters are polled only
+  while someone is watching. They're limited per address and in total, capped
+  at 1,000 alive, and deleted with all their data after a day.
+- **Sign-up** (password or passkey) is limited per address and in total, so a
+  forged `X-Forwarded-For` behind a permissive proxy can't create accounts in
+  bulk. A passkey sign-up creates the account only after the passkey verifies.
+  A passkey-only account can add a first password only within 10 minutes of
+  signing in, so a stolen session can't be turned into a lasting password.
 - **Clusters.** Pulse runs read-only Slurm commands with its own key and pins
   each server's host key on first connect. It ignores `~/.ssh/config` and any
   SSH agent. Values from the cluster are quoted, and paths must be absolute

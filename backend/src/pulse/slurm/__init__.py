@@ -30,8 +30,9 @@ __all__ = [
 def create_slurm_client(settings: Settings) -> SlurmClient:
     if settings.slurm_backend == "mock":
         return MockSlurmClient()
-    ssh = SshSlurmClient(settings)
-    return WithSimulated(ssh, MockSlurmClient()) if settings.demo else ssh
+    # Always, not only with PULSE_DEMO on: demo accounts made while it was on
+    # must never be polled over SSH after it's switched off.
+    return WithSimulated(SshSlurmClient(settings), MockSlurmClient())
 
 
 class WithSimulated:

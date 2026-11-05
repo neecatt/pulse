@@ -6,8 +6,8 @@ from sqlalchemy import select
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep
 from pulse.auth.passwords import hash_password, verify_password
 from pulse.config import Settings
-from pulse.constants import SESSION_COOKIE
-from pulse.models import LoginSession, User
+from pulse.constants import FRESH_SIGN_IN_SECONDS, SESSION_COOKIE
+from pulse.models import LoginSession, User, utcnow
 from pulse.schemas import (
     AuthStatus,
     Credentials,
@@ -24,6 +24,7 @@ from pulse.services.auth import (
     start_session,
     user_count,
 )
+from pulse.services.container import Services
 from pulse.services.demo import create_guest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -81,13 +82,7 @@ async def signup(
 ) -> Me:
     if not services.settings.allow_signup:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-ups are disabled on this server.")
-    address = f"ip:{client_address(request)}"
-    if services.signup_limiter.blocked(address):
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "Too many new accounts from your network. Try again later.",
-        )
-    services.signup_limiter.record_failure(address)  # every attempt counts
+    limit_signups(request, services)
     if await session.scalar(select(User.id).where(User.username == body.username)):
         raise HTTPException(status.HTTP_409_CONFLICT, "That username is taken.")
     return await _create_and_sign_in(
@@ -103,12 +98,13 @@ async def try_demo(
     if not services.settings.demo:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There's no demo on this server.")
     address = f"ip:{client_address(request)}"
-    if services.demo_limiter.blocked(address):
+    if services.demo_limiter.blocked(address) or services.total_limiter.blocked("guests"):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
-            "Too many demos from your network. Try again in a while.",
+            "The demo is busy right now. Try again in a while.",
         )
     services.demo_limiter.record_failure(address)  # every guest counts
+    services.total_limiter.record_failure("guests")
     user = await create_guest(session, services.clock())
     await issue_session_cookie(user, request, response, session, services.settings)
     services.poller.trigger()  # fill the simulated clusters right away
@@ -165,8 +161,18 @@ async def change_password(
         )
     if user.is_guest:
         raise HTTPException(status.HTTP_403_FORBIDDEN, _GUEST)
-    if user.has_password and not verify_password(body.current_password, user.password_hash):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Current password is wrong.")
+    if user.has_password:
+        if not verify_password(body.current_password, user.password_hash):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Current password is wrong.")
+    else:  # no password to confirm: ask for a recent passkey sign-in instead
+        current = await session.get(LoginSession, request.state.login_session_id)
+        age = (utcnow() - current.created_at).total_seconds() if current else None
+        if age is None or age > FRESH_SIGN_IN_SECONDS:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "For your safety, sign out and sign in again with your passkey, "
+                "then set the password within 10 minutes.",
+            )
     user.password_hash = hash_password(body.new_password)
     await revoke_sessions(session, user.id, keep=request.state.login_session_id)
     await session.commit()
@@ -224,6 +230,18 @@ async def issue_session_cookie(
         samesite="lax",
         secure=_secure(request, settings),
     )
+
+
+def limit_signups(request: Request, services: Services) -> None:
+    """Count a sign-up attempt, per address and in total; refuse when over either."""
+    address = f"ip:{client_address(request)}"
+    if services.signup_limiter.blocked(address) or services.total_limiter.blocked("signups"):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many new accounts right now. Try again later.",
+        )
+    services.signup_limiter.record_failure(address)  # every attempt counts
+    services.total_limiter.record_failure("signups")
 
 
 def _secure(request: Request, settings: Settings) -> bool:

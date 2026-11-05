@@ -22,6 +22,14 @@ it landed on.
   The account exists only once the passkey verifies. Settings offers a backup
   password ("Set a password", no current one needed) and nudges until there's a
   backup. "Use a password instead" remains.
+- Security pass on all of the above: guests can't create teams or invite links
+  (which would mint real accounts with sign-ups off), use the agent, or add
+  more than 5 clusters; simulated accounts never go over SSH and guests still
+  expire after `PULSE_DEMO` is switched off; demo clusters are polled only
+  while watched; guests and sign-ups have total limits besides per-address
+  ones (forged `X-Forwarded-For`); a first password on a passkey-only account
+  needs a sign-in from the last 10 minutes; sign-up races answer 409, not 500.
+  Each fix has a test that fails without it.
 - Tests: 8 new (guest sandbox and routing, real accounts still reach SSH,
   guests isolated from each other, expiry, guest cap, passkey-only sign-up and
   backup password, sign-up switch, no password login without a password). End

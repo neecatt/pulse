@@ -27,4 +27,6 @@ class Services:
     setup_code: str | None  # required to create the first account; None once set up
     passkey_challenges: ChallengeStore
     demo_limiter: LoginRateLimiter  # "Try the demo" guests per address
+    # New guests and new sign-ups across all addresses (keys "guests", "signups").
+    total_limiter: LoginRateLimiter
     clock: Clock  # the poller's notion of now (injected in tests)
