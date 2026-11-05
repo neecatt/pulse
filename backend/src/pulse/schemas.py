@@ -70,6 +70,12 @@ class AccountOut(ORMModel):
     jump_username: str | None
     last_polled_at: datetime | None
     last_error: str | None
+    # Teams you share this account with (your own accounts only).
+    shared_with: list[int] = []
+    # Username of the account's owner when it's shared with you by a teammate;
+    # None for your own accounts (only those can be changed). A teammate's
+    # account comes without its connection details, errors or settings.
+    owner: str | None = None
 
 
 class AgentToken(BaseModel):
@@ -250,6 +256,8 @@ class JobDetailOut(JobOut):
     node_stats: dict[str, Any]  # latest per node: {cpu, mem, gpus: [{util, mem}]}
     # System metrics: gpu_util, gpu_mem and per node sys/<node>/{cpu,mem,gpu,gpu_mem}
     series: dict[str, list[MetricPoint]] = {}
+    # Teams this one job is shared with (the owner's view; empty for teammates).
+    shared_with: list[int] = []
 
 
 class MetricStats(BaseModel):
@@ -299,6 +307,65 @@ class EventOut(ORMModel):
     kind: EventKind
     message: str
     created_at: datetime
+
+
+# Teams
+
+TeamName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+
+
+class TeamCreate(BaseModel):
+    name: TeamName
+
+
+class TeamMemberOut(BaseModel):
+    user_id: int
+    username: str
+    joined_at: datetime
+
+
+class TeamInviteOut(ORMModel):
+    id: int
+    created_at: datetime
+    expires_at: datetime
+
+
+class NewTeamInvite(TeamInviteOut):
+    token: str  # shown once; the link is /join/<token>
+
+
+class OwnedTeam(BaseModel):
+    id: int
+    name: str
+    members: list[TeamMemberOut]  # everyone but you
+    invites: list[TeamInviteOut]  # pending, not yet used or expired
+    alerts: bool  # your alerts for teammates' shared jobs
+
+
+class TeamMembership(BaseModel):
+    """A team you belong to that someone else owns."""
+
+    team_id: int
+    name: str
+    owner: str
+    alerts: bool
+    joined_at: datetime
+
+
+class TeamOverview(BaseModel):
+    owned: OwnedTeam | None
+    memberships: list[TeamMembership]
+
+
+class MembershipUpdate(BaseModel):
+    alerts: bool
+
+
+class InviteInfo(BaseModel):
+    """What an invite link shows before you join."""
+
+    team: str
+    owner: str
 
 
 # Preferences & push

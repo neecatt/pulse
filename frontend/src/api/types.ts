@@ -31,6 +31,10 @@ export interface Account {
   jump_username: string | null;
   last_polled_at: string | null;
   last_error: string | null;
+  /** Teams you share it with, read-only (your own accounts only). */
+  shared_with: number[];
+  /** Owner's username when a teammate shares it with you; null for your own accounts. */
+  owner: string | null;
 }
 
 export interface AccountCreate {
@@ -117,6 +121,8 @@ export interface JobDetail extends Job {
   node_stats: Record<string, NodeStats>;
   /** System metrics: gpu_util, gpu_mem and per node sys/<node>/{cpu,mem,gpu,gpu_mem}. */
   series: Record<string, MetricPoint[]>;
+  /** Teams this one job is shared with (your own jobs only). */
+  shared_with: number[];
 }
 
 export interface JobUpdate {
@@ -238,4 +244,53 @@ export interface Passkey {
 export interface PasskeyOptions<T> {
   challenge_id: string;
   options: T;
+}
+
+// Teams
+
+export interface TeamMember {
+  user_id: number;
+  username: string;
+  joined_at: string;
+}
+
+export interface TeamInvite {
+  id: number;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface NewTeamInvite extends TeamInvite {
+  /** Shown once; the link is /join/<token>. */
+  token: string;
+}
+
+export interface OwnedTeam {
+  id: number;
+  name: string;
+  members: TeamMember[];
+  /** Pending invites, not yet used or expired. */
+  invites: TeamInvite[];
+  /** Your alerts for teammates' shared jobs. */
+  alerts: boolean;
+}
+
+/** A team you belong to, owned by someone else. */
+export interface TeamMembership {
+  team_id: number;
+  name: string;
+  owner: string;
+  alerts: boolean;
+  joined_at: string;
+}
+
+export interface TeamOverview {
+  owned: OwnedTeam | null;
+  memberships: TeamMembership[];
+}
+
+/** What an invite link shows before you join. */
+export interface InviteInfo {
+  team: string;
+  owner: string;
 }

@@ -131,6 +131,15 @@ It's built to be easy to run and kind to clusters:
 - **Per-node usage**: CPU, memory and every GPU on every node of a running job, sampled at
   most once a minute.
 
+**Teams**
+
+- Create a team and invite people with a single-use link; they can create their account
+  from it, even when sign-ups are off.
+- Choose which of your cluster accounts the team sees. Members follow those jobs, training
+  curves, runs and activity live, read-only, without any access to your cluster login.
+- Members can turn on push alerts for the team's jobs; removing someone, or unsharing an
+  account, takes effect at once.
+
 **Sign-in and security**
 
 - Password sign-in with an admin account set from environment variables, or created in

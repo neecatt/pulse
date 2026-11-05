@@ -60,6 +60,85 @@ class Passkey(Base):
     user: Mapped[User] = relationship(back_populates="passkeys")
 
 
+class Team(Base):
+    """A group of users who share chosen accounts with each other, read-only.
+
+    The owner manages it (invites, removals) and is a member like everyone else."""
+
+    __tablename__ = "teams"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,  # one team per owner
+    )
+    name: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+    owner: Mapped[User] = relationship()
+    members: Mapped[list["TeamMember"]] = relationship(
+        back_populates="team", cascade="all, delete-orphan"
+    )
+    invites: Mapped[list["TeamInvite"]] = relationship(
+        back_populates="team", cascade="all, delete-orphan"
+    )
+
+
+class TeamMember(Base):
+    """Membership in a team, the owner's included."""
+
+    __tablename__ = "team_members"
+    __table_args__ = (UniqueConstraint("team_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # Push alerts for the team's shared jobs; off until the member opts in.
+    alerts: Mapped[bool] = mapped_column(default=False)
+    joined_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+    team: Mapped[Team] = relationship(back_populates="members")
+    user: Mapped[User] = relationship()
+
+
+class AccountShare(Base):
+    """An account its owner shares with one of their teams; the team sees it read-only."""
+
+    __tablename__ = "account_shares"
+    __table_args__ = (UniqueConstraint("account_id", "team_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True
+    )
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+
+
+class JobShare(Base):
+    """One job shared with a team, for accounts that don't share all their jobs."""
+
+    __tablename__ = "job_shares"
+    __table_args__ = (UniqueConstraint("job_id", "team_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+
+
+class TeamInvite(Base):
+    """A single-use invite link. Only the token's hash is stored."""
+
+    __tablename__ = "team_invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+    team: Mapped[Team] = relationship(back_populates="invites")
+
+
 class LoginSession(Base):
     """A signed-in browser. The cookie holds a random token; only its hash is kept."""
 

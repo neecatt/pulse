@@ -4,6 +4,25 @@ import { useState, type KeyboardEvent } from "react";
 import { useUpdateJob } from "@/api/queries";
 import type { JobDetail } from "@/api/types";
 
+/** A teammate's job: its note and tags, read-only. */
+export function SharedJobNotes({ job }: { job: JobDetail }) {
+  if (!job.tags.length && !job.note) return null;
+  return (
+    <div className="space-y-2">
+      {job.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {job.tags.map((t) => (
+            <span key={t} className="rounded-full border px-2 py-0.5 text-xs">
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+      {job.note && <p className="text-sm whitespace-pre-wrap text-muted-foreground">{job.note}</p>}
+    </div>
+  );
+}
+
 /** Inline note and tags for a job; changes save on their own. */
 export function JobNotes({ job }: { job: JobDetail }) {
   const update = useUpdateJob(job.id);

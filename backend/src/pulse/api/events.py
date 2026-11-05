@@ -2,8 +2,9 @@ from fastapi import APIRouter, Query
 from sqlalchemy import select
 
 from pulse.api.deps import CurrentUser, SessionDep
-from pulse.models import Account, Event
+from pulse.models import Event
 from pulse.schemas import EventOut
+from pulse.services.teams import visible_events
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -17,8 +18,7 @@ async def list_events(
 ) -> list[EventOut]:
     query = (
         select(Event)
-        .join(Account)
-        .where(Account.user_id == user.id)
+        .where(visible_events(user.id))
         .order_by(Event.created_at.desc(), Event.id.desc())
         .limit(limit)
     )

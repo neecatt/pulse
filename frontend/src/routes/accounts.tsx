@@ -7,6 +7,8 @@ import {
   useDeleteAccount,
   useIssueAgentToken,
   useJobs,
+  useMyTeams,
+  useShareAccount,
   useUpdateAccount,
 } from "@/api/queries";
 import type { Account } from "@/api/types";
@@ -14,8 +16,10 @@ import { AccountDot } from "@/components/AccountDot";
 import { AccountForm } from "@/components/AccountForm";
 import { AgentInstall } from "@/components/AgentInstall";
 import { Button } from "@/components/Button";
+import { ShareSwitches } from "@/components/ShareSwitches";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { Toggle } from "@/components/Toggle";
+import { accountLabel } from "@/lib/accounts";
 import { formatAgo } from "@/lib/format";
 
 export const Route = createFileRoute("/accounts")({
@@ -26,6 +30,8 @@ export const Route = createFileRoute("/accounts")({
 function AccountsPage() {
   const { data, error, isPending } = useAccounts();
   const [adding, setAdding] = useState(false);
+  const own = data?.filter((a) => a.owner === null);
+  const shared = data?.filter((a) => a.owner !== null) ?? [];
 
   return (
     <div className="space-y-6">
@@ -42,9 +48,9 @@ function AccountsPage() {
           {error && <ErrorNotice error={error} />}
           {isPending ? (
             <LoadingRows rows={2} />
-          ) : data?.length ? (
+          ) : own?.length ? (
             <Card className="divide-y">
-              {data.map((a) => (
+              {own.map((a) => (
                 <AccountRow key={a.id} account={a} />
               ))}
             </Card>
@@ -57,12 +63,41 @@ function AccountsPage() {
           )}
         </div>
       </Section>
+      {shared.length > 0 && (
+        <Section title="Shared with you">
+          <Card className="divide-y">
+            {shared.map((a) => (
+              <SharedAccountRow key={a.id} account={a} />
+            ))}
+          </Card>
+        </Section>
+      )}
+    </div>
+  );
+}
+
+/** A teammate's account: visible here, but only its owner can change it. */
+function SharedAccountRow({ account }: { account: Account }) {
+  return (
+    <div className="flex items-center gap-3 p-4">
+      <AccountDot color={account.color} className="size-2.5" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">{accountLabel(account)}</div>
+        <div className="truncate text-xs text-muted-foreground">
+          {account.last_error ??
+            (account.last_polled_at
+              ? `Shared by ${account.owner} · synced ${formatAgo(account.last_polled_at)}`
+              : `Shared by ${account.owner}`)}
+        </div>
+      </div>
     </div>
   );
 }
 
 function AccountRow({ account }: { account: Account }) {
   const update = useUpdateAccount();
+  const share = useShareAccount();
+  const teams = useMyTeams();
   const remove = useDeleteAccount();
   const check = useCheckAccount();
   const issueToken = useIssueAgentToken();
@@ -111,7 +146,13 @@ function AccountRow({ account }: { account: Account }) {
           </div>
         )}
       </div>
-      <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+        <ShareSwitches
+          teams={teams}
+          shared={account.shared_with}
+          what={`${account.username}@${account.cluster}'s jobs`}
+          onChange={(teamId, shared) => share.mutate({ id: account.id, teamId, shared })}
+        />
         <label className="mr-auto flex items-center gap-2 text-xs text-muted-foreground sm:mr-0">
           Alerts
           <Toggle

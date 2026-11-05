@@ -59,6 +59,11 @@ STREAM_QUEUE_SIZE = 32  # per connected client; a slow client skips updates
 # Scheduling
 POLL_TICK_SECONDS = 5  # how often the poller checks which accounts are due
 
+# Teams
+TEAM_INVITE_TTL_SECONDS = 7 * 24 * 3600
+TEAM_MAX_PENDING_INVITES = 20
+TEAM_MAX_MEMBERS = 100
+
 # SSH keys. The first account keeps Pulse's original key (data_dir/pulse_ed25519
 # or PULSE_SSH_KEY_PATH); every other user gets data_dir/ssh/user-<id>_ed25519.
 FIRST_USER_ID = 1

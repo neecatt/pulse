@@ -3,6 +3,26 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Teams (`feat/teams`)
+
+- An owner creates a team and invites members with single-use links (7 days,
+  hashed; joining works with sign-ups off, rate-limited like sign-ups). Any
+  member shares their own accounts with a team, or just single jobs. Members
+  see what's shared (jobs, runs, metrics, activity) live and read-only, with
+  opt-in push alerts ("alice · jdoe@LUMI").
+- Visibility lives in `services.teams` (`visible_jobs`, `visible_events`,
+  `visible_account_ids`); writes stay owner-only. Poll results carry each
+  account's viewers for live updates and the polling interval; teammates who see
+  only some of an account's jobs get only those jobs' events and alerts.
+- UI: Settings → Team (create, invite link, members, unused links, leave,
+  alerts), a switch per team on each of your accounts and jobs, a "Shared with
+  you" list on Accounts, `/join/<token>` (works signed out), read-only notes on
+  teammates' jobs.
+- Tests: 13 backend tests (visibility, read-only, access ending on unshare,
+  removal, leaving and team deletion, strangers, invite misuse, live updates,
+  opt-in alerts, single-job sharing and its live updates). End to end in a
+  browser: owner and a phone-sized member.
+
 ## 2026-11-05 — Releasing without CI (`feat/local-release`)
 
 - `make release VERSION=x.y.z [NOTES=file]` publishes from a maintainer's

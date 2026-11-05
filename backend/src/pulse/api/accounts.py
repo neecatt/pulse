@@ -1,13 +1,14 @@
 import re
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep, get_owned_account
 from pulse.auth.tokens import hash_token, new_token
 from pulse.constants import ACCOUNT_PALETTE_SIZE
-from pulse.models import Account
+from pulse.models import Account, AccountShare, User
 from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate, AgentToken
+from pulse.services.teams import is_member, visible_account_ids
 from pulse.slurm import SlurmError
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -15,13 +16,77 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 # Host labels that say nothing about which cluster it is.
 _GENERIC_LABELS = {"login", "ssh", "gateway", "access", "frontend", "hpc", "cluster", "www"}
 
+# What teammates don't see of a shared account: how to reach it, its raw errors
+# and the owner's settings. They get a label (username@cluster) and sync time.
+_PRIVATE_TO_OWNER = {
+    "host": "",
+    "port": 22,
+    "jump_host": None,
+    "jump_port": 22,
+    "jump_username": None,
+    "last_error": None,
+    "notify": False,
+}
+
 
 @router.get("")
 async def list_accounts(session: SessionDep, user: CurrentUser) -> list[AccountOut]:
-    accounts = await session.scalars(
-        select(Account).where(Account.user_id == user.id).order_by(Account.id)
+    """Your accounts, then the ones teammates share with you (read-only)."""
+    rows = await session.execute(
+        select(Account, User.username)
+        .join(User, Account.user_id == User.id)
+        .where(Account.id.in_(visible_account_ids(user.id)))
+        .order_by(Account.user_id != user.id, User.username, Account.id)
     )
-    return [AccountOut.model_validate(a) for a in accounts]
+    shares = await session.execute(
+        select(AccountShare.account_id, AccountShare.team_id)
+        .join(Account, AccountShare.account_id == Account.id)
+        .where(Account.user_id == user.id)
+    )
+    teams_by_account: dict[int, list[int]] = {}
+    for account_id, team_id in shares.all():
+        teams_by_account.setdefault(account_id, []).append(team_id)
+    return [
+        AccountOut.model_validate(account).model_copy(
+            update=(
+                {"shared_with": teams_by_account.get(account.id, [])}
+                if account.user_id == user.id
+                else {"owner": owner, **_PRIVATE_TO_OWNER}  # so do its teams
+            )
+        )
+        for account, owner in rows.all()
+    ]
+
+
+@router.put("/{account_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def share_account(
+    account_id: int, team_id: int, session: SessionDep, user: CurrentUser
+) -> None:
+    """Let a team you're in see this account's jobs, read-only."""
+    account = await get_owned_account(session, user, account_id)
+    if not await is_member(session, user.id, team_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "You're not in that team.")
+    exists = await session.scalar(
+        select(AccountShare.id).where(
+            AccountShare.account_id == account.id, AccountShare.team_id == team_id
+        )
+    )
+    if exists is None:
+        session.add(AccountShare(account_id=account.id, team_id=team_id))
+        await session.commit()
+
+
+@router.delete("/{account_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unshare_account(
+    account_id: int, team_id: int, session: SessionDep, user: CurrentUser
+) -> None:
+    account = await get_owned_account(session, user, account_id)
+    await session.execute(
+        delete(AccountShare).where(
+            AccountShare.account_id == account.id, AccountShare.team_id == team_id
+        )
+    )
+    await session.commit()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

@@ -36,6 +36,8 @@ export const queryKeys = {
   authStatus: ["auth-status"] as const,
   loginSessions: ["login-sessions"] as const,
   passkeys: ["passkeys"] as const,
+  teams: ["teams"] as const,
+  invite: (token: string) => ["invite", token] as const,
   health: ["health"] as const,
 };
 
@@ -177,6 +179,15 @@ export function useUpdateJob(id: number) {
   });
 }
 
+export function useShareJob(id: number) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, shared }: { teamId: number; shared: boolean }) =>
+      api.jobs.share(id, teamId, shared),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.job(id) }),
+  });
+}
+
 export function useEvents(limit = 50) {
   return useQuery({
     queryKey: queryKeys.events(limit),
@@ -227,6 +238,15 @@ export function useUpdateAccount() {
   });
 }
 
+export function useShareAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, teamId, shared }: { id: number; teamId: number; shared: boolean }) =>
+      api.accounts.share(id, teamId, shared),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.accounts }),
+  });
+}
+
 export function useDeleteAccount() {
   const client = useQueryClient();
   return useMutation({
@@ -248,5 +268,65 @@ export function useUpdatePreferences() {
   return useMutation({
     mutationFn: (body: PreferencesUpdate) => api.preferences.update(body),
     onSuccess: (data) => client.setQueryData(queryKeys.preferences, data),
+  });
+}
+
+// Teams
+
+export function useTeams() {
+  return useQuery({ queryKey: queryKeys.teams, queryFn: api.teams.overview });
+}
+
+/** A team change that only affects the team page. */
+function useTeamMutation<T, R>(fn: (arg: T) => Promise<R>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.teams }),
+  });
+}
+
+/** A team change that also changes which jobs and accounts you can see. */
+function useAccessMutation<T, R>(fn: (arg: T) => Promise<R>) {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: fn, onSuccess: () => client.invalidateQueries() });
+}
+
+export const useCreateTeam = () => useTeamMutation(api.teams.create);
+export const useRenameTeam = () => useTeamMutation(api.teams.rename);
+export const useRemoveMember = () => useTeamMutation(api.teams.removeMember);
+export const useCreateInvite = () => useTeamMutation(() => api.teams.invite());
+export const useRevokeInvite = () => useTeamMutation(api.teams.revokeInvite);
+export const useSetTeamAlerts = () =>
+  useTeamMutation(({ teamId, alerts }: { teamId: number; alerts: boolean }) =>
+    api.teams.setAlerts(teamId, alerts),
+  );
+export const useDeleteTeam = () => useAccessMutation(() => api.teams.remove());
+export const useLeaveTeam = () => useAccessMutation(api.teams.leave);
+export const useAcceptInvite = () => useAccessMutation(api.teams.accept);
+
+/** Every team you can share with: your own and the ones you joined. */
+export function useMyTeams(): { id: number; name: string }[] {
+  const { data } = useTeams();
+  if (!data) return [];
+  const joined = data.memberships.map((m) => ({ id: m.team_id, name: m.name }));
+  return data.owned ? [{ id: data.owned.id, name: data.owned.name }, ...joined] : joined;
+}
+
+/** The team an invite link is for; works signed out. */
+export function useInviteInfo(token: string) {
+  return useQuery({
+    queryKey: queryKeys.invite(token),
+    queryFn: () => api.teams.inviteInfo(token),
+    retry: false,
+  });
+}
+
+/** Create an account through an invite and sign in with it. */
+export function useInviteSignup(token: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Credentials) => api.teams.signup(token, body),
+    onSuccess: (user) => setSignedIn(client, user),
   });
 }

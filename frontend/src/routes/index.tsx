@@ -10,6 +10,7 @@ import { JobRow } from "@/components/JobRow";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { Segmented } from "@/components/Segmented";
 import { SweepRow } from "@/components/SweepRow";
+import { accountLabel } from "@/lib/accounts";
 import { groupSweeps, type Sweep } from "@/lib/runs";
 import { DAY_MS, HOUR_MS, MAX_COMPARE } from "@/config/constants";
 import { useUiSettings } from "@/lib/ui-settings";
@@ -73,7 +74,7 @@ function JobsPage() {
           {accounts.data?.map((a) => (
             <Chip key={a.id} active={accountId === a.id} onClick={() => setAccountId(a.id)}>
               <AccountDot color={a.color} />
-              {a.username}@{a.cluster}
+              {accountLabel(a)}
             </Chip>
           ))}
         </div>

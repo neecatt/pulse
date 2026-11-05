@@ -54,7 +54,7 @@ async def setup(
     Only works while there are no accounts."""
     if await user_count(session) > 0:
         raise HTTPException(status.HTTP_409_CONFLICT, "Pulse is already set up; sign in instead.")
-    address = f"ip:{_client_address(request)}"
+    address = f"ip:{client_address(request)}"
     if services.login_limiter.blocked(address):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, _TOO_MANY)
     code = services.setup_code
@@ -78,7 +78,7 @@ async def signup(
 ) -> Me:
     if not services.settings.allow_signup:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-ups are disabled on this server.")
-    address = f"ip:{_client_address(request)}"
+    address = f"ip:{client_address(request)}"
     if services.signup_limiter.blocked(address):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -101,7 +101,7 @@ async def login(
     services: ServicesDep,
 ) -> Me:
     limiter = services.login_limiter
-    keys = (f"ip:{_client_address(request)}", f"user:{body.username.strip().lower()}")
+    keys = (f"ip:{client_address(request)}", f"user:{body.username.strip().lower()}")
     if limiter.blocked(*keys):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, _TOO_MANY)
     user = await authenticate(session, body.username.strip(), body.password)
@@ -210,5 +210,5 @@ def _normalise(code: str) -> str:
     return code.strip().upper().replace("-", "").replace(" ", "")
 
 
-def _client_address(request: Request) -> str:
+def client_address(request: Request) -> str:
     return request.client.host if request.client else "unknown"

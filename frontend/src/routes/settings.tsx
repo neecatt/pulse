@@ -10,6 +10,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { Card, Section } from "@/components/Section";
 import { Segmented } from "@/components/Segmented";
 import { SettingRow } from "@/components/SettingRow";
+import { TeamSettings } from "@/components/TeamSettings";
 import { Toggle } from "@/components/Toggle";
 import { usePush } from "@/hooks/use-push";
 import { EVENT_LABELS } from "@/lib/labels";
@@ -25,6 +26,7 @@ function SettingsPage() {
   return (
     <div className="space-y-10">
       <AccountSettings />
+      <TeamSettings />
       <Appearance />
       <JobsDisplay />
       <Notifications />
@@ -330,8 +332,8 @@ function ConnectionInfo() {
         </SettingRow>
         {setup?.ssh_public_key && (
           <SettingRow
-            label="Pulse's SSH key"
-            hint="Authorise this on clusters you connect directly"
+            label="Your SSH key"
+            hint="Authorise this on clusters you connect directly. It's yours alone."
           >
             <CopyButton text={setup.ssh_public_key} label="Copy key" />
           </SettingRow>
