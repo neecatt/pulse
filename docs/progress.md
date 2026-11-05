@@ -3,6 +3,15 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Releasing without CI (`feat/local-release`)
+
+- `make release VERSION=x.y.z [NOTES=file]` publishes from a maintainer's
+  machine. It checks for a clean, up-to-date `main` with the version bumped,
+  runs `make check`, then builds and pushes the multi-arch image, and only
+  after that pushes the tag and creates the GitHub release. Pre-releases skip
+  `latest`. `DRY_RUN=1` prints the steps. Checked with ShellCheck and dry runs
+  in a throwaway clone.
+
 ## 2026-11-05 — Roadmap (`docs/roadmap`)
 
 - `ROADMAP.md` lists planned features: job actions, an in-app terminal, job
