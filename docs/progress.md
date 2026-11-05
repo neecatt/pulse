@@ -3,6 +3,11 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Release 0.1.3
+
+- Fixes direct SSH (and jump hosts) failing from the Docker image with
+  `Permission denied: '/root/.ssh/crt'`.
+
 ## 2026-11-05 — Direct SSH from the Docker image (`fix/ssh-ambient-config`)
 
 - Every direct connection from the image failed with `Permission denied:
