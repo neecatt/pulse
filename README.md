@@ -173,7 +173,7 @@ You need a machine that can reach your clusters over SSH, with
 [Docker](https://docs.docker.com/get-docker/) and Compose, and a domain name pointing at it.
 
 ```sh
-git clone https://github.com/neecatt/hpc-monitoring-app.git pulse && cd pulse
+git clone https://github.com/neecatt/pulse.git && cd pulse
 cp .env.example .env        # set PULSE_DOMAIN and PULSE_ADMIN_PASSWORD
 docker compose up -d        # Pulse plus Caddy, which gets the HTTPS certificate
 ```

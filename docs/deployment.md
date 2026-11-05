@@ -19,7 +19,7 @@ at it, and ports 80 and 443 open. Caddy obtains and renews a Let's Encrypt
 certificate automatically.
 
 ```sh
-git clone https://github.com/neecatt/hpc-monitoring-app.git pulse && cd pulse
+git clone https://github.com/neecatt/pulse.git && cd pulse
 cp .env.example .env
 ```
 
@@ -63,7 +63,7 @@ Install Tailscale on your phone to use the app there.
 ## 3. Without Docker
 
 ```sh
-git clone https://github.com/neecatt/hpc-monitoring-app.git /opt/pulse && cd /opt/pulse
+git clone https://github.com/neecatt/pulse.git /opt/pulse && cd /opt/pulse
 make install && (cd frontend && bun run build)
 cp backend/.env.example backend/.env && chmod 600 backend/.env   # then edit it
 sudo cp deploy/pulse.service /etc/systemd/system/ && sudo systemctl enable --now pulse
