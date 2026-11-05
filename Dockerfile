@@ -23,6 +23,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Security updates published since the base image was built.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --upgrade pip setuptools
+
 WORKDIR /app
 COPY backend/pyproject.toml backend/README.md ./backend/
 COPY backend/src ./backend/src

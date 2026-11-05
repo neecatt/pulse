@@ -53,6 +53,8 @@ def create_app(
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError):  # e.g. a mount Pulse doesn't own
+            settings.data_dir.chmod(0o700)  # keys and the database: Pulse's user only
         engine = create_engine(settings.database_url)
         await init_db(engine)
         sessions = create_session_factory(engine)

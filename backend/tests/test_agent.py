@@ -349,3 +349,20 @@ def test_collect_keeps_reports_within_budget(
 
     assert len(agent.json.dumps(payload)) <= 1_000_000 + 64 * 1024  # sacct + framing
     assert 0 < len(payload["jobs"]) < len(jobs)  # the rest wait for a later report
+
+
+def test_agent_skips_symlinked_metric_files(agent: ModuleType, tmp_path: Path) -> None:
+    secret = tmp_path / "private.key"
+    secret.write_text("-----BEGIN PRIVATE KEY-----")
+    shared = tmp_path / "shared-project"
+    shared.mkdir()
+    (shared / "metrics.jsonl").symlink_to(secret)  # planted by someone else
+    (shared / "train_metrics.jsonl").write_text('{"step": 1, "loss": 1.0}\n')
+
+    found = agent.find_metric_files(str(shared))
+    assert found == [str(shared / "train_metrics.jsonl")]
+
+
+def test_agent_install_needs_a_web_address(agent: ModuleType) -> None:
+    assert agent.install("file:///etc", "token") == 2
+    assert not Path(agent.CONFIG_PATH).exists()

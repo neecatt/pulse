@@ -31,6 +31,7 @@ CONFIG_NAMES = (
 
 # Hyperparameters kept per job
 HPARAM_MAX_KEYS = 200
+HPARAM_MAX_DEPTH = 8  # nesting levels flattened from a config file
 HPARAM_MAX_VALUE_LENGTH = 200
 
 # Metric naming: system metrics are kept apart from training metrics

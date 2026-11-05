@@ -3,6 +3,40 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Security review before going public (`fix/security-hardening`)
+
+Scans: gitleaks over every branch (no secrets, no keys or databases ever
+committed), pip-audit (clean), bandit (no real issues), Trivy on the frontend
+packages (Vite dev-server CVEs) and on the image (Debian base only; pip and
+setuptools updated). Manual review of auth, sessions, passkeys, CSRF, access
+control, SSH commands, the agent, file parsers and outgoing connections.
+
+Fixed:
+
+- **Shared SSH key (high, multi-user).** Any user could add another user's
+  cluster login and read their jobs. Each user now has their own key; the first
+  account keeps the original one.
+- **Unbounded request bodies (high).** Anyone could make the server buffer a
+  huge body. 1 MB limit (16 MB for agent reports); the agent keeps reports
+  under 12 MB.
+- **SSRF via push endpoints and account hosts (medium).** Push only to the
+  browsers' push services, without redirects. Non-admins can only connect to
+  public addresses, resolved once and connected to by address.
+- **Option injection (medium).** A cluster path starting with `-` reached
+  `find`/`tail` as an option. Paths must be absolute; job ids are quoted.
+- **Unbounded memory (medium).** The login limiter and passkey challenges
+  grew without limit. Both are bounded; sign-ups are limited per address, and
+  wrong setup codes count toward the address's login limit.
+- **Caches keyed by job id (medium).** Node usage and metric-file listings
+  mixed up jobs with the same id on different clusters or users.
+- **Smaller fixes:** self-referencing YAML no longer recurses forever; the dev
+  origin isn't trusted in production; the agent skips symlinks and requires an
+  http(s) server; notification clicks stay on Pulse; the data directory is
+  mode 700; the image installs Debian updates; Vite 8.1.6; made-up names
+  replace a real cluster login in the tests.
+
+`SECURITY.md` now documents the security model and its known limits.
+
 ## 2026-11-05 — Release 0.1.3
 
 - Fixes direct SSH (and jump hosts) failing from the Docker image with
