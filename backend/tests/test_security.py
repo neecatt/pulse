@@ -2,9 +2,11 @@
 
 from collections.abc import AsyncIterator
 
+import pytest
 from httpx import AsyncClient
 
 from pulse import constants
+from pulse.services.container import Services
 
 
 async def test_oversized_body_is_refused_before_it_is_read(client: AsyncClient) -> None:
@@ -43,3 +45,31 @@ async def test_agent_reports_get_a_larger_limit(client: AsyncClient) -> None:
 async def test_setup_info_needs_sign_in(anon: AsyncClient) -> None:
     # It carries the signed-in user's own SSH public key.
     assert (await anon.get("/api/setup")).status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "accepted"),
+    [
+        ("https://fcm.googleapis.com/fcm/send/abc", True),
+        ("https://updates.push.services.mozilla.com/wpush/v2/abc", True),
+        ("https://web.push.apple.com/QOc_abc", True),
+        ("https://wns2-db5p.notify.windows.com/w/?token=abc", True),
+        ("https://169.254.169.254/latest/meta-data", False),  # cloud metadata
+        ("https://127.0.0.1:8000/api/auth/logout", False),
+        ("https://internal.example.org/admin", False),
+        ("https://fcm.googleapis.com.evil.example/x", False),  # lookalike host
+        ("https://evilfcm.googleapis.com.example/x", False),
+        ("https://fcm.googleapis.com:8443/x", False),  # unusual port
+        ("https://user@fcm.googleapis.com/x", False),
+    ],
+)
+async def test_push_subscriptions_only_reach_browser_push_services(
+    client: AsyncClient, endpoint: str, accepted: bool
+) -> None:
+    body = {"endpoint": endpoint, "keys": {"p256dh": "k", "auth": "a"}}
+    response = await client.post("/api/push/subscriptions", json=body)
+    assert response.status_code == (204 if accepted else 422)
+
+
+def test_push_delivery_follows_no_redirects(services: Services) -> None:
+    assert services.notifier._http.max_redirects == 0

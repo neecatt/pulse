@@ -75,6 +75,14 @@ AGENT_REPORT_PATH = "/api/agent/report"
 
 # Web Push
 PUSH_EXPIRED_STATUSES = frozenset({404, 410})
+# Browsers' push services; a subscription anywhere else is refused, so a user
+# can't make the server send requests into its own network. Subdomains count.
+PUSH_SERVICE_HOSTS = (
+    "fcm.googleapis.com",  # Chrome, Android, Opera, Samsung Internet, Brave
+    "push.services.mozilla.com",  # Firefox
+    "push.apple.com",  # Safari on macOS, iOS and iPadOS
+    "notify.windows.com",  # Edge
+)
 VAPID_KEYS_FILE = "vapid.json"  # in data_dir, when the keys aren't set in the environment
 # Contact sent to push services when neither PULSE_VAPID_SUBJECT nor PULSE_PUBLIC_URL is set.
 DEFAULT_VAPID_SUBJECT = "mailto:admin@example.com"

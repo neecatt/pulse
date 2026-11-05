@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Header, status
+from fastapi import APIRouter, Header, HTTPException, status
 from sqlalchemy import delete, select
 
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep
@@ -18,8 +18,14 @@ async def subscribe(
     body: PushSubscriptionIn,
     session: SessionDep,
     user: CurrentUser,
+    services: ServicesDep,
     user_agent: str | None = Header(default=None),
 ) -> None:
+    if not services.notifier.accepts(body.endpoint):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "This browser's push service isn't supported. Try Chrome, Firefox, Safari or Edge.",
+        )
     existing = await session.scalar(
         select(PushSubscription).where(PushSubscription.endpoint == body.endpoint)
     )
