@@ -97,7 +97,7 @@ async def check_account(
             )
         return AccountCheck(ok=account.last_error is None, error=account.last_error)
     try:
-        host_keys = await services.slurm.check(account.ref())
+        host_keys = await services.slurm.check(account.ref(public_only=not user.is_admin))
     except SlurmError as exc:
         account.last_error = str(exc)[:500]
         await session.commit()

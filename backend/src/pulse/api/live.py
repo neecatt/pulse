@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from pulse.api.deps import CurrentUserId, ServicesDep
+from pulse.api.deps import CurrentUser, CurrentUserId, ServicesDep
 from pulse.constants import STREAM_KEEPALIVE_SECONDS
 from pulse.schemas import SetupInfo
 
@@ -38,8 +38,9 @@ async def stream(
 
 
 @router.get("/setup")
-async def setup(services: ServicesDep) -> SetupInfo:
+async def setup(services: ServicesDep, user: CurrentUser) -> SetupInfo:
+    """What the signed-in user needs to add accounts, including their own SSH key."""
     return SetupInfo(
         slurm_backend=services.settings.slurm_backend,
-        ssh_public_key=services.slurm.public_key,
+        ssh_public_key=services.slurm.public_key_for(user.id),
     )

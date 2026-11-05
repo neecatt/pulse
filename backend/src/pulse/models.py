@@ -106,8 +106,9 @@ class Account(Base):
 
     user: Mapped[User] = relationship(back_populates="accounts")
 
-    def ref(self) -> AccountRef:
-        """How the Slurm client reaches this account."""
+    def ref(self, *, public_only: bool) -> AccountRef:
+        """How the Slurm client reaches this account. ``public_only`` for owners who
+        aren't admins: they may not point the server at private networks."""
         jump = None
         if self.jump_host:
             jump = Hop(
@@ -116,7 +117,15 @@ class Account(Base):
                 self.jump_port,
                 self.jump_host_key,
             )
-        return AccountRef(self.username, self.host, self.port, self.host_key, jump)
+        return AccountRef(
+            self.username,
+            self.host,
+            self.port,
+            self.host_key,
+            jump,
+            owner_id=self.user_id,
+            public_only=public_only,
+        )
 
     def pin_host_keys(self, keys: HostKeys) -> None:
         """Remember host keys the first time they're seen (trust on first use)."""

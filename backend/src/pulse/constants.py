@@ -58,6 +58,13 @@ STREAM_QUEUE_SIZE = 32  # per connected client; a slow client skips updates
 # Scheduling
 POLL_TICK_SECONDS = 5  # how often the poller checks which accounts are due
 
+# SSH keys. The first account keeps Pulse's original key (data_dir/pulse_ed25519
+# or PULSE_SSH_KEY_PATH); every other user gets data_dir/ssh/user-<id>_ed25519.
+FIRST_USER_ID = 1
+USER_KEYS_DIR = "ssh"
+# Node-usage samples and metric-file listings of jobs not seen for this long are dropped.
+CACHE_MAX_AGE_SECONDS = 3600
+
 # Request bodies larger than this are refused before they're read, so an
 # unauthenticated client can't make the server buffer gigabytes. Agent reports
 # carry log tails and metric-file chunks; the agent keeps them under

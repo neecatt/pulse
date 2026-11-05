@@ -38,3 +38,8 @@ async def test_agent_reports_get_a_larger_limit(client: AsyncClient) -> None:
         constants.AGENT_REPORT_PATH, content=too_big, headers={"content-type": "application/json"}
     )
     assert response.status_code == 413
+
+
+async def test_setup_info_needs_sign_in(anon: AsyncClient) -> None:
+    # It carries the signed-in user's own SSH public key.
+    assert (await anon.get("/api/setup")).status_code == 401
