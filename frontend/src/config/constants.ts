@@ -14,6 +14,10 @@ export const DAY_MS = 24 * HOUR_MS;
 export const FALLBACK_REFRESH_MS = MINUTE_MS;
 export const DEFAULT_STALE_MS = 5 * SECOND_MS;
 
+// A demo guest's account is deleted this long after it was created. Must match
+// DEMO_GUEST_TTL_SECONDS in backend/src/pulse/constants.py.
+export const DEMO_GUEST_TTL_MS = DAY_MS;
+
 // Account colours: one Tailwind class per token in styles.css. The length must
 // match ACCOUNT_PALETTE_SIZE in backend/src/pulse/constants.py.
 export const ACCOUNT_COLOR_CLASSES = [

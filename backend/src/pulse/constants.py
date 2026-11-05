@@ -128,6 +128,18 @@ RATE_LIMIT_MAX_KEYS = 10_000  # addresses and usernames tracked by a rate limite
 # Each sign-up hashes a password (deliberately slow): limit them per address.
 SIGNUPS_PER_ADDRESS = 5
 SIGNUP_WINDOW_SECONDS = 3600
+# Demo guests: temporary accounts with simulated clusters, deleted after this long.
+DEMO_GUEST_TTL_SECONDS = 24 * 3600
+DEMO_MAX_GUESTS = 1_000  # alive at once; the oldest make way (bounds the database)
+DEMO_GUESTS_PER_ADDRESS = 30  # per SIGNUP_WINDOW_SECONDS; a classroom shares one address
+DEMO_GUEST_MAX_ACCOUNTS = 5  # simulated clusters per guest
+# New accounts per SIGNUP_WINDOW_SECONDS across all addresses, guests and sign-ups
+# counted apart. Behind a proxy that passes on a client's own X-Forwarded-For,
+# per-address limits can be dodged; this bounds what that buys.
+NEW_ACCOUNTS_PER_WINDOW = 300
+# Setting a first password on a passkey-only account needs a sign-in this recent,
+# so a stolen session can't be turned into a lasting password.
+FRESH_SIGN_IN_SECONDS = 10 * 60
 PASSKEY_NAME_MAX_LENGTH = 64
 PASSKEY_MAX_PER_USER = 20
 

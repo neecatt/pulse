@@ -93,6 +93,7 @@ export const api = {
       request<Me>("/auth/signup", { method: "POST", body: json(body) }),
     login: (body: Credentials) => request<Me>("/auth/login", { method: "POST", body: json(body) }),
     logout: () => request<void>("/auth/logout", { method: "POST" }),
+    demo: () => request<Me>("/auth/demo", { method: "POST" }),
     changePassword: (current_password: string, new_password: string) =>
       request<void>("/auth/password", {
         method: "POST",
@@ -114,6 +115,16 @@ export const api = {
         body: json({ challenge_id, credential, name }),
       }),
     remove: (id: number) => request<void>(`/auth/passkeys/${id}`, { method: "DELETE" }),
+    signupOptions: (username: string) =>
+      request<PasskeyOptions<PublicKeyCredentialCreationOptionsJSON>>(
+        "/auth/passkeys/signup/options",
+        { method: "POST", body: json({ username }) },
+      ),
+    signup: (challenge_id: string, credential: RegistrationResponseJSON, name: string) =>
+      request<Me>("/auth/passkeys/signup/verify", {
+        method: "POST",
+        body: json({ challenge_id, credential, name }),
+      }),
     loginOptions: () =>
       request<PasskeyOptions<PublicKeyCredentialRequestOptionsJSON>>(
         "/auth/passkeys/login/options",

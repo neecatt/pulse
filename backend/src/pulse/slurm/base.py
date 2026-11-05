@@ -34,6 +34,8 @@ class AccountRef:
     owner_id: int = 0
     # Connect only to public internet addresses (for users who don't run the server).
     public_only: bool = False
+    # Set for a demo account: it's simulated, and its story starts at this moment.
+    simulated_since: datetime | None = None
 
     @property
     def target(self) -> Hop:

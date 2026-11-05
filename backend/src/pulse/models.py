@@ -22,6 +22,8 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(default=False)
     # Password comes from PULSE_ADMIN_PASSWORD; it can't be changed in the app.
     password_from_env: Mapped[bool] = mapped_column(default=False)
+    # A demo visitor: simulated clusters only, deleted a day after it was created.
+    is_guest: Mapped[bool] = mapped_column(default=False)
     # EventKind value -> enabled. Missing keys fall back to DEFAULT_ALERTS.
     alert_prefs: Mapped[dict[str, bool]] = mapped_column(JSON, default=dict)
     # Monitoring overrides (see schemas.Monitoring); missing keys use server defaults.
@@ -40,6 +42,11 @@ class User(Base):
     passkeys: Mapped[list["Passkey"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+
+    @property
+    def has_password(self) -> bool:
+        """False for accounts created with a passkey that never set a password."""
+        return self.password_hash is not None
 
 
 class Passkey(Base):
@@ -184,6 +191,8 @@ class Account(Base):
     # "direct": Pulse polls the cluster. "agent": an agent on the login node reports in.
     connection: Mapped[str] = mapped_column(String(16), default="direct")
     agent_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    # Polled from the simulated cluster, never over SSH (demo guests' accounts).
+    simulated: Mapped[bool] = mapped_column(default=False)
 
     user: Mapped[User] = relationship(back_populates="accounts")
 
@@ -206,6 +215,7 @@ class Account(Base):
             jump,
             owner_id=self.user_id,
             public_only=public_only,
+            simulated_since=self.created_at if self.simulated else None,
         )
 
     def pin_host_keys(self, keys: HostKeys) -> None:

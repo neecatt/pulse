@@ -3,6 +3,39 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Public site: landing page, demo, passkey sign-up (`feat/public-site`)
+
+- `PULSE_DEMO=true` makes a server a public site. Signed-out visitors see a
+  landing page (hero, a still of the jobs list drawn with the app's own
+  components, features) with **Try the demo**, **Create your account** and
+  **Sign in**.
+- **Demo guests:** one click signs into a temporary account with simulated LUMI
+  and Leonardo clusters whose story starts at that moment, so jobs start, fail
+  and diverge within minutes, and the activity feed is filled from the first
+  poll. A banner counts down to deletion (24 h) and leads to sign-up. Guests are
+  rate-limited (30 per address per hour), capped at 1,000 alive (the oldest make
+  way), and can't set a password or add passkeys.
+- **Real and simulated side by side:** `slurm.WithSimulated` sends guests'
+  accounts to the simulated cluster and everyone else's over SSH. Any account a
+  guest adds is simulated too, so the demo can't be used to reach other hosts.
+- **Passkey-first sign-up:** a username and a passkey, no password and no email.
+  The account exists only once the passkey verifies. Settings offers a backup
+  password ("Set a password", no current one needed) and nudges until there's a
+  backup. "Use a password instead" remains.
+- Security pass on all of the above: guests can't create teams or invite links
+  (which would mint real accounts with sign-ups off), use the agent, or add
+  more than 5 clusters; simulated accounts never go over SSH and guests still
+  expire after `PULSE_DEMO` is switched off; demo clusters are polled only
+  while watched; guests and sign-ups have total limits besides per-address
+  ones (forged `X-Forwarded-For`); a first password on a passkey-only account
+  needs a sign-in from the last 10 minutes; sign-up races answer 409, not 500.
+  Each fix has a test that fails without it.
+- Tests: 8 new (guest sandbox and routing, real accounts still reach SSH,
+  guests isolated from each other, expiry, guest cap, passkey-only sign-up and
+  backup password, sign-up switch, no password login without a password). End
+  to end in a browser on an SSH-mode server: landing, demo, banner, sign-up with
+  a virtual passkey, settings.
+
 ## 2026-11-05 — No automatic image builds (`ci/remove-image-workflow`)
 
 - Removed `.github/workflows/image.yml`: images are published only with

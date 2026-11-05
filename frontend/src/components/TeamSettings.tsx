@@ -5,6 +5,7 @@ import {
   useCreateInvite,
   useCreateTeam,
   useDeleteTeam,
+  useMe,
   useLeaveTeam,
   useRemoveMember,
   useRenameTeam,
@@ -28,7 +29,8 @@ const inputClass =
 /** Your team (members, invites) and the teams you're in. */
 export function TeamSettings() {
   const { data } = useTeams();
-  if (!data) return null;
+  const { data: me } = useMe();
+  if (!data || me?.is_guest) return null; // teams need a real account
   return (
     <Section title="Team">
       <div className="space-y-4">

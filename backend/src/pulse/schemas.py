@@ -112,7 +112,8 @@ class Login(BaseModel):
 
 
 class PasswordChange(BaseModel):
-    current_password: str = Field(max_length=PASSWORD_MAX_LENGTH)
+    # Empty for an account created with a passkey that is setting its first password.
+    current_password: str = Field(default="", max_length=PASSWORD_MAX_LENGTH)
     new_password: Password
 
 
@@ -121,6 +122,9 @@ class Me(ORMModel):
     username: str
     is_admin: bool
     password_from_env: bool
+    has_password: bool  # False after a passkey-only sign-up, until one is set
+    is_guest: bool  # a temporary demo account
+    created_at: datetime
 
 
 class AuthStatus(BaseModel):
@@ -128,6 +132,7 @@ class AuthStatus(BaseModel):
 
     setup_required: bool  # no accounts yet: the first visitor creates the admin
     signup_allowed: bool
+    demo: bool  # a public site: show the landing page and "Try the demo"
     user: Me | None  # who this browser is signed in as, if anyone
 
 
@@ -149,6 +154,12 @@ class PasskeyRegistration(BaseModel):
     challenge_id: str = Field(max_length=64)
     credential: dict[str, Any]  # PublicKeyCredential JSON from the browser
     name: str | None = Field(default=None, max_length=PASSKEY_NAME_MAX_LENGTH)
+
+
+class PasskeySignupStart(BaseModel):
+    """Create an account with just a username and a passkey."""
+
+    username: AuthUsername
 
 
 class PasskeyLogin(BaseModel):

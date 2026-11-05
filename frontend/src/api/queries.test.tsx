@@ -4,7 +4,15 @@ import { describe, expect, it } from "vitest";
 import { queryKeys, setSignedIn } from "./queries";
 import type { AuthStatus } from "./types";
 
-const me = { id: 1, username: "nicat", is_admin: true, password_from_env: false };
+const me = {
+  id: 1,
+  username: "nicat",
+  is_admin: true,
+  password_from_env: false,
+  has_password: true,
+  is_guest: false,
+  created_at: "2026-11-05T12:00:00Z",
+};
 
 describe("setSignedIn", () => {
   it("updates auth status in place and drops the previous session's data", () => {
@@ -12,6 +20,7 @@ describe("setSignedIn", () => {
     client.setQueryData<AuthStatus>(queryKeys.authStatus, {
       setup_required: false,
       signup_allowed: true,
+      demo: true,
       user: me,
     });
     client.setQueryData(queryKeys.accounts, [{ id: 7 }]);
@@ -24,6 +33,7 @@ describe("setSignedIn", () => {
     expect(client.getQueryData<AuthStatus>(queryKeys.authStatus)).toEqual({
       setup_required: false,
       signup_allowed: true,
+      demo: true, // kept: the landing page shows again after signing out
       user: null,
     });
     expect(client.getQueryData(queryKeys.accounts)).toBeUndefined();

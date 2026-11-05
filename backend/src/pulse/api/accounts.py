@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, select
 
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep, get_owned_account
 from pulse.auth.tokens import hash_token, new_token
-from pulse.constants import ACCOUNT_PALETTE_SIZE
+from pulse.constants import ACCOUNT_PALETTE_SIZE, DEMO_GUEST_MAX_ACCOUNTS
 from pulse.models import Account, AccountShare, User
 from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate, AgentToken
 from pulse.services.teams import (
@@ -113,10 +113,26 @@ async def create_account(
     if duplicate is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "account already linked")
     count = await session.scalar(select(func.count()).where(Account.user_id == user.id)) or 0
+    if user.is_guest:  # anonymous: no uploads, and a bounded number of clusters to poll
+        if body.connection == "agent":
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "The agent needs a real account; the demo is simulated."
+            )
+        if count >= DEMO_GUEST_MAX_ACCOUNTS:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"The demo has room for {DEMO_GUEST_MAX_ACCOUNTS} clusters.",
+            )
     fields = body.model_dump(exclude={"cluster"})
     cluster = body.cluster or cluster_name_from_host(body.host)
     account = Account(
-        user_id=user.id, color=count % ACCOUNT_PALETTE_SIZE, cluster=cluster, **fields
+        user_id=user.id,
+        color=count % ACCOUNT_PALETTE_SIZE,
+        cluster=cluster,
+        # A demo guest's accounts are always simulated: guests can't make Pulse
+        # connect anywhere, whatever host they type.
+        simulated=user.is_guest,
+        **fields,
     )
     session.add(account)
     await session.commit()
@@ -133,7 +149,7 @@ async def issue_agent_token(account_id: int, session: SessionDep, user: CurrentU
     disables the previous install.
     """
     account = await get_owned_account(session, user, account_id)
-    if account.connection != "agent":
+    if account.connection != "agent" or account.simulated:
         raise HTTPException(status.HTTP_409_CONFLICT, "account doesn't use an agent")
     token = new_token()
     account.agent_token_hash = hash_token(token)

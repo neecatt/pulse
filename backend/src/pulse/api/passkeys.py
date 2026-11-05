@@ -1,10 +1,12 @@
 """Passkey (WebAuthn) registration and sign-in, alongside passwords."""
 
 import json
+import secrets
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from webauthn import (
     generate_authentication_options,
     generate_registration_options,
@@ -25,17 +27,26 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from pulse.api.auth import issue_session_cookie
+from pulse.api.auth import issue_session_cookie, limit_signups
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep
 from pulse.auth.webauthn import relying_party
 from pulse.constants import PASSKEY_MAX_PER_USER, PASSKEY_RP_NAME
-from pulse.models import Passkey, utcnow
-from pulse.schemas import Me, PasskeyLogin, PasskeyOptions, PasskeyOut, PasskeyRegistration
+from pulse.models import Passkey, User, utcnow
+from pulse.schemas import (
+    Me,
+    PasskeyLogin,
+    PasskeyOptions,
+    PasskeyOut,
+    PasskeyRegistration,
+    PasskeySignupStart,
+)
 
 router = APIRouter(prefix="/auth/passkeys", tags=["auth"])
 
 _REGISTER = "register"
 _LOGIN = "login"
+_SIGNUP = "signup"
+_TAKEN = "That username is taken."
 
 
 @router.get("")
@@ -51,6 +62,11 @@ async def registration_options(
     request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> PasskeyOptions:
     """Start adding a passkey to the signed-in account."""
+    if user.is_guest:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Demo accounts are temporary. Create your own account to keep using Pulse.",
+        )
     existing = list(await session.scalars(select(Passkey).where(Passkey.user_id == user.id)))
     if len(existing) >= PASSKEY_MAX_PER_USER:
         raise HTTPException(status.HTTP_409_CONFLICT, "You have the maximum number of passkeys.")
@@ -60,15 +76,94 @@ async def registration_options(
         rp_name=PASSKEY_RP_NAME,
         user_id=_user_handle(user.id),
         user_name=user.username,
-        # Discoverable credentials allow signing in without typing a username.
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.REQUIRED,
-            user_verification=UserVerificationRequirement.PREFERRED,
-        ),
+        authenticator_selection=_DISCOVERABLE,
         exclude_credentials=[PublicKeyCredentialDescriptor(id=p.credential_id) for p in existing],
     )
     challenge_id = services.passkey_challenges.issue(options.challenge, _REGISTER, user.id)
     return PasskeyOptions(challenge_id=challenge_id, options=json.loads(options_to_json(options)))
+
+
+# Discoverable credentials allow signing in without typing a username.
+_DISCOVERABLE = AuthenticatorSelectionCriteria(
+    resident_key=ResidentKeyRequirement.REQUIRED,
+    user_verification=UserVerificationRequirement.PREFERRED,
+)
+
+
+@router.post("/signup/options")
+async def signup_options(
+    body: PasskeySignupStart, request: Request, session: SessionDep, services: ServicesDep
+) -> PasskeyOptions:
+    """Start creating an account with a passkey: no password, no email. The account
+    only exists once the passkey is verified."""
+    if not services.settings.allow_signup:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-ups are disabled on this server.")
+    limit_signups(request, services)
+    if await session.scalar(select(User.id).where(User.username == body.username)):
+        raise HTTPException(status.HTTP_409_CONFLICT, _TAKEN)
+    rp = relying_party(request, services.settings)
+    options = generate_registration_options(
+        rp_id=rp.id,
+        rp_name=PASSKEY_RP_NAME,
+        # No user id exists yet; the handle is opaque, and sign-in finds the
+        # account by the credential, not by this.
+        user_id=secrets.token_bytes(8),
+        user_name=body.username,
+        authenticator_selection=_DISCOVERABLE,
+    )
+    challenge_id = services.passkey_challenges.issue(
+        options.challenge, _SIGNUP, username=body.username
+    )
+    return PasskeyOptions(challenge_id=challenge_id, options=json.loads(options_to_json(options)))
+
+
+@router.post("/signup/verify", status_code=status.HTTP_201_CREATED)
+async def signup(
+    body: PasskeyRegistration,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    services: ServicesDep,
+) -> Me:
+    pending = services.passkey_challenges.take(body.challenge_id, _SIGNUP)
+    if pending is None or pending.username is None or not services.settings.allow_signup:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This sign-up expired. Try again.")
+    rp = relying_party(request, services.settings)
+    try:
+        verified = verify_registration_response(
+            credential=body.credential,
+            expected_challenge=pending.challenge,
+            expected_rp_id=rp.id,
+            expected_origin=rp.origin,
+        )
+    except InvalidRegistrationResponse as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "The passkey couldn't be verified."
+        ) from exc
+    if await session.scalar(select(User.id).where(User.username == pending.username)):
+        raise HTTPException(status.HTTP_409_CONFLICT, _TAKEN)  # taken in the meantime
+    user = User(username=pending.username)
+    session.add(user)
+    try:
+        await session.flush()
+        session.add(
+            Passkey(
+                user_id=user.id,
+                credential_id=verified.credential_id,
+                public_key=verified.credential_public_key,
+                sign_count=verified.sign_count,
+                transports=_transports(body.credential),
+                name=(body.name or "").strip() or "Passkey",
+            )
+        )
+        await session.flush()
+    except IntegrityError as exc:  # same username, or a passkey already registered
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "That username or passkey is already in use."
+        ) from exc
+    await issue_session_cookie(user, request, response, session, services.settings)
+    return Me.model_validate(user)
 
 
 @router.post("/register/verify", status_code=status.HTTP_201_CREATED)

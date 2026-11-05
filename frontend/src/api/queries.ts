@@ -93,14 +93,30 @@ export function setSignedIn(client: QueryClient, user: Me | null): void {
   client.setQueryData<AuthStatus>(queryKeys.authStatus, (status) => ({
     setup_required: false,
     signup_allowed: status?.signup_allowed ?? false,
+    demo: status?.demo ?? false,
     user,
   }));
 }
 
+/** "Try the demo": sign in as a new guest with simulated clusters. */
+export function useTryDemo() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.auth.demo,
+    onSuccess: (user) => setSignedIn(client, user),
+  });
+}
+
 export function useChangePassword() {
+  const client = useQueryClient();
   return useMutation({
     mutationFn: ({ current, next }: { current: string; next: string }) =>
       api.auth.changePassword(current, next),
+    // A passkey-only account has a backup password from now on.
+    onSuccess: () =>
+      client.setQueryData<AuthStatus>(queryKeys.authStatus, (status) =>
+        status?.user ? { ...status, user: { ...status.user, has_password: true } } : status,
+      ),
   });
 }
 

@@ -21,6 +21,7 @@ from pulse.metrics.model import Point
 from pulse.models import Account, Event, Job, User, utcnow
 from pulse.schemas import EventOut, Monitoring
 from pulse.services.broadcaster import Broadcaster
+from pulse.services.demo import remove_expired_guests
 from pulse.services.events import (
     DetectedEvent,
     MetricLatches,
@@ -97,6 +98,9 @@ class Poller:
         """Poll every direct account that is due (or all of them when forced)."""
         now = self._clock()
         async with self._sessions() as session:
+            # Even with PULSE_DEMO off now, guests made while it was on expire.
+            await remove_expired_guests(session, now)
+            await session.commit()
             direct = await session.scalars(
                 select(Account)
                 .where(Account.connection == "direct")
@@ -210,8 +214,9 @@ class Poller:
                 return result
 
             # The first snapshot of an account only records its jobs; announcing
-            # every pre-existing job as "started" would flood the user.
-            announce = account.last_polled_at is not None
+            # every pre-existing job as "started" would flood the user. A demo
+            # account does announce them, so its activity isn't empty at first.
+            announce = account.last_polled_at is not None or account.simulated
             events = await self._apply_snapshot(session, account, snapshot, now, announce=announce)
             account.last_polled_at = now
             account.last_error = None
@@ -232,6 +237,10 @@ class Poller:
         if account.last_polled_at is None:
             return True
         viewers = teams.get(account.id, set())
+        if account.simulated and not any(
+            self._broadcaster.has_subscribers_for(u) for u in {account.user_id, *viewers}
+        ):
+            return False  # a demo nobody is looking at costs nothing
         # A tick of slack so a 10 s interval doesn't slip to 15 s on a 5 s tick.
         elapsed = (now - account.last_polled_at).total_seconds()
         return elapsed + POLL_TICK_SECONDS / 2 >= self.interval_for(account.user, viewers)

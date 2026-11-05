@@ -131,16 +131,19 @@ class MockSlurmClient:
     async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
         await self.check(account)
         now = self._clock()
+        # A demo account's story starts when it was created, so every visitor sees
+        # jobs start, fail and diverge in their first minutes.
+        epoch = account.simulated_since or self._epoch
         seed = zlib.crc32(f"{account.username}@{account.host}".encode())
         jobs: list[SlurmJob] = []
         telemetry: dict[str, JobTelemetry] = {}
         array_base = 1_000_000 + seed % 8_000_000 + 500
-        for index, script in enumerate(self._scripts(now)):
+        for index, script in enumerate(self._scripts(now, epoch)):
             if script.array_task is None:
                 slurm_id = str(1_000_000 + seed % 8_000_000 + index)
             else:
                 slurm_id = f"{array_base}_{script.array_task}"
-            job = self._job_at(script, slurm_id, now)
+            job = self._job_at(script, slurm_id, now, epoch)
             if job is None:
                 continue
             jobs.append(job)
@@ -149,8 +152,8 @@ class MockSlurmClient:
                 telemetry[slurm_id] = self._telemetry(script, job, now, seed, files)
         return AccountSnapshot(jobs=jobs, telemetry=telemetry)
 
-    def _scripts(self, now: datetime) -> list[_ScriptedJob]:
-        elapsed = int((now - self._epoch).total_seconds())
+    def _scripts(self, now: datetime, epoch: datetime) -> list[_ScriptedJob]:
+        elapsed = int((now - epoch).total_seconds())
         sweeps = [
             _ScriptedJob(
                 n * SWEEP_PERIOD_S + 45, 60, 600, 1800, f"hparam-sweep-{n:02d}", "gpu", 1, 2
@@ -159,8 +162,10 @@ class MockSlurmClient:
         ]
         return [*_SCRIPT, *_SWEEP, *sweeps]
 
-    def _job_at(self, s: _ScriptedJob, slurm_id: str, now: datetime) -> SlurmJob | None:
-        submit = self._epoch + timedelta(seconds=s.offset)
+    def _job_at(
+        self, s: _ScriptedJob, slurm_id: str, now: datetime, epoch: datetime
+    ) -> SlurmJob | None:
+        submit = epoch + timedelta(seconds=s.offset)
         start = submit + timedelta(seconds=s.wait_s)
         end = start + timedelta(seconds=s.run_s)
         if now < submit or end < now - LOOKBACK:
