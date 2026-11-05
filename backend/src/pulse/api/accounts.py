@@ -8,7 +8,12 @@ from pulse.auth.tokens import hash_token, new_token
 from pulse.constants import ACCOUNT_PALETTE_SIZE
 from pulse.models import Account, AccountShare, User
 from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate, AgentToken
-from pulse.services.teams import is_member, visible_account_ids
+from pulse.services.teams import (
+    announce_access_change,
+    is_member,
+    team_member_ids,
+    visible_account_ids,
+)
 from pulse.slurm import SlurmError
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -16,9 +21,11 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 # Host labels that say nothing about which cluster it is.
 _GENERIC_LABELS = {"login", "ssh", "gateway", "access", "frontend", "hpc", "cluster", "www"}
 
-# What teammates don't see of a shared account: how to reach it, its raw errors
-# and the owner's settings. They get a label (username@cluster) and sync time.
+# What teammates don't see of a shared account: the cluster login, how to reach
+# it, its raw errors and the owner's settings. They see the owner, the cluster
+# and the sync time.
 _PRIVATE_TO_OWNER = {
+    "username": "",
     "host": "",
     "port": 22,
     "jump_host": None,
@@ -60,7 +67,7 @@ async def list_accounts(session: SessionDep, user: CurrentUser) -> list[AccountO
 
 @router.put("/{account_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def share_account(
-    account_id: int, team_id: int, session: SessionDep, user: CurrentUser
+    account_id: int, team_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> None:
     """Let a team you're in see this account's jobs, read-only."""
     account = await get_owned_account(session, user, account_id)
@@ -74,11 +81,12 @@ async def share_account(
     if exists is None:
         session.add(AccountShare(account_id=account.id, team_id=team_id))
         await session.commit()
+        announce_access_change(services.broadcaster, await team_member_ids(session, team_id))
 
 
 @router.delete("/{account_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def unshare_account(
-    account_id: int, team_id: int, session: SessionDep, user: CurrentUser
+    account_id: int, team_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> None:
     account = await get_owned_account(session, user, account_id)
     await session.execute(
@@ -87,6 +95,7 @@ async def unshare_account(
         )
     )
     await session.commit()
+    announce_access_change(services.broadcaster, await team_member_ids(session, team_id))
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

@@ -41,6 +41,7 @@ from pulse.schemas import (
     TeamMembership,
     TeamOverview,
 )
+from pulse.services.teams import announce_access_change, team_member_ids
 
 router = APIRouter(prefix="/teams", tags=["teams"])
 
@@ -74,20 +75,26 @@ async def rename_team(body: TeamCreate, session: SessionDep, user: CurrentUser) 
 
 
 @router.delete("/mine", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_team(session: SessionDep, user: CurrentUser) -> None:
+async def delete_team(session: SessionDep, user: CurrentUser, services: ServicesDep) -> None:
     """Delete your team: everything shared with it stops being shared, at once."""
     team = await _require_owned_team(session, user.id)
+    members = await team_member_ids(session, team.id)
     await session.delete(team)  # memberships, shares and invites go with it
     await session.commit()
+    announce_access_change(services.broadcaster, members)
 
 
 @router.delete("/mine/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_member(user_id: int, session: SessionDep, user: CurrentUser) -> None:
+async def remove_member(
+    user_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
+) -> None:
     team = await _require_owned_team(session, user.id)
     if user_id == user.id:
         raise HTTPException(status.HTTP_409_CONFLICT, "You own this team; delete it instead.")
+    members = await team_member_ids(session, team.id)
     await _remove_from_team(session, team.id, user_id)
     await session.commit()
+    announce_access_change(services.broadcaster, members)
 
 
 @router.post("/mine/invites", status_code=status.HTTP_201_CREATED)
@@ -125,23 +132,38 @@ async def revoke_invite(invite_id: int, session: SessionDep, user: CurrentUser) 
 
 @router.patch("/{team_id}/membership")
 async def update_membership(
-    team_id: int, body: MembershipUpdate, session: SessionDep, user: CurrentUser
+    team_id: int,
+    body: MembershipUpdate,
+    session: SessionDep,
+    user: CurrentUser,
+    services: ServicesDep,
 ) -> TeamOverview:
-    """Turn alerts for teammates' shared jobs on or off, for yourself."""
+    """Your choices in a team: alerts for teammates' shared jobs, and sharing all
+    of your own jobs with it."""
     member = await _membership(session, team_id, user.id)
-    member.alerts = body.alerts
+    if body.alerts is not None:
+        member.alerts = body.alerts
+    sharing_changed = body.share_all is not None and body.share_all != member.share_all
+    if body.share_all is not None:
+        member.share_all = body.share_all
     await session.commit()
+    if sharing_changed:
+        announce_access_change(services.broadcaster, await team_member_ids(session, team_id))
     return await _overview(session, user.id)
 
 
 @router.delete("/{team_id}/membership", status_code=status.HTTP_204_NO_CONTENT)
-async def leave_team(team_id: int, session: SessionDep, user: CurrentUser) -> None:
+async def leave_team(
+    team_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
+) -> None:
     """Leave a team: you stop seeing its shares, and yours are withdrawn from it."""
     member = await _membership(session, team_id, user.id)
     if await session.scalar(select(Team.id).where(Team.id == team_id, Team.owner_id == user.id)):
         raise HTTPException(status.HTTP_409_CONFLICT, "You own this team; delete it instead.")
+    members = await team_member_ids(session, team_id)
     await _remove_from_team(session, member.team_id, user.id)
     await session.commit()
+    announce_access_change(services.broadcaster, members)
 
 
 async def _remove_from_team(session: AsyncSession, team_id: int, user_id: int) -> None:
@@ -290,6 +312,7 @@ async def _overview(session: AsyncSession, user_id: int) -> TeamOverview:
             ],
             invites=[TeamInviteOut.model_validate(i) for i in invites],
             alerts=own.alerts if own else False,
+            share_all=own.share_all if own else False,
         )
     rows = await session.execute(
         select(TeamMember, Team.name, User.username)
@@ -300,7 +323,12 @@ async def _overview(session: AsyncSession, user_id: int) -> TeamOverview:
     )
     memberships = [
         TeamMembership(
-            team_id=m.team_id, name=name, owner=owner, alerts=m.alerts, joined_at=m.joined_at
+            team_id=m.team_id,
+            name=name,
+            owner=owner,
+            alerts=m.alerts,
+            share_all=m.share_all,
+            joined_at=m.joined_at,
         )
         for m, name, owner in rows.all()
     ]

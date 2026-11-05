@@ -127,9 +127,13 @@ class Notifier:
 
 def _event_payload(event: Event, shared_by: str | None = None) -> dict[str, Any]:
     account = event.account
-    label = f"{account.username}@{account.cluster}"
     return {
-        "title": f"{shared_by} · {label}" if shared_by else label,
+        # A teammate's alert names the owner and cluster, never the cluster login.
+        "title": (
+            f"{shared_by} · {account.cluster}"
+            if shared_by
+            else f"{account.username}@{account.cluster}"
+        ),
         "body": event.message,
         "url": f"/jobs/{event.job_id}" if event.job_id else "/",
         "tag": f"job-{event.job_id}" if event.job_id else f"event-{event.id}",

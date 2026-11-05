@@ -4,9 +4,9 @@ from sqlalchemy import select
 from pulse.api.deps import CurrentUser, SessionDep
 from pulse.api.jobs import sort_time
 from pulse.metrics.ingest import is_system_metric
-from pulse.models import Job
+from pulse.models import Account, Job
 from pulse.schemas import MetricStats, RunOut
-from pulse.services.teams import visible_jobs
+from pulse.services.teams import hide_username, visible_jobs
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -22,8 +22,22 @@ async def list_runs(
     if array_id is not None:
         query = query.where(Job.array_id == array_id)
     jobs = sorted(await session.scalars(query), key=lambda j: -sort_time(j))
+    # Teammates' runs: the owner's cluster login stays out of hyperparameter paths.
+    theirs = select(Account.id, Account.username).where(
+        Account.id.in_({j.account_id for j in jobs}), Account.user_id != user.id
+    )
+    logins = dict((await session.execute(theirs)).all())
     return [
-        RunOut.model_validate(job).model_copy(update={"metric_stats": _metric_stats(job)})
+        RunOut.model_validate(job).model_copy(
+            update={
+                "metric_stats": _metric_stats(job),
+                **(
+                    {"hparams": hide_username(job.hparams, logins[job.account_id])}
+                    if job.account_id in logins
+                    else {}
+                ),
+            }
+        )
         for job in jobs
     ]
 

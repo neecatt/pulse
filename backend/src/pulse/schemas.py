@@ -340,6 +340,7 @@ class OwnedTeam(BaseModel):
     members: list[TeamMemberOut]  # everyone but you
     invites: list[TeamInviteOut]  # pending, not yet used or expired
     alerts: bool  # your alerts for teammates' shared jobs
+    share_all: bool  # all your jobs are shared with the team
 
 
 class TeamMembership(BaseModel):
@@ -349,6 +350,7 @@ class TeamMembership(BaseModel):
     name: str
     owner: str
     alerts: bool
+    share_all: bool
     joined_at: datetime
 
 
@@ -358,7 +360,8 @@ class TeamOverview(BaseModel):
 
 
 class MembershipUpdate(BaseModel):
-    alerts: bool
+    alerts: bool | None = None
+    share_all: bool | None = None
 
 
 class InviteInfo(BaseModel):
