@@ -354,13 +354,11 @@ make demo        # build and run the Docker image locally
 
 ## Images
 
-[`neecat/pulse`](https://hub.docker.com/r/neecat/pulse) on Docker Hub, mirrored to
-`ghcr.io/neecatt/pulse`, for amd64 and arm64:
+[`neecat/pulse`](https://hub.docker.com/r/neecat/pulse) on Docker Hub, for amd64 and arm64:
 
 | Tag                      | Contents                                         |
 | ------------------------ | ------------------------------------------------ |
-| `latest`, `0.1`, `0.1.0` | Releases. Pin a version for predictable upgrades |
-| `edge`                   | The newest code on `main`                        |
+| `latest`, `0.2`, `0.2.2` | Releases. Pin a version for predictable upgrades |
 
 ## Support
 

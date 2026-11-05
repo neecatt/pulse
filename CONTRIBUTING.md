@@ -47,10 +47,6 @@ make dev        # runs against a simulated cluster, no HPC access needed
    version with a suffix (`0.2.0-rc.1`) publishes only its own tag and is marked
    as a pre-release.
 
-With GitHub Actions available, pushing the tag also triggers CI, which builds
-the same tags again and mirrors them to `ghcr.io/neecatt/pulse`. Every push to
-`main` publishes `:edge` there.
-
 ## Reporting bugs
 
 Include your Slurm version (`sacct --version`), how Pulse connects (direct or
