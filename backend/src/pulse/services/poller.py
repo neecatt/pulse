@@ -30,7 +30,7 @@ from pulse.services.events import (
     state_change_event,
 )
 from pulse.services.notifier import Notifier
-from pulse.services.teams import audience, audiences, team_members
+from pulse.services.teams import alert_recipients, audience, audiences
 from pulse.slurm import AccountSnapshot, JobTelemetry, SlurmClient, SlurmError, SlurmJob
 from pulse.slurm.base import NodeStats
 from pulse.slurm.parsing import mean_gpu_usage
@@ -218,18 +218,17 @@ class Poller:
             result.events = [EventOut.model_validate(e).model_dump(mode="json") for e in events]
             if events and account.notify:
                 await self._notifier.send_events(session, account.user_id, events)
-            if events and account.shared:
-                for member in await team_members(session, account.user_id):
-                    if member.alerts:  # members opt in to the team's alerts
-                        await self._notifier.send_events(
-                            session, member.user_id, events, shared_by=account.user.username
-                        )
+            if events:  # teammates who opted in to alerts in a team it's shared with
+                for user_id in await alert_recipients(session, account):
+                    await self._notifier.send_events(
+                        session, user_id, events, shared_by=account.user.username
+                    )
             return result
 
     def _is_due(self, account: Account, now: datetime, teams: dict[int, set[int]]) -> bool:
         if account.last_polled_at is None:
             return True
-        viewers = teams.get(account.user_id, set()) if account.shared else set()
+        viewers = teams.get(account.id, set())
         # A tick of slack so a 10 s interval doesn't slip to 15 s on a 5 s tick.
         elapsed = (now - account.last_polled_at).total_seconds()
         return elapsed + POLL_TICK_SECONDS / 2 >= self.interval_for(account.user, viewers)

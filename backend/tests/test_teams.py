@@ -46,6 +46,19 @@ async def team_with_member(owner: AsyncClient, member: AsyncClient) -> None:
     assert joined.status_code == 201, joined.text  # works with sign-ups disabled
 
 
+async def team_id(owner: AsyncClient) -> int:
+    overview = (await owner.get("/api/teams")).json()
+    owned = overview["owned"]
+    tid: int = owned["id"] if owned else overview["memberships"][0]["team_id"]
+    return tid
+
+
+async def share(user: AsyncClient, account_id: int, team: int | None = None) -> None:
+    team = team if team is not None else await team_id(user)
+    response = await user.put(f"/api/accounts/{account_id}/shares/{team}")
+    assert response.status_code == 204, response.text
+
+
 async def polled_account(owner: AsyncClient, services: Services, clock: FakeClock) -> int:
     account = await owner.post(
         "/api/accounts", json={"cluster": "LUMI", "username": "alice", "host": "lumi.example.org"}
@@ -71,7 +84,7 @@ async def test_members_see_only_what_is_shared(
     assert (await member.get("/api/accounts")).json() == []
     assert (await member.get(f"/api/jobs/{job_id}")).status_code == 404
 
-    await client.patch(f"/api/accounts/{account_id}", json={"shared": True})
+    await share(client, account_id)
 
     assert {j["id"] for j in (await member.get("/api/jobs")).json()} == {j["id"] for j in jobs}
     assert (await member.get(f"/api/jobs/{job_id}")).status_code == 200
@@ -79,7 +92,8 @@ async def test_members_see_only_what_is_shared(
     assert (await member.get("/api/runs")).json()
     assert (await member.get("/api/events")).json()
     [shared] = (await member.get("/api/accounts")).json()
-    assert shared["owner"] == "admin" and shared["shared"] is True
+    assert shared["owner"] == "admin"
+    assert shared["shared_with"] == []  # which teams it's shared with stays private
     [own] = (await client.get("/api/accounts")).json()
     assert own["owner"] is None
 
@@ -89,12 +103,13 @@ async def test_members_cannot_change_anything(
 ) -> None:
     await team_with_member(client, member)
     account_id = await polled_account(client, services, clock)
-    await client.patch(f"/api/accounts/{account_id}", json={"shared": True})
+    await share(client, account_id)
     job_id = (await client.get("/api/jobs")).json()[0]["id"]
 
     writes = [
         member.patch(f"/api/jobs/{job_id}", json={"note": "mine now"}),
-        member.patch(f"/api/accounts/{account_id}", json={"shared": False}),
+        member.delete(f"/api/accounts/{account_id}/shares/{await team_id(client)}"),
+        member.put(f"/api/accounts/{account_id}/shares/{await team_id(client)}"),
         member.delete(f"/api/accounts/{account_id}"),
         member.post(f"/api/accounts/{account_id}/check"),
         member.post(f"/api/accounts/{account_id}/agent-token"),
@@ -111,13 +126,13 @@ async def test_access_ends_at_once(
 ) -> None:
     await team_with_member(client, member)
     account_id = await polled_account(client, services, clock)
-    await client.patch(f"/api/accounts/{account_id}", json={"shared": True})
+    await share(client, account_id)
     job_id = (await client.get("/api/jobs")).json()[0]["id"]
     assert (await member.get(f"/api/jobs/{job_id}")).status_code == 200
 
     team = (await client.get("/api/teams")).json()["owned"]
     if how == "unshare":
-        await client.patch(f"/api/accounts/{account_id}", json={"shared": False})
+        await client.delete(f"/api/accounts/{account_id}/shares/{await team_id(client)}")
     elif how == "remove":
         bob = team["members"][0]["user_id"]
         assert (await client.delete(f"/api/teams/mine/members/{bob}")).status_code == 204
@@ -126,7 +141,7 @@ async def test_access_ends_at_once(
     else:
         assert (await client.delete("/api/teams/mine")).status_code == 204
         [account] = (await client.get("/api/accounts")).json()
-        assert account["shared"] is False  # unshared with the team
+        assert account["shared_with"] == []  # the team's shares went with it
 
     assert (await member.get(f"/api/jobs/{job_id}")).status_code == 404
     assert (await member.get("/api/jobs")).json() == []
@@ -137,7 +152,7 @@ async def test_sharing_is_one_way_and_strangers_see_nothing(
 ) -> None:
     await team_with_member(client, member)
     account_id = await polled_account(client, services, clock)
-    await client.patch(f"/api/accounts/{account_id}", json={"shared": True})
+    await share(client, account_id)
     # The member's own account stays private, even from the owner.
     await member.post("/api/accounts", json={"username": "bob", "host": "levante.example.org"})
     assert len((await client.get("/api/accounts")).json()) == 1
@@ -201,7 +216,7 @@ async def test_members_get_live_updates(
 ) -> None:
     await team_with_member(client, member)
     account_id = await polled_account(client, services, clock)
-    await client.patch(f"/api/accounts/{account_id}", json={"shared": True})
+    await share(client, account_id)
     bob = (await client.get("/api/teams")).json()["owned"]["members"][0]["user_id"]
 
     async with services.broadcaster.subscribe(bob) as queue:
@@ -230,7 +245,7 @@ async def test_member_alerts_are_opt_in(
         "/api/accounts", json={"cluster": "LUMI", "username": "alice", "host": "lumi.example.org"}
     )
     account_id = account.json()["id"]
-    await client.patch(f"/api/accounts/{account_id}", json={"shared": True})
+    await share(client, account_id)
     await services.poller.poll_account(account_id)
 
     clock.advance(300)
@@ -243,3 +258,87 @@ async def test_member_alerts_are_opt_in(
     await services.poller.poll_account(account_id)
     to_bob = [payload for endpoint, payload in sent if endpoint == SUB["endpoint"]]
     assert to_bob and all(p["title"].startswith("admin · alice@") for p in to_bob)
+
+
+async def test_members_use_pulse_personally_and_share_by_choice(
+    app: FastAPI, client: AsyncClient, member: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    """An invited member is a normal user: their own accounts are private until they
+    choose to share them, and then the lead and the rest of the team see them."""
+    await team_with_member(client, member)
+    private = await polled_account(member, services, clock)
+    shared = (
+        await member.post("/api/accounts", json={"username": "bob", "host": "levante.example.org"})
+    ).json()["id"]
+    await services.poller.poll_account(shared)
+    assert (await client.get("/api/accounts")).json() == []  # private by default
+
+    await share(member, shared)
+    seen = (await client.get("/api/accounts")).json()
+    assert [(a["id"], a["owner"]) for a in seen] == [(shared, "bob")]
+    bob_jobs = {
+        j["id"] for j in (await member.get("/api/jobs")).json() if j["account_id"] == shared
+    }
+    assert bob_jobs <= {j["id"] for j in (await client.get("/api/jobs")).json()}
+    assert private not in {j["account_id"] for j in (await client.get("/api/jobs")).json()}
+
+    # A third member sees it too; nobody but bob can change it.
+    token = await invite(client)
+    async with new_client(app) as carol:
+        body = {"username": "carol", "password": "c" * 12}
+        await carol.post(f"/api/teams/invites/{token}/signup", json=body)
+        assert [a["owner"] for a in (await carol.get("/api/accounts")).json()] == ["bob"]
+        assert (await carol.delete(f"/api/accounts/{shared}")).status_code == 404
+    assert (
+        await client.patch(f"/api/accounts/{shared}", json={"notify": False})
+    ).status_code == 404
+
+
+async def test_sharing_needs_your_account_and_your_team(
+    app: FastAPI, client: AsyncClient, member: AsyncClient, services: Services
+) -> None:
+    await team_with_member(client, member)
+    mine = await member.post("/api/accounts", json={"username": "bob", "host": "a.example.org"})
+    services.settings.allow_signup = True
+    async with new_client(app) as eve:
+        await eve.post("/api/auth/signup", json={"username": "eve", "password": "e" * 12})
+        await eve.post("/api/teams", json={"name": "Eve's team"})
+        eves_team = await team_id(eve)
+        # Not a member of Eve's team: can't share into it.
+        refused = await member.put(f"/api/accounts/{mine.json()['id']}/shares/{eves_team}")
+        assert refused.status_code == 404
+        # Eve can't share Bob's account into her own team either.
+        stolen = await eve.put(f"/api/accounts/{mine.json()['id']}/shares/{eves_team}")
+        assert stolen.status_code == 404
+        assert (await eve.get("/api/accounts")).json() == []
+
+
+@pytest.mark.parametrize("how", ["removed", "leaves"])
+async def test_leaving_withdraws_your_shares(
+    how: str, client: AsyncClient, member: AsyncClient, services: Services
+) -> None:
+    await team_with_member(client, member)
+    mine = await member.post("/api/accounts", json={"username": "bob", "host": "a.example.org"})
+    await share(member, mine.json()["id"])
+    assert len((await client.get("/api/accounts")).json()) == 1
+
+    team = await team_id(client)
+    if how == "removed":
+        bob = (await client.get("/api/teams")).json()["owned"]["members"][0]["user_id"]
+        await client.delete(f"/api/teams/mine/members/{bob}")
+    else:
+        await member.delete(f"/api/teams/{team}/membership")
+    assert (await client.get("/api/accounts")).json() == []
+    assert (await member.get("/api/accounts")).json()[0]["shared_with"] == []
+
+
+async def test_the_owner_is_a_member_but_cannot_leave(client: AsyncClient) -> None:
+    await client.post("/api/teams", json={"name": "Vision lab"})
+    overview = (await client.get("/api/teams")).json()
+    assert overview["owned"]["members"] == [] and overview["memberships"] == []
+    team = overview["owned"]["id"]
+    me = (await client.get("/api/auth/me")).json()["id"]
+    assert (await client.delete(f"/api/teams/{team}/membership")).status_code == 409
+    assert (await client.delete(f"/api/teams/mine/members/{me}")).status_code == 409
+    toggled = await client.patch(f"/api/teams/{team}/membership", json={"alerts": True})
+    assert toggled.json()["owned"]["alerts"] is True

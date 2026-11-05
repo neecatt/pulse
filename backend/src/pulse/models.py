@@ -61,7 +61,9 @@ class Passkey(Base):
 
 
 class Team(Base):
-    """A user's team: members see the accounts the owner shares, read-only."""
+    """A group of users who share chosen accounts with each other, read-only.
+
+    The owner manages it (invites, removals) and is a member like everyone else."""
 
     __tablename__ = "teams"
 
@@ -83,6 +85,8 @@ class Team(Base):
 
 
 class TeamMember(Base):
+    """Membership in a team, the owner's included."""
+
     __tablename__ = "team_members"
     __table_args__ = (UniqueConstraint("team_id", "user_id"),)
 
@@ -95,6 +99,19 @@ class TeamMember(Base):
 
     team: Mapped[Team] = relationship(back_populates="members")
     user: Mapped[User] = relationship()
+
+
+class AccountShare(Base):
+    """An account its owner shares with one of their teams; the team sees it read-only."""
+
+    __tablename__ = "account_shares"
+    __table_args__ = (UniqueConstraint("account_id", "team_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True
+    )
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
 
 
 class TeamInvite(Base):
@@ -154,8 +171,6 @@ class Account(Base):
     # "direct": Pulse polls the cluster. "agent": an agent on the login node reports in.
     connection: Mapped[str] = mapped_column(String(16), default="direct")
     agent_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
-    # Visible (read-only) to the members of the owner's team.
-    shared: Mapped[bool] = mapped_column(default=False)
 
     user: Mapped[User] = relationship(back_populates="accounts")
 

@@ -1,14 +1,14 @@
 import re
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep, get_owned_account
 from pulse.auth.tokens import hash_token, new_token
 from pulse.constants import ACCOUNT_PALETTE_SIZE
-from pulse.models import Account, User
+from pulse.models import Account, AccountShare, User
 from pulse.schemas import AccountCheck, AccountCreate, AccountOut, AccountUpdate, AgentToken
-from pulse.services.teams import visible_account_ids
+from pulse.services.teams import is_member, visible_account_ids
 from pulse.slurm import SlurmError
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -26,12 +26,55 @@ async def list_accounts(session: SessionDep, user: CurrentUser) -> list[AccountO
         .where(Account.id.in_(visible_account_ids(user.id)))
         .order_by(Account.user_id != user.id, User.username, Account.id)
     )
+    shares = await session.execute(
+        select(AccountShare.account_id, AccountShare.team_id)
+        .join(Account, AccountShare.account_id == Account.id)
+        .where(Account.user_id == user.id)
+    )
+    teams_by_account: dict[int, list[int]] = {}
+    for account_id, team_id in shares.all():
+        teams_by_account.setdefault(account_id, []).append(team_id)
     return [
         AccountOut.model_validate(account).model_copy(
-            update={"owner": None if account.user_id == user.id else owner}
+            update=(
+                {"shared_with": teams_by_account.get(account.id, [])}
+                if account.user_id == user.id
+                else {"owner": owner}  # which teams it's shared with stays private
+            )
         )
         for account, owner in rows.all()
     ]
+
+
+@router.put("/{account_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def share_account(
+    account_id: int, team_id: int, session: SessionDep, user: CurrentUser
+) -> None:
+    """Let a team you're in see this account's jobs, read-only."""
+    account = await get_owned_account(session, user, account_id)
+    if not await is_member(session, user.id, team_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "You're not in that team.")
+    exists = await session.scalar(
+        select(AccountShare.id).where(
+            AccountShare.account_id == account.id, AccountShare.team_id == team_id
+        )
+    )
+    if exists is None:
+        session.add(AccountShare(account_id=account.id, team_id=team_id))
+        await session.commit()
+
+
+@router.delete("/{account_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unshare_account(
+    account_id: int, team_id: int, session: SessionDep, user: CurrentUser
+) -> None:
+    account = await get_owned_account(session, user, account_id)
+    await session.execute(
+        delete(AccountShare).where(
+            AccountShare.account_id == account.id, AccountShare.team_id == team_id
+        )
+    )
+    await session.commit()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

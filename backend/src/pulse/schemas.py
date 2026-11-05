@@ -54,7 +54,6 @@ class AccountCreate(BaseModel):
 class AccountUpdate(BaseModel):
     cluster: ClusterName | None = None
     notify: bool | None = None
-    shared: bool | None = None  # visible to the owner's team
 
 
 class AccountOut(ORMModel):
@@ -71,7 +70,8 @@ class AccountOut(ORMModel):
     jump_username: str | None
     last_polled_at: datetime | None
     last_error: str | None
-    shared: bool
+    # Teams you share this account with (your own accounts only).
+    shared_with: list[int] = []
     # Username of the account's owner when it's shared with you by a teammate;
     # None for your own accounts (only those can be changed).
     owner: str | None = None
@@ -334,12 +334,13 @@ class NewTeamInvite(TeamInviteOut):
 class OwnedTeam(BaseModel):
     id: int
     name: str
-    members: list[TeamMemberOut]
+    members: list[TeamMemberOut]  # everyone but you
     invites: list[TeamInviteOut]  # pending, not yet used or expired
+    alerts: bool  # your alerts for teammates' shared jobs
 
 
 class TeamMembership(BaseModel):
-    """A team you belong to, owned by someone else."""
+    """A team you belong to that someone else owns."""
 
     team_id: int
     name: str

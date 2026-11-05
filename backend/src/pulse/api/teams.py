@@ -1,4 +1,5 @@
-"""Teams: an owner invites members by link and shares chosen accounts with them.
+"""Teams: the owner invites people by link and manages membership; every member,
+the owner included, chooses which of their own accounts to share with the team.
 
 Members see shared accounts' jobs, metrics and activity read-only; what they may
 read is decided in ``services/teams.py``.
@@ -7,7 +8,7 @@ read is decided in ``services/teams.py``.
 from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,7 +17,7 @@ from pulse.api.deps import CurrentUser, ServicesDep, SessionDep
 from pulse.auth.passwords import hash_password
 from pulse.auth.tokens import hash_token, new_token
 from pulse.constants import TEAM_INVITE_TTL_SECONDS, TEAM_MAX_MEMBERS, TEAM_MAX_PENDING_INVITES
-from pulse.models import Account, Team, TeamInvite, TeamMember, User, utcnow
+from pulse.models import Account, AccountShare, Team, TeamInvite, TeamMember, User, utcnow
 from pulse.schemas import (
     Credentials,
     InviteInfo,
@@ -46,7 +47,10 @@ async def overview(session: SessionDep, user: CurrentUser) -> TeamOverview:
 async def create_team(body: TeamCreate, session: SessionDep, user: CurrentUser) -> TeamOverview:
     if await _owned_team(session, user.id) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "You already have a team.")
-    session.add(Team(owner_id=user.id, name=body.name))
+    team = Team(owner_id=user.id, name=body.name)
+    session.add(team)
+    await session.flush()
+    session.add(TeamMember(team_id=team.id, user_id=user.id))  # the owner is a member too
     await session.commit()
     return await _overview(session, user.id)
 
@@ -61,19 +65,18 @@ async def rename_team(body: TeamCreate, session: SessionDep, user: CurrentUser) 
 
 @router.delete("/mine", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_team(session: SessionDep, user: CurrentUser) -> None:
-    """Delete your team: members lose access at once, and your accounts are unshared."""
+    """Delete your team: everything shared with it stops being shared, at once."""
     team = await _require_owned_team(session, user.id)
-    await session.delete(team)
-    await session.execute(update(Account).where(Account.user_id == user.id).values(shared=False))
+    await session.delete(team)  # memberships, shares and invites go with it
     await session.commit()
 
 
 @router.delete("/mine/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_member(user_id: int, session: SessionDep, user: CurrentUser) -> None:
     team = await _require_owned_team(session, user.id)
-    await session.execute(
-        delete(TeamMember).where(TeamMember.team_id == team.id, TeamMember.user_id == user_id)
-    )
+    if user_id == user.id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "You own this team; delete it instead.")
+    await _remove_from_team(session, team.id, user_id)
     await session.commit()
 
 
@@ -114,7 +117,7 @@ async def revoke_invite(invite_id: int, session: SessionDep, user: CurrentUser) 
 async def update_membership(
     team_id: int, body: MembershipUpdate, session: SessionDep, user: CurrentUser
 ) -> TeamOverview:
-    """Turn the team's alerts on or off for yourself."""
+    """Turn alerts for teammates' shared jobs on or off, for yourself."""
     member = await _membership(session, team_id, user.id)
     member.alerts = body.alerts
     await session.commit()
@@ -123,9 +126,25 @@ async def update_membership(
 
 @router.delete("/{team_id}/membership", status_code=status.HTTP_204_NO_CONTENT)
 async def leave_team(team_id: int, session: SessionDep, user: CurrentUser) -> None:
+    """Leave a team: you stop seeing its shares, and yours are withdrawn from it."""
     member = await _membership(session, team_id, user.id)
-    await session.delete(member)
+    if await session.scalar(select(Team.id).where(Team.id == team_id, Team.owner_id == user.id)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "You own this team; delete it instead.")
+    await _remove_from_team(session, member.team_id, user.id)
     await session.commit()
+
+
+async def _remove_from_team(session: AsyncSession, team_id: int, user_id: int) -> None:
+    """End a membership and withdraw that person's shares from the team."""
+    await session.execute(
+        delete(TeamMember).where(TeamMember.team_id == team_id, TeamMember.user_id == user_id)
+    )
+    their_accounts = select(Account.id).where(Account.user_id == user_id)
+    await session.execute(
+        delete(AccountShare).where(
+            AccountShare.team_id == team_id, AccountShare.account_id.in_(their_accounts)
+        )
+    )
 
 
 # Invite links. Looking one up needs no sign-in: the token itself is the secret.
@@ -237,6 +256,8 @@ async def _overview(session: AsyncSession, user_id: int) -> TeamOverview:
             .where(TeamMember.team_id == team.id)
             .order_by(TeamMember.joined_at)
         )
+        member_rows = members.all()
+        own = next((m for m, _ in member_rows if m.user_id == user_id), None)
         invites = await session.scalars(
             select(TeamInvite)
             .where(TeamInvite.team_id == team.id, TeamInvite.expires_at > utcnow())
@@ -247,15 +268,17 @@ async def _overview(session: AsyncSession, user_id: int) -> TeamOverview:
             name=team.name,
             members=[
                 TeamMemberOut(user_id=m.user_id, username=name, joined_at=m.joined_at)
-                for m, name in members.all()
+                for m, name in member_rows
+                if m.user_id != user_id
             ],
             invites=[TeamInviteOut.model_validate(i) for i in invites],
+            alerts=own.alerts if own else False,
         )
     rows = await session.execute(
         select(TeamMember, Team.name, User.username)
         .join(Team, TeamMember.team_id == Team.id)
         .join(User, Team.owner_id == User.id)
-        .where(TeamMember.user_id == user_id)
+        .where(TeamMember.user_id == user_id, Team.owner_id != user_id)
         .order_by(Team.name)
     )
     memberships = [
