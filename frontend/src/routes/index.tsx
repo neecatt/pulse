@@ -250,10 +250,7 @@ function Stats({ jobs }: { jobs: Job[] | null }) {
   const running = jobs.filter((j) => j.state === "RUNNING");
   const since = Date.now() - DAY_MS;
   const failed = jobs.filter(
-    (j) =>
-      (j.state === "FAILED" || j.state === "TIMEOUT") &&
-      j.end_time !== null &&
-      new Date(j.end_time).getTime() > since,
+    (j) => j.state === "FAILED" && j.end_time !== null && new Date(j.end_time).getTime() > since,
   );
   const [runningLabel, queuedLabel, gpuLabel, failedLabel] = STAT_LABELS;
   const stats: Stat[] = [

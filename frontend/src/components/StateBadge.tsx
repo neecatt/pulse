@@ -1,5 +1,5 @@
 import type { JobState } from "@/api/types";
-import { stateTone } from "@/lib/labels";
+import { STATE_LABELS, stateTone } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 
 export function StateBadge({ state, className }: { state: JobState; className?: string }) {
@@ -14,7 +14,7 @@ export function StateBadge({ state, className }: { state: JobState; className?: 
       <span
         className={cn("size-1.5 rounded-full bg-current", state === "RUNNING" && "animate-pulse")}
       />
-      {state}
+      {STATE_LABELS[state]}
     </span>
   );
 }

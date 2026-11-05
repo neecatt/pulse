@@ -7,6 +7,7 @@ export type EventKind =
   | "job_completed"
   | "job_failed"
   | "job_cancelled"
+  | "job_timed_out"
   | "job_time_limit"
   | "job_stalled"
   | "job_nan"

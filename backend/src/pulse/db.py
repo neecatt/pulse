@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Column, Connection, DateTime, Dialect, event, inspect
+from sqlalchemy import Column, Connection, DateTime, Dialect, event, inspect, select, update
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -61,6 +61,7 @@ async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
+        await conn.run_sync(_relabel_timeouts)
 
 
 def _add_missing_columns(conn: Connection) -> None:
@@ -90,6 +91,23 @@ def _add_missing_columns(conn: Connection) -> None:
                 conn.execute(table.update().values({column.name: _default_value(column)}))
             elif not column.nullable:
                 raise RuntimeError(f"New column {table.name}.{column.name} needs a default")
+
+
+def _relabel_timeouts(conn: Connection) -> None:
+    """Before 0.2.2, a job that ran until its time limit was recorded as failed.
+    Relabel those events so past activity matches. Idempotent, and a no-op once
+    there are none left."""
+    from pulse.domain import EventKind, JobState
+    from pulse.models import Event, Job
+
+    conn.execute(
+        update(Event)
+        .where(
+            Event.kind == EventKind.JOB_FAILED,
+            Event.job_id.in_(select(Job.id).where(Job.state == JobState.TIMEOUT)),
+        )
+        .values(kind=EventKind.JOB_TIMED_OUT)
+    )
 
 
 def _default_value(column: Column[Any]) -> Any:

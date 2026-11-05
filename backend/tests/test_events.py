@@ -23,7 +23,8 @@ def test_start_and_finish_transitions() -> None:
     assert kind(JobState.PENDING, job(JobState.RUNNING)) is EventKind.JOB_STARTED
     assert kind(JobState.RUNNING, job(JobState.COMPLETED)) is EventKind.JOB_COMPLETED
     assert kind(JobState.RUNNING, job(JobState.FAILED)) is EventKind.JOB_FAILED
-    assert kind(JobState.RUNNING, job(JobState.TIMEOUT)) is EventKind.JOB_FAILED
+    # Running out the clock is often the plan, so it's not reported as a failure.
+    assert kind(JobState.RUNNING, job(JobState.TIMEOUT)) is EventKind.JOB_TIMED_OUT
     assert kind(JobState.PENDING, job(JobState.CANCELLED)) is EventKind.JOB_CANCELLED
 
 

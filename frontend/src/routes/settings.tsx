@@ -128,7 +128,8 @@ function JobsDisplay() {
 const ALERT_HINTS: Record<EventKind, string> = {
   job_started: "Leaves the queue and begins running",
   job_completed: "Finishes successfully",
-  job_failed: "Fails, runs out of memory, or times out",
+  job_timed_out: "Runs until its time limit",
+  job_failed: "Fails or runs out of memory",
   job_cancelled: "Is cancelled",
   job_time_limit: "Gets close to its time limit",
   job_stalled: "Stops writing output",

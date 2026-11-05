@@ -27,6 +27,9 @@ class EventKind(StrEnum):
     JOB_COMPLETED = "job_completed"
     JOB_FAILED = "job_failed"
     JOB_CANCELLED = "job_cancelled"
+    # Ran until its time limit. Often on purpose (train for 24 h, keep the best
+    # checkpoint), so it's reported like an ending, not a failure.
+    JOB_TIMED_OUT = "job_timed_out"
     JOB_TIME_LIMIT = "job_time_limit"
     JOB_STALLED = "job_stalled"
     JOB_NAN = "job_nan"
