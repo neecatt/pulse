@@ -19,7 +19,7 @@ Self-hosted monitoring for HPC jobs and training runs, with push alerts when som
 <img src="https://img.shields.io/badge/arch-amd64%20%7C%20arm64-informational?style=flat-square" alt="amd64 and arm64">
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-informational?style=flat-square" alt="MIT license"></a>
 
-[Quick start](#quick-start) · [Deploy](#deploy-it-for-real) · [Connect a cluster](#connecting-clusters) · [Configuration](#configuration) · [Self-hosting guide](docs/deployment.md)
+[Quick start](#quick-start) · [Deploy](#deploy-it-for-real) · [Connect a cluster](#connecting-clusters) · [Configuration](#configuration) · [Self-hosting guide](docs/deployment.md) · [Roadmap](ROADMAP.md)
 
 <a href="https://buymeacoffee.com/neecat"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-support%20Pulse-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
 
@@ -379,6 +379,7 @@ star, a bug report or a pull request helps just as much.
 ## Contributing and security
 
 Bug reports and pull requests are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
+What's planned next, from job actions to an in-app terminal, is in [ROADMAP.md](ROADMAP.md).
 Please report security issues privately, as described in [SECURITY.md](SECURITY.md).
 
 ## License
