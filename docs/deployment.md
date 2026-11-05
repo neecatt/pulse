@@ -75,14 +75,16 @@ buffer `/api/stream`, the live update stream.
 
 ## Push notifications
 
-```sh
-docker compose run --rm pulse pulse gen-vapid
-```
+Nothing to set up: Pulse generates its push (VAPID) keys on first start and keeps
+them in `/data/vapid.json`. In the app, **Settings → Enable on this device**. On
+iPhone and iPad, add Pulse to the Home Screen first and open it from there
+(iOS 16.4+).
 
-Copy the two lines into `.env`, set `PULSE_VAPID_SUBJECT` to a `mailto:` contact
-for push services, and restart. Then in the app, **Settings → Enable on this
-device**. On iPhone and iPad, add Pulse to the Home Screen first and open it
-from there (iOS 16.4+).
+Push services are told `PULSE_PUBLIC_URL` as the contact; set
+`PULSE_VAPID_SUBJECT` (`mailto:you@example.org`) to use an email address instead.
+To manage the keys yourself, for example to share them between servers, set
+`PULSE_VAPID_PUBLIC_KEY` and `PULSE_VAPID_PRIVATE_KEY` (from `pulse gen-vapid`).
+Changing the keys disconnects every device until it turns notifications on again.
 
 ## Connecting clusters
 

@@ -3,6 +3,20 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Push keys without setup (`feat/auto-push-keys`)
+
+- Pulse generates its VAPID key pair on first start and keeps it in
+  `data_dir/vapid.json` (mode 600), like its SSH key, so push notifications work
+  without running `pulse gen-vapid`. Keys set in the environment still win;
+  setting only one of the two is refused at startup.
+- Push contact (`sub`) defaults to `PULSE_PUBLIC_URL`; compose now sets
+  `PULSE_PUBLIC_URL=https://$PULSE_DOMAIN` unless overridden.
+- `/api/push/config` returns only the public key (push is always on); the
+  "server has no push keys" hint is gone.
+- Delivery no longer raises on a malformed subscription (dropped) or an
+  unreachable push service (logged, kept), which could otherwise surface as
+  an error on the cluster account being polled.
+
 ## 2026-11-04 — Release 0.1.1
 
 - Fixes v0.1.0 failing on databases created before jump hosts (in-place column

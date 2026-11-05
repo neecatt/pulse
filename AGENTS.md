@@ -126,7 +126,9 @@ Run lint, types, and tests for every package you touched before committing.
 - `SshSlurmClient` keeps one connection per account open, authenticates with a
   key Pulse generates in `data/` (shown in the UI via `/api/setup`), and pins
   each account's host key on first connect.
-- `pulse/services/notifier.py` fans events out to Web Push subscriptions.
+- `pulse/services/notifier.py` fans events out to Web Push subscriptions, signed
+  with the VAPID keys from `services/push_keys.py`: the environment's if set,
+  otherwise a pair generated once in `data_dir/vapid.json`. Push needs no setup.
 - Accounts connect either `direct` (Pulse polls over SSH) or via `agent`:
   `pulse/agent/pulse_agent.py` is a single-file, **Python 3.6+ stdlib-only**
   script that users install on the login node of clusters that require 2FA.

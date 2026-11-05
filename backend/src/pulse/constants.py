@@ -60,6 +60,9 @@ POLL_TICK_SECONDS = 5  # how often the poller checks which accounts are due
 
 # Web Push
 PUSH_EXPIRED_STATUSES = frozenset({404, 410})
+VAPID_KEYS_FILE = "vapid.json"  # in data_dir, when the keys aren't set in the environment
+# Contact sent to push services when neither PULSE_VAPID_SUBJECT nor PULSE_PUBLIC_URL is set.
+DEFAULT_VAPID_SUBJECT = "mailto:admin@example.com"
 
 # Security headers. Everything the web app loads is same-origin (fonts are
 # bundled); inline styles are allowed because React sets style attributes.
