@@ -3,6 +3,11 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — No automatic image builds (`ci/remove-image-workflow`)
+
+- Removed `.github/workflows/image.yml`: images are published only with
+  `make release`, to Docker Hub. No more GHCR mirror or `:edge` tag.
+
 ## 2026-11-05 — Release 0.2.2
 
 - Jobs that run until their time limit are no longer reported as failed (see
