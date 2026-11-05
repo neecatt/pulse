@@ -7,14 +7,16 @@ import socket
 import tempfile
 import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import asyncssh
 import pytest
 
 from pulse.config import Settings
+from pulse.constants import FIRST_USER_ID
 from pulse.domain import JobState
+from pulse.net import is_public_ip
 from pulse.slurm.base import AccountRef, Hop, SlurmError
 from pulse.slurm.ssh import CHUNK_MARKER, SshSlurmClient, select_files
 
@@ -61,14 +63,19 @@ def fake_slurm(process: asyncssh.SSHServerProcess[str]) -> None:
     process.exit(0)
 
 
+OWNER = FIRST_USER_ID  # the Pulse user whose key the fake servers accept
+
+
 @dataclass
 class FakeCluster:
     port: int
     host_key: str
     connections: list[asyncssh.SSHServerConnection]
 
-    def account(self, host_key: str | None = None) -> AccountRef:
-        return AccountRef(username="alice", host="127.0.0.1", port=self.port, host_key=host_key)
+    def account(self, host_key: str | None = None, owner_id: int = OWNER) -> AccountRef:
+        return AccountRef(
+            username="alice", host="127.0.0.1", port=self.port, host_key=host_key, owner_id=owner_id
+        )
 
 
 def make_client(data_dir: Path) -> SshSlurmClient:
@@ -92,12 +99,11 @@ async def cluster(client: SshSlurmClient) -> AsyncIterator[FakeCluster]:
         def connection_made(self, conn: asyncssh.SSHServerConnection) -> None:
             connections.append(conn)
 
-    assert client.public_key is not None
     server = await asyncssh.listen(
         "127.0.0.1",
         0,
         server_host_keys=[server_key],
-        authorized_client_keys=asyncssh.import_authorized_keys(client.public_key),
+        authorized_client_keys=asyncssh.import_authorized_keys(client.public_key_for(OWNER)),
         process_factory=fake_slurm,
         server_factory=Server,
     )
@@ -110,10 +116,18 @@ async def cluster(client: SshSlurmClient) -> AsyncIterator[FakeCluster]:
 
 def test_generates_private_key_once(tmp_path: Path) -> None:
     first = make_client(tmp_path)
-    key_file = tmp_path / "pulse_ed25519"
+    key_file = tmp_path / "pulse_ed25519"  # the first account's key keeps its old name
     assert key_file.stat().st_mode & 0o777 == 0o600
-    assert first.public_key and first.public_key.startswith("ssh-ed25519 ")
-    assert make_client(tmp_path).public_key == first.public_key
+    assert first.public_key_for(OWNER).startswith("ssh-ed25519 ")
+    assert make_client(tmp_path).public_key_for(OWNER) == first.public_key_for(OWNER)
+
+
+def test_every_other_user_gets_their_own_key(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    keys = {client.public_key_for(user_id) for user_id in (OWNER, 2, 3)}
+    assert len(keys) == 3
+    assert (tmp_path / "ssh" / "user-2_ed25519").stat().st_mode & 0o777 == 0o600
+    assert make_client(tmp_path).public_key_for(2) == client.public_key_for(2)  # kept
 
 
 async def test_check_returns_server_host_key(client: SshSlurmClient, cluster: FakeCluster) -> None:
@@ -222,7 +236,7 @@ class JumpHost:
 
 @pytest.fixture
 async def jump_host(client: SshSlurmClient, cluster: FakeCluster) -> AsyncIterator[JumpHost]:
-    """An SSH server that only forwards connections, like csnhr.nhr.fau.de."""
+    """An SSH server that only forwards connections, like an HPC centre's gateway."""
     server_key = asyncssh.generate_private_key("ssh-ed25519")
     forwarded: list[tuple[str, int]] = []
 
@@ -233,12 +247,11 @@ async def jump_host(client: SshSlurmClient, cluster: FakeCluster) -> AsyncIterat
             forwarded.append((dest_host, dest_port))
             return True  # let asyncssh open the forwarded TCP connection
 
-    assert client.public_key is not None
     server = await asyncssh.listen(
         "127.0.0.1",
         0,
         server_host_keys=[server_key],
-        authorized_client_keys=asyncssh.import_authorized_keys(client.public_key),
+        authorized_client_keys=asyncssh.import_authorized_keys(client.public_key_for(OWNER)),
         server_factory=Jump,
     )
     port = server.sockets[0].getsockname()[1]
@@ -249,7 +262,9 @@ async def jump_host(client: SshSlurmClient, cluster: FakeCluster) -> AsyncIterat
 
 
 def via_jump(cluster: FakeCluster, jump: Hop) -> AccountRef:
-    return AccountRef(username="alice", host="127.0.0.1", port=cluster.port, jump=jump)
+    return AccountRef(
+        username="alice", host="127.0.0.1", port=cluster.port, jump=jump, owner_id=OWNER
+    )
 
 
 async def test_connects_through_a_jump_host(
@@ -320,3 +335,57 @@ async def test_ambient_ssh_config_and_agent_are_ignored(
 
     keys = await client.check(cluster.account())
     assert keys.target == cluster.host_key
+
+
+# Multi-user isolation and network policy
+
+
+async def test_another_user_cannot_use_the_owners_authorised_key(
+    client: SshSlurmClient, cluster: FakeCluster
+) -> None:
+    """User 2 adds the same cluster login: Pulse signs in with user 2's key, which the
+    cluster never authorised, so it can't read the owner's jobs."""
+    assert (await client.check(cluster.account())).target == cluster.host_key
+    with pytest.raises(SlurmError, match="rejected Pulse's SSH key"):
+        await client.check(cluster.account(owner_id=2))
+
+
+async def test_users_without_admin_rights_cannot_reach_private_addresses(
+    client: SshSlurmClient, cluster: FakeCluster
+) -> None:
+    restricted = replace(cluster.account(), public_only=True)
+    with pytest.raises(SlurmError, match="isn't on the public internet"):
+        await client.check(restricted)
+    assert cluster.connections == []  # refused before connecting
+
+    jump = replace(via_jump(cluster, Hop("alice", "localhost", cluster.port)), public_only=True)
+    with pytest.raises(SlurmError, match="isn't on the public internet"):
+        await client.check(jump)  # the first hop is the one the server connects to
+
+
+@pytest.mark.parametrize(
+    ("address", "public"),
+    [
+        ("8.8.8.8", True),
+        ("2606:4700:4700::1111", True),
+        ("127.0.0.1", False),
+        ("10.1.2.3", False),
+        ("192.168.0.10", False),
+        ("169.254.169.254", False),  # cloud metadata service
+        ("100.100.1.2", False),  # carrier-grade NAT, e.g. Tailscale
+        ("::1", False),
+        ("fe80::1%eth0", False),
+        ("::ffff:10.0.0.1", False),  # IPv4-mapped private address
+    ],
+)
+def test_public_address_check(address: str, public: bool) -> None:
+    assert is_public_ip(address) is public
+
+
+async def test_telemetry_caches_are_kept_per_account(
+    client: SshSlurmClient, cluster: FakeCluster
+) -> None:
+    """Job ids repeat across clusters and users; cached samples mustn't cross over."""
+    await client.snapshot(cluster.account(), {})
+    keys = set(client._stats_cache) | set(client._discovery_cache)
+    assert keys and all(k.startswith(f"{OWNER}:alice@127.0.0.1:{cluster.port}/") for k in keys)

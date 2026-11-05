@@ -12,7 +12,10 @@ from pulse.services import notifier as notifier_module
 from pulse.services.container import Services
 from tests.conftest import FakeClock
 
-SUB = {"endpoint": "https://push.example.com/device-1", "keys": {"p256dh": "k", "auth": "a"}}
+SUB = {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/device-1",
+    "keys": {"p256dh": "k", "auth": "a"},
+}
 
 
 class _Response:

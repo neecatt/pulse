@@ -107,6 +107,15 @@ Run lint, types, and tests for every package you touched before committing.
   agent script is the one exception: it must stay a standalone file, so it keeps
   its own copies, and tests keep them equal to the server's.
 
+- **Security rules.** Keep the protections in `SECURITY.md` intact:
+  - Scope every query to the signed-in user.
+  - Quote every value that reaches a remote shell command, and require absolute paths.
+  - Bound anything an unauthenticated client can grow (request size, rate limiters, challenges).
+  - Never let a user make the server connect somewhere arbitrary: hosts go
+    through `public_only` for non-admins, push endpoints through `PUSH_SERVICE_HOSTS`.
+
+  `tests/test_security.py` holds the regression tests.
+
 - **Tests.** Pure logic (Slurm parsing, job-state diffing) gets unit tests. New
   endpoints get an API test.
 - **Releases.** Tag `vX.Y.Z` on `main` to publish `:X.Y.Z`, `:X.Y` and `:latest`;
@@ -123,9 +132,11 @@ Run lint, types, and tests for every package you touched before committing.
   changes into `Event`s (rules in `services/events.py`), and publishes one live
   update per cycle through `services/broadcaster.py` to `/api/stream`. The
   interval is 10 s while any client is connected and 60 s otherwise.
-- `SshSlurmClient` keeps one connection per account open, authenticates with a
-  key Pulse generates in `data/` (shown in the UI via `/api/setup`), and pins
-  each account's host key on first connect.
+- `SshSlurmClient` keeps one connection per account open and pins each
+  account's host key on first connect. Each Pulse user has their own key
+  (`AccountRef.owner_id`; the first account keeps `data/pulse_ed25519`), shown
+  in the UI via `/api/setup`. Connections and caches are keyed by user and
+  account, never by Slurm job id alone.
 - `pulse/services/notifier.py` fans events out to Web Push subscriptions, signed
   with the VAPID keys from `services/push_keys.py`: the environment's if set,
   otherwise a pair generated once in `data_dir/vapid.json`. Push needs no setup.

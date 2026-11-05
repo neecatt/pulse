@@ -5,7 +5,7 @@ from typing import Any
 
 import yaml
 
-from pulse.constants import HPARAM_MAX_KEYS, HPARAM_MAX_VALUE_LENGTH
+from pulse.constants import HPARAM_MAX_DEPTH, HPARAM_MAX_KEYS, HPARAM_MAX_VALUE_LENGTH
 
 Scalar = str | int | float | bool | None
 
@@ -21,12 +21,15 @@ def parse_config(path: str, data: bytes) -> dict[str, Scalar]:
     return flatten(_unwrap_wandb(loaded))
 
 
-def flatten(tree: dict[str, Any], prefix: str = "") -> dict[str, Scalar]:
+def flatten(tree: dict[str, Any], prefix: str = "", depth: int = 0) -> dict[str, Scalar]:
+    """Nested keys joined with dots. Deeper than HPARAM_MAX_DEPTH is ignored, which
+    also stops YAML that refers to itself (``a: &a {b: *a}``) from recursing forever."""
     out: dict[str, Scalar] = {}
     for key, value in tree.items():
         name = f"{prefix}{key}"
         if isinstance(value, dict):
-            out.update(flatten(value, f"{name}."))
+            if depth < HPARAM_MAX_DEPTH:
+                out.update(flatten(value, f"{name}.", depth + 1))
         elif isinstance(value, list):
             if all(isinstance(v, str | int | float | bool) for v in value) and len(value) <= 16:
                 out[name] = json.dumps(value)[:HPARAM_MAX_VALUE_LENGTH]

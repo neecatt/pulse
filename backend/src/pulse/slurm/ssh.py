@@ -15,17 +15,21 @@ from asyncssh.known_hosts import KnownHostsArg
 
 from pulse.config import Settings
 from pulse.constants import (
+    CACHE_MAX_AGE_SECONDS,
     CHUNK_BYTES,
     CONFIG_MAX_BYTES,
     CONFIG_NAMES,
+    FIRST_USER_ID,
     LOG_TAIL_LINES,
     MAX_CONFIG_FILES,
     MAX_METRIC_FILES,
     PRUNE_DIRS,
     SEARCH_DEPTH,
+    USER_KEYS_DIR,
 )
 from pulse.domain import JobState
 from pulse.metrics.discovery import classify
+from pulse.net import is_public_ip
 from pulse.slurm.base import (
     AccountRef,
     AccountSnapshot,
@@ -54,7 +58,7 @@ logger = logging.getLogger(__name__)
 # Separates file chunks in the output of one combined read command.
 CHUNK_MARKER = "@@pulse-chunk"
 
-_ConnKey = tuple[str, str, int, str]  # user, host, port, role
+_ConnKey = tuple[int, str, str, int, str]  # Pulse user, login, host, port, role
 _StatsSample = tuple[float, dict[str, NodeStats]]
 _Found = list[tuple[str, int]]  # (path, size)
 _Discovery = tuple[float, _Found]
@@ -64,24 +68,34 @@ class SshSlurmClient:
     """Runs ``sacct``/``scontrol`` on the login node.
 
     One SSH connection per account is kept open and reused across polls, so a
-    poll costs a few commands rather than a full handshake. Pulse authenticates
-    with its own key (generated on first start), which the user authorises on
-    the cluster once.
+    poll costs a few commands rather than a full handshake. Each Pulse user has
+    their own key (generated on first use), which they authorise on their
+    clusters: one user can't sign in to another user's cluster account through
+    Pulse just by adding the same login.
     """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._key_file = settings.ssh_key_file
-        self._public_key = _ensure_key_pair(self._key_file)
+        self._public_keys: dict[int, str] = {}
         self._conns: dict[_ConnKey, asyncssh.SSHClientConnection] = {}
         self._locks: dict[_ConnKey, asyncio.Lock] = {}
         # GPU queries start a job step, so sample them less often than we poll.
+        # Keyed by account and job: job ids repeat across clusters.
         self._stats_cache: dict[str, _StatsSample] = {}
         self._discovery_cache: dict[str, _Discovery] = {}
+        self.public_key_for(FIRST_USER_ID)  # create the original key on startup, as before
 
-    @property
-    def public_key(self) -> str | None:
-        return self._public_key
+    def public_key_for(self, user_id: int) -> str:
+        if user_id not in self._public_keys:
+            self._public_keys[user_id] = _ensure_key_pair(self._key_file(user_id))
+        return self._public_keys[user_id]
+
+    def _key_file(self, user_id: int) -> Path:
+        """The first account keeps Pulse's original key (or PULSE_SSH_KEY_PATH), so
+        existing installs keep working; everyone else gets a key of their own."""
+        if user_id == FIRST_USER_ID:
+            return self._settings.ssh_key_file
+        return self._settings.data_dir / USER_KEYS_DIR / f"user-{user_id}_ed25519"
 
     async def check(self, account: AccountRef) -> HostKeys:
         conn, keys = await self._connect(account)
@@ -92,8 +106,10 @@ class SshSlurmClient:
         conn, keys = await self._connect(account)
         jobs = parse_sacct(await self._run(conn, self._sacct_command(account.username)))
         running = [j for j in jobs if j.state is JobState.RUNNING]
+        scope = f"{account.owner_id}:{account.username}@{account.host}:{account.port}"
+        self._prune_caches()
         results = await asyncio.gather(
-            *(self._telemetry(conn, j, cursors.get(j.slurm_id, {})) for j in running)
+            *(self._telemetry(conn, scope, j, cursors.get(j.slurm_id, {})) for j in running)
         )
         return AccountSnapshot(
             jobs=jobs,
@@ -114,18 +130,30 @@ class SshSlurmClient:
             f"-S now-{hours}hours -o {','.join(SACCT_FIELDS)}"
         )
 
+    def _prune_caches(self) -> None:
+        """Forget samples of jobs that are long gone, so the caches don't grow forever."""
+        horizon = time.monotonic() - CACHE_MAX_AGE_SECONDS
+        for cache in (self._stats_cache, self._discovery_cache):
+            for key in [k for k, (at, _) in cache.items() if at < horizon]:
+                del cache[key]
+
     async def _telemetry(
-        self, conn: asyncssh.SSHClientConnection, job: SlurmJob, cursors: Mapping[str, int]
+        self,
+        conn: asyncssh.SSHClientConnection,
+        scope: str,
+        job: SlurmJob,
+        cursors: Mapping[str, int],
     ) -> JobTelemetry:
         if not SAFE_JOB_ID.match(job.slurm_id):
             return JobTelemetry()
+        cache_key = f"{scope}/{job.slurm_id}"
         try:
-            info = await self._run(conn, f"scontrol show job -o {job.slurm_id}")
-            log_tail, log_mtime = await self._log_tail(conn, parse_scontrol_field(info, "StdOut"))
-            nodes = await self._node_usage(conn, job)
-            files = await self._metric_files(
-                conn, job.slurm_id, parse_scontrol_field(info, "WorkDir"), cursors
-            )
+            info = await self._run(conn, f"scontrol show job -o {shlex.quote(job.slurm_id)}")
+            stdout = _absolute(parse_scontrol_field(info, "StdOut"))
+            log_tail, log_mtime = await self._log_tail(conn, stdout)
+            nodes = await self._node_usage(conn, cache_key, job)
+            work_dir = _absolute(parse_scontrol_field(info, "WorkDir"))
+            files = await self._metric_files(conn, cache_key, work_dir, cursors)
         except SlurmError as exc:
             logger.info("telemetry unavailable for job %s: %s", job.slurm_id, exc)
             return JobTelemetry()
@@ -145,14 +173,14 @@ class SshSlurmClient:
     async def _metric_files(
         self,
         conn: asyncssh.SSHClientConnection,
-        slurm_id: str,
+        cache_key: str,
         work_dir: str | None,
         cursors: Mapping[str, int],
     ) -> list[FileChunk]:
         """New bytes of metric/config files under the job's working directory."""
         if not work_dir:
             return []
-        found = await self._discover(conn, slurm_id, work_dir)
+        found = await self._discover(conn, cache_key, work_dir)
         reads = []  # (path, offset, size, max bytes)
         for path, size in found:
             offset = cursors.get(path, 0)
@@ -177,9 +205,9 @@ class SshSlurmClient:
         ]
 
     async def _discover(
-        self, conn: asyncssh.SSHClientConnection, slurm_id: str, work_dir: str
+        self, conn: asyncssh.SSHClientConnection, cache_key: str, work_dir: str
     ) -> _Found:
-        cached = self._discovery_cache.get(slurm_id)
+        cached = self._discovery_cache.get(cache_key)
         if (
             cached
             and time.monotonic() - cached[0] < self._settings.metric_discovery_interval_seconds
@@ -196,7 +224,7 @@ class SshSlurmClient:
             "-printf '%T@\\t%s\\t%p\\n' 2>/dev/null | sort -rn | head -200; true"
         )
         found = select_files(await self._run(conn, command))
-        self._discovery_cache[slurm_id] = (time.monotonic(), found)
+        self._discovery_cache[cache_key] = (time.monotonic(), found)
         return found
 
     async def _sizes(self, conn: asyncssh.SSHClientConnection, paths: list[str]) -> _Found:
@@ -223,50 +251,68 @@ class SshSlurmClient:
         return rest.splitlines(), mtime
 
     async def _node_usage(
-        self, conn: asyncssh.SSHClientConnection, job: SlurmJob
+        self, conn: asyncssh.SSHClientConnection, cache_key: str, job: SlurmJob
     ) -> dict[str, NodeStats]:
         """CPU, memory and per-GPU usage on every node of the job. Sampling starts a
         job step, so it runs at most once per ``node_stats_interval_seconds``."""
-        cached = self._stats_cache.get(job.slurm_id)
+        cached = self._stats_cache.get(cache_key)
         if cached and time.monotonic() - cached[0] < self._settings.node_stats_interval_seconds:
             return cached[1]
         # --overlap lets the step share the job's allocation (Slurm >= 20.11).
         cmd = (
             f"timeout {self._settings.node_stats_timeout_seconds} "
-            f"srun --jobid={job.slurm_id} --overlap -N{max(job.nodes, 1)} --ntasks-per-node=1 "
+            f"srun --jobid={shlex.quote(job.slurm_id)} --overlap -N{max(job.nodes, 1)} "
+            "--ntasks-per-node=1 "
             f"bash -c {shlex.quote(NODE_STATS_SCRIPT)}"
         )
         try:
             nodes = parse_node_stats(await self._run(conn, cmd))
         except SlurmError:
             nodes = {}
-        self._stats_cache[job.slurm_id] = (time.monotonic(), nodes)
+        self._stats_cache[cache_key] = (time.monotonic(), nodes)
         return nodes
 
     async def _connect(self, account: AccountRef) -> tuple[asyncssh.SSHClientConnection, HostKeys]:
         """A live connection to the login node (through the jump host, if any),
         reused across polls, and the host keys seen on the way."""
-        tunnel = await self._hop(account.jump, None, jump=True) if account.jump else None
-        conn = await self._hop(account.target, tunnel)
+        owner, public_only = account.owner_id, account.public_only
+        if account.jump:
+            tunnel = await self._hop(account.jump, owner, public_only, None, role="jump")
+            via = f"via {account.jump.username}@{account.jump.host}:{account.jump.port}"
+            conn = await self._hop(account.target, owner, False, tunnel, role=via)
+        else:
+            tunnel = None
+            conn = await self._hop(account.target, owner, public_only, None, role="direct")
         return conn, HostKeys(target=_host_key(conn), jump=_host_key(tunnel) if tunnel else None)
 
     async def _hop(
-        self, hop: Hop, tunnel: asyncssh.SSHClientConnection | None, *, jump: bool = False
+        self,
+        hop: Hop,
+        owner_id: int,
+        public_only: bool,
+        tunnel: asyncssh.SSHClientConnection | None,
+        *,
+        role: str,
     ) -> asyncssh.SSHClientConnection:
-        """Connect to one hop, reusing an open connection. A connection through a
-        jump host closes when the jump host's does, so it's replaced the same way."""
-        key = (hop.username, hop.host, hop.port, "jump" if jump else "target")
+        """Connect to one hop as ``owner_id``, reusing an open connection. A connection
+        through a jump host closes when the jump host's does, so it's replaced the same
+        way. ``public_only`` hops must resolve to public internet addresses only."""
+        key = (owner_id, hop.username, hop.host, hop.port, role)
         async with self._locks.setdefault(key, asyncio.Lock()):
             conn = self._conns.get(key)
             if conn is not None and not conn.is_closed():
                 return conn
-            role = "jump host " if jump else ""
+            label = "jump host " if role == "jump" else ""
+            self.public_key_for(owner_id)  # created on first use, even if never shown
             try:
+                # Connect to the address that was checked, so DNS can't swap it after.
+                address = await _public_address(hop) if public_only else hop.host
                 conn = await asyncssh.connect(
-                    hop.host,
+                    address,
                     port=hop.port,
                     username=hop.username,
-                    client_keys=[str(self._key_file)],
+                    client_keys=[str(self._key_file(owner_id))],
+                    host_key_alias=hop.host if address != hop.host else None,
                     known_hosts=self._known_hosts(hop),
                     connect_timeout=self._settings.ssh_connect_timeout_seconds,
                     keepalive_interval=self._settings.ssh_keepalive_seconds,
@@ -280,16 +326,16 @@ class SshSlurmClient:
                 )
             except asyncssh.HostKeyNotVerifiable as exc:
                 raise SlurmError(
-                    f"The {role}{hop.host} presented a different host key than before. "
+                    f"The {label}{hop.host} presented a different host key than before. "
                     "If the cluster rotated its keys, remove and re-add the account."
                 ) from exc
             except asyncssh.PermissionDenied as exc:
                 raise SlurmError(
-                    f"The {role}{hop.host} rejected Pulse's SSH key for {hop.username}. "
+                    f"The {label}{hop.host} rejected Pulse's SSH key for {hop.username}. "
                     "Authorise the key shown in the app on that cluster."
                 ) from exc
             except (OSError, asyncssh.Error) as exc:
-                raise SlurmError(_describe_connect_error(hop, exc, role)) from exc
+                raise SlurmError(_describe_connect_error(hop, exc, label)) from exc
             self._conns[key] = conn
             return conn
 
@@ -344,6 +390,26 @@ def _ensure_key_pair(private_path: Path) -> str:
     if public_path.exists():
         return public_path.read_text().strip()
     return asyncssh.read_private_key(private_path).export_public_key().decode().strip()
+
+
+async def _public_address(hop: Hop) -> str:
+    """The address to connect to, refusing hosts that resolve to non-public ones."""
+    infos = await asyncio.get_running_loop().getaddrinfo(
+        hop.host, hop.port, type=socket.SOCK_STREAM
+    )
+    addresses = [str(info[4][0]) for info in infos]
+    if not addresses or not all(is_public_ip(a) for a in addresses):
+        raise SlurmError(
+            f"{hop.host} isn't on the public internet. Only the server's admin can add "
+            "clusters on private networks."
+        )
+    return addresses[0]
+
+
+def _absolute(path: str | None) -> str | None:
+    """Only absolute paths reach shell commands: a value starting with '-' would be
+    read as an option (``find -delete``), and quoting doesn't prevent that."""
+    return path if path and path.startswith("/") else None
 
 
 def _describe_connect_error(hop: Hop, exc: Exception, role: str = "") -> str:

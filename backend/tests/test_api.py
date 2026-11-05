@@ -160,7 +160,10 @@ async def test_push_subscription_lifecycle(client: AsyncClient) -> None:
     config = (await client.get("/api/push/config")).json()
     assert len(config["public_key"]) == 87  # generated on startup: base64url P-256 point
 
-    sub = {"endpoint": "https://push.example.com/abc", "keys": {"p256dh": "k", "auth": "a"}}
+    sub = {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+        "keys": {"p256dh": "k", "auth": "a"},
+    }
     assert (await client.post("/api/push/subscriptions", json=sub)).status_code == 204
     assert (await client.post("/api/push/subscriptions", json=sub)).status_code == 204  # upsert
 
@@ -175,9 +178,9 @@ async def test_push_subscription_lifecycle(client: AsyncClient) -> None:
 
 
 async def test_account_with_jump_host(client: AsyncClient) -> None:
-    body = ACCOUNT | {"jump_host": "csnhr.nhr.fau.de", "username": "b268dc21"}
+    body = ACCOUNT | {"jump_host": "gateway.example.edu", "username": "jdoe42"}
     created = (await client.post("/api/accounts", json=body)).json()
-    assert created["jump_host"] == "csnhr.nhr.fau.de"
+    assert created["jump_host"] == "gateway.example.edu"
     assert created["jump_port"] == 22
     assert created["jump_username"] is None  # same as the login username
 

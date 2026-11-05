@@ -117,7 +117,8 @@ class MockSlurmClient:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._epoch = self._clock()
 
-    public_key: str | None = None
+    def public_key_for(self, user_id: int) -> str | None:
+        return None
 
     async def check(self, account: AccountRef) -> HostKeys:
         if account.host.endswith(UNREACHABLE_SUFFIX):

@@ -31,6 +31,7 @@ CONFIG_NAMES = (
 
 # Hyperparameters kept per job
 HPARAM_MAX_KEYS = 200
+HPARAM_MAX_DEPTH = 8  # nesting levels flattened from a config file
 HPARAM_MAX_VALUE_LENGTH = 200
 
 # Metric naming: system metrics are kept apart from training metrics
@@ -58,8 +59,31 @@ STREAM_QUEUE_SIZE = 32  # per connected client; a slow client skips updates
 # Scheduling
 POLL_TICK_SECONDS = 5  # how often the poller checks which accounts are due
 
+# SSH keys. The first account keeps Pulse's original key (data_dir/pulse_ed25519
+# or PULSE_SSH_KEY_PATH); every other user gets data_dir/ssh/user-<id>_ed25519.
+FIRST_USER_ID = 1
+USER_KEYS_DIR = "ssh"
+# Node-usage samples and metric-file listings of jobs not seen for this long are dropped.
+CACHE_MAX_AGE_SECONDS = 3600
+
+# Request bodies larger than this are refused before they're read, so an
+# unauthenticated client can't make the server buffer gigabytes. Agent reports
+# carry log tails and metric-file chunks; the agent keeps them under
+# AGENT_REPORT_BUDGET_BYTES (in pulse_agent.py, which a test keeps below this).
+MAX_REQUEST_BYTES = 1024 * 1024
+MAX_AGENT_REPORT_BYTES = 16 * 1024 * 1024
+AGENT_REPORT_PATH = "/api/agent/report"
+
 # Web Push
 PUSH_EXPIRED_STATUSES = frozenset({404, 410})
+# Browsers' push services; a subscription anywhere else is refused, so a user
+# can't make the server send requests into its own network. Subdomains count.
+PUSH_SERVICE_HOSTS = (
+    "fcm.googleapis.com",  # Chrome, Android, Opera, Samsung Internet, Brave
+    "push.services.mozilla.com",  # Firefox
+    "push.apple.com",  # Safari on macOS, iOS and iPadOS
+    "notify.windows.com",  # Edge
+)
 VAPID_KEYS_FILE = "vapid.json"  # in data_dir, when the keys aren't set in the environment
 # Contact sent to push services when neither PULSE_VAPID_SUBJECT nor PULSE_PUBLIC_URL is set.
 DEFAULT_VAPID_SUBJECT = "mailto:admin@example.com"
@@ -93,6 +117,12 @@ PASSWORD_MAX_LENGTH = 256
 # Passkeys (WebAuthn)
 PASSKEY_RP_NAME = "Pulse"  # shown by the browser when creating a passkey
 PASSKEY_CHALLENGE_TTL_SECONDS = 300
+# Unauthenticated clients can create these, so their number is capped (memory).
+PASSKEY_MAX_PENDING_CHALLENGES = 10_000
+RATE_LIMIT_MAX_KEYS = 10_000  # addresses and usernames tracked by a rate limiter
+# Each sign-up hashes a password (deliberately slow): limit them per address.
+SIGNUPS_PER_ADDRESS = 5
+SIGNUP_WINDOW_SECONDS = 3600
 PASSKEY_NAME_MAX_LENGTH = 64
 PASSKEY_MAX_PER_USER = 20
 

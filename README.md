@@ -231,8 +231,9 @@ web portal, which usually covers the jump host too). Then press **Connect**: Pul
 login straight away and pins the host key. With a jump host, Pulse's key must be accepted on
 the gateway as well as the login node.
 
-Pulse uses its own key, never yours. To use an existing key instead, set
-`PULSE_SSH_KEY_PATH`.
+Pulse uses its own keys, never yours, and **each Pulse user has their own key**, so on a
+shared server nobody can reach another user's cluster account by adding the same login. The
+first account can use an existing key instead, with `PULSE_SSH_KEY_PATH`.
 
 </details>
 
@@ -276,7 +277,7 @@ in `/run/secrets`. Every setting is optional.
 | `PULSE_ALLOW_SIGNUP`                                                                                      | Let anyone with the URL create an account                                                                                                           | `false`                 |
 | `PULSE_SESSION_DAYS`                                                                                      | How long a sign-in lasts                                                                                                                            | `30`                    |
 | `PULSE_SLURM_BACKEND`                                                                                     | `ssh` for real clusters, `mock` for a simulated one                                                                                                 | `ssh` in the image      |
-| `PULSE_SSH_KEY_PATH`                                                                                      | Use an existing private key instead of the generated one                                                                                            | `/data/pulse_ed25519`   |
+| `PULSE_SSH_KEY_PATH`                                                                                      | An existing private key for the first account (others always get their own)                                                                         | `/data/pulse_ed25519`   |
 | `PULSE_SSH_KNOWN_HOSTS`                                                                                   | Strict host-key checking against a `known_hosts` file                                                                                               | pin on first use        |
 | `PULSE_POLL_INTERVAL_LIVE_SECONDS`                                                                        | Poll interval while someone has Pulse open                                                                                                          | `10`                    |
 | `PULSE_POLL_INTERVAL_IDLE_SECONDS`                                                                        | Poll interval otherwise                                                                                                                             | `60`                    |
