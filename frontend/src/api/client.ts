@@ -21,6 +21,7 @@ import type {
   JobUpdate,
   LoginSession,
   Me,
+  MembershipUpdate,
   Passkey,
   PasskeyOptions,
   Health,
@@ -170,11 +171,8 @@ export const api = {
       request<void>(`/teams/mine/members/${userId}`, { method: "DELETE" }),
     invite: () => request<NewTeamInvite>("/teams/mine/invites", { method: "POST" }),
     revokeInvite: (id: number) => request<void>(`/teams/mine/invites/${id}`, { method: "DELETE" }),
-    setAlerts: (teamId: number, alerts: boolean) =>
-      request<TeamOverview>(`/teams/${teamId}/membership`, {
-        method: "PATCH",
-        body: json({ alerts }),
-      }),
+    updateMembership: (teamId: number, body: MembershipUpdate) =>
+      request<TeamOverview>(`/teams/${teamId}/membership`, { method: "PATCH", body: json(body) }),
     leave: (teamId: number) => request<void>(`/teams/${teamId}/membership`, { method: "DELETE" }),
     inviteInfo: (token: string) =>
       request<InviteInfo>(`/teams/invites/${encodeURIComponent(token)}`),

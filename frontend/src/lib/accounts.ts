@@ -1,7 +1,8 @@
 import type { Account } from "@/api/types";
 
-/** "jdoe@LUMI", or "alice · jdoe@LUMI" for an account a teammate shares with you. */
+/** "jdoe@LUMI", or "alice · LUMI" for a teammate's account (their cluster login stays private). */
 export function accountLabel(account: Pick<Account, "username" | "cluster" | "owner">): string {
-  const label = `${account.username}@${account.cluster}`;
-  return account.owner ? `${account.owner} · ${label}` : label;
+  return account.owner
+    ? `${account.owner} · ${account.cluster}`
+    : `${account.username}@${account.cluster}`;
 }

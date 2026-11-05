@@ -9,20 +9,21 @@ import {
   useRemoveMember,
   useRenameTeam,
   useRevokeInvite,
-  useSetTeamAlerts,
   useTeams,
+  useUpdateMembership,
 } from "@/api/queries";
 import type { OwnedTeam, TeamMembership } from "@/api/types";
 import { formatAgo, formatDateTime } from "@/lib/format";
 
 import { Button } from "./Button";
+import { useConfirm } from "@/hooks/use-confirm";
 import { CopyButton } from "./CopyButton";
 import { Card, Section } from "./Section";
 import { SettingRow } from "./SettingRow";
 import { Toggle } from "./Toggle";
 
 const inputClass =
-  "h-9 w-full rounded-md border bg-background px-3 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-ring";
+  "h-8 w-full min-w-0 rounded-md border bg-background px-3 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-ring";
 
 /** Your team (members, invites) and the teams you're in. */
 export function TeamSettings() {
@@ -48,28 +49,29 @@ function CreateTeam() {
     if (name.trim()) create.mutate(name.trim());
   };
   return (
-    <Card className="space-y-3 p-4">
-      <div>
-        <div className="text-sm">Share your runs with your lab</div>
-        <div className="text-xs text-muted-foreground">
-          Invite people with a link and choose which accounts they see. They follow those jobs and
-          training curves live, read-only.
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 p-4 compact:py-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm">Share your runs with your lab</div>
+          <div className="text-xs text-muted-foreground">
+            Invite people with a link. They follow the jobs you share, live and read-only.
+          </div>
         </div>
+        <form onSubmit={submit} className="flex w-full gap-2 sm:w-auto">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Team name"
+            maxLength={64}
+            aria-label="Team name"
+            className={`${inputClass} sm:w-48`}
+          />
+          <Button type="submit" className="shrink-0" disabled={create.isPending || !name.trim()}>
+            Create team
+          </Button>
+        </form>
       </div>
-      <form onSubmit={submit} className="flex gap-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Team name, e.g. Vision lab"
-          maxLength={64}
-          aria-label="Team name"
-          className={inputClass}
-        />
-        <Button type="submit" disabled={create.isPending || !name.trim()}>
-          Create team
-        </Button>
-      </form>
-      {create.error && <p className="text-xs text-fail">{create.error.message}</p>}
+      {create.error && <p className="px-4 pb-4 text-xs text-fail">{create.error.message}</p>}
     </Card>
   );
 }
@@ -78,7 +80,7 @@ function OwnTeam({ team }: { team: OwnedTeam }) {
   const remove = useDeleteTeam();
   const removeMember = useRemoveMember();
   const revoke = useRevokeInvite();
-  const setAlerts = useSetTeamAlerts();
+  const confirm = useConfirm();
   return (
     <Card className="divide-y">
       <TeamName team={team} />
@@ -88,11 +90,15 @@ function OwnTeam({ team }: { team: OwnedTeam }) {
           <Button
             variant="ghost"
             disabled={removeMember.isPending}
-            onClick={() => {
-              if (confirm(`Remove ${m.username} from ${team.name}? They lose access at once.`)) {
-                removeMember.mutate(m.user_id);
-              }
-            }}
+            onClick={() =>
+              confirm.ask({
+                title: `Remove ${m.username}?`,
+                description: `They stop seeing everything shared with ${team.name} at once, and what they shared is withdrawn.`,
+                action: "Remove",
+                danger: true,
+                onConfirm: () => removeMember.mutate(m.user_id),
+              })
+            }
           >
             Remove
           </Button>
@@ -109,29 +115,27 @@ function OwnTeam({ team }: { team: OwnedTeam }) {
           </Button>
         </SettingRow>
       ))}
-      <SettingRow label="Alerts for members' jobs" hint="When members share jobs with the team">
-        <Toggle
-          label={`Alerts for ${team.name}`}
-          checked={team.alerts}
-          onChange={(alerts) => setAlerts.mutate({ teamId: team.id, alerts })}
-        />
-      </SettingRow>
-      <SettingRow
-        label="Delete team"
-        hint="Members lose access, and your accounts stop being shared."
-      >
+      <ShareAllRow teamId={team.id} teamName={team.name} shareAll={team.share_all} />
+      <AlertsRow teamId={team.id} teamName={team.name} alerts={team.alerts} />
+      <SettingRow label="Delete team" hint="Members lose access, and nothing stays shared.">
         <Button
           variant="danger"
           disabled={remove.isPending}
-          onClick={() => {
-            if (confirm(`Delete ${team.name}? Members lose access to your jobs at once.`)) {
-              remove.mutate(undefined);
-            }
-          }}
+          onClick={() =>
+            confirm.ask({
+              title: `Delete ${team.name}?`,
+              description:
+                "Members lose access to everything shared with the team at once. Your jobs and accounts stay as they are.",
+              action: "Delete team",
+              danger: true,
+              onConfirm: () => remove.mutate(undefined),
+            })
+          }
         >
           Delete
         </Button>
       </SettingRow>
+      {confirm.dialog}
     </Card>
   );
 }
@@ -143,8 +147,8 @@ function TeamName({ team }: { team: OwnedTeam }) {
   const count = team.members.length;
   const hint = (
     <>
-      {count === 0 ? "No members yet" : `${count} member${count === 1 ? "" : "s"}`} · they see the
-      accounts you share on the{" "}
+      {count === 0 ? "No members yet" : `${count} member${count === 1 ? "" : "s"}`} · pick single
+      accounts on the{" "}
       <Link to="/accounts" className="underline underline-offset-2">
         Accounts
       </Link>{" "}
@@ -225,9 +229,43 @@ function InviteRow() {
   );
 }
 
+/** Share every job of every account you have (and add later) with a team. */
+function ShareAllRow(props: { teamId: number; teamName: string; shareAll: boolean }) {
+  const update = useUpdateMembership();
+  return (
+    <SettingRow
+      label="Share all my jobs"
+      hint="Every account you have, and any you add later. Teammates see them read-only."
+    >
+      <Toggle
+        label={`Share all my jobs with ${props.teamName}`}
+        checked={props.shareAll}
+        disabled={update.isPending}
+        onChange={(shareAll) => update.mutate({ teamId: props.teamId, share_all: shareAll })}
+      />
+    </SettingRow>
+  );
+}
+
+function AlertsRow(props: { teamId: number; teamName: string; alerts: boolean }) {
+  const update = useUpdateMembership();
+  return (
+    <SettingRow
+      label="Alerts for teammates' jobs"
+      hint="Push notifications, using your alert choices below"
+    >
+      <Toggle
+        label={`Alerts for ${props.teamName}`}
+        checked={props.alerts}
+        onChange={(alerts) => update.mutate({ teamId: props.teamId, alerts })}
+      />
+    </SettingRow>
+  );
+}
+
 function Membership({ membership }: { membership: TeamMembership }) {
-  const setAlerts = useSetTeamAlerts();
   const leave = useLeaveTeam();
+  const confirm = useConfirm();
   return (
     <Card className="divide-y">
       <SettingRow
@@ -237,25 +275,31 @@ function Membership({ membership }: { membership: TeamMembership }) {
         <Button
           variant="ghost"
           disabled={leave.isPending}
-          onClick={() => {
-            if (confirm(`Leave ${membership.name}? You'll stop seeing its shared jobs.`)) {
-              leave.mutate(membership.team_id);
-            }
-          }}
+          onClick={() =>
+            confirm.ask({
+              title: `Leave ${membership.name}?`,
+              description:
+                "You stop seeing its shared jobs at once, and what you shared with it is withdrawn.",
+              action: "Leave team",
+              danger: true,
+              onConfirm: () => leave.mutate(membership.team_id),
+            })
+          }
         >
           Leave
         </Button>
       </SettingRow>
-      <SettingRow
-        label="Alerts for this team's jobs"
-        hint="Push notifications, using your alert choices below"
-      >
-        <Toggle
-          label={`Alerts for ${membership.name}`}
-          checked={membership.alerts}
-          onChange={(alerts) => setAlerts.mutate({ teamId: membership.team_id, alerts })}
-        />
-      </SettingRow>
+      <ShareAllRow
+        teamId={membership.team_id}
+        teamName={membership.name}
+        shareAll={membership.share_all}
+      />
+      <AlertsRow
+        teamId={membership.team_id}
+        teamName={membership.name}
+        alerts={membership.alerts}
+      />
+      {confirm.dialog}
     </Card>
   );
 }

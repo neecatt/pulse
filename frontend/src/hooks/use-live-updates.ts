@@ -20,6 +20,10 @@ export function useLiveUpdates(): boolean {
     source.onerror = () => setConnected(false);
     source.onmessage = (message: MessageEvent<string>) => {
       const update = JSON.parse(message.data) as LiveUpdate;
+      if (update.type === "access") {
+        void client.invalidateQueries();
+        return;
+      }
       // ["jobs"] is a prefix of every job query, so open job pages refresh too.
       void client.invalidateQueries({ queryKey: queryKeys.jobs });
       void client.invalidateQueries({ queryKey: queryKeys.accounts });

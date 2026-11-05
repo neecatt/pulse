@@ -185,11 +185,10 @@ export interface SetupInfo {
 }
 
 /** Message on the /api/stream Server-Sent Events channel. */
-export interface LiveUpdate {
-  type: "update";
-  accounts: number[];
-  events: PulseEvent[];
-}
+export type LiveUpdate =
+  | { type: "update"; accounts: number[]; events: PulseEvent[] }
+  /** What you may see changed (sharing, team membership): refetch everything. */
+  | { type: "access" };
 
 export interface PushConfig {
   /** VAPID key browsers subscribe with. */
@@ -273,6 +272,8 @@ export interface OwnedTeam {
   invites: TeamInvite[];
   /** Your alerts for teammates' shared jobs. */
   alerts: boolean;
+  /** All your jobs are shared with the team. */
+  share_all: boolean;
 }
 
 /** A team you belong to, owned by someone else. */
@@ -281,7 +282,14 @@ export interface TeamMembership {
   name: string;
   owner: string;
   alerts: boolean;
+  /** All your jobs are shared with the team. */
+  share_all: boolean;
   joined_at: string;
+}
+
+export interface MembershipUpdate {
+  alerts?: boolean;
+  share_all?: boolean;
 }
 
 export interface TeamOverview {

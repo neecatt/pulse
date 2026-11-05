@@ -3,6 +3,21 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Team sharing polish (`feat/team-sharing-polish`)
+
+- "Share all my jobs" per team (Settings → Team): every account a member has,
+  and any added later, without flipping switches per account. Account and job
+  switches show such teams as on and locked.
+- Sharing changes reach teammates' open apps at once (an `access` message on
+  `/api/stream`) instead of at the next poll.
+- Teammates never see the owner's cluster login: labels read "alice · LUMI",
+  push titles too, and `/home/<login>/` path segments in logs, file paths and
+  hyperparameters become `/home/…/`.
+- In-app confirm dialogs (`useConfirm`, a native `<dialog>`) replace every
+  browser `confirm()` popup; the create-team card is one tidy row.
+- Tests: share-all (incl. accounts added later), access messages, path
+  scrubbing; checked end to end in a browser with an owner and a member.
+
 ## 2026-11-05 — No deploy branches (`docs/drop-deploy-branches`)
 
 - Removed the `deploy/railway` branch: Railway now runs the published

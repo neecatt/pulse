@@ -16,6 +16,7 @@ import { AccountDot } from "@/components/AccountDot";
 import { AccountForm } from "@/components/AccountForm";
 import { AgentInstall } from "@/components/AgentInstall";
 import { Button } from "@/components/Button";
+import { useConfirm } from "@/hooks/use-confirm";
 import { ShareSwitches } from "@/components/ShareSwitches";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { Toggle } from "@/components/Toggle";
@@ -98,6 +99,7 @@ function AccountRow({ account }: { account: Account }) {
   const update = useUpdateAccount();
   const share = useShareAccount();
   const teams = useMyTeams();
+  const confirm = useConfirm();
   const remove = useDeleteAccount();
   const check = useCheckAccount();
   const issueToken = useIssueAgentToken();
@@ -165,15 +167,14 @@ function AccountRow({ account }: { account: Account }) {
           <Button
             variant="ghost"
             disabled={issueToken.isPending}
-            onClick={() => {
-              if (
-                confirm(
-                  "Get a new install command? The agent installed with the old one stops working.",
-                )
-              ) {
-                issueToken.mutate(account.id);
-              }
-            }}
+            onClick={() =>
+              confirm.ask({
+                title: "Get a new install command?",
+                description: "The agent installed with the old command stops reporting.",
+                action: "Get new command",
+                onConfirm: () => issueToken.mutate(account.id),
+              })
+            }
           >
             Reinstall
           </Button>
@@ -189,14 +190,20 @@ function AccountRow({ account }: { account: Account }) {
         <Button
           variant="danger"
           disabled={remove.isPending}
-          onClick={() => {
-            if (confirm(`Remove ${account.username}@${account.cluster} and its job history?`)) {
-              remove.mutate(account.id);
-            }
-          }}
+          onClick={() =>
+            confirm.ask({
+              title: `Remove ${account.username}@${account.cluster}?`,
+              description:
+                "Its job history and charts are deleted, and teammates stop seeing its jobs.",
+              action: "Remove account",
+              danger: true,
+              onConfirm: () => remove.mutate(account.id),
+            })
+          }
         >
           Remove
         </Button>
+        {confirm.dialog}
       </div>
     </div>
   );

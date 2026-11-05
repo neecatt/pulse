@@ -33,7 +33,8 @@ falls short.
 - **Users are isolated.** Every endpoint returns only the signed-in user's data,
   plus, read-only, the accounts or single jobs a teammate chose to share with a
   team you're both in. Live updates and alerts follow the same rule, job by job.
-  Teammates see a shared account only as `username@cluster`, never its host,
+  Teammates see a shared account only as its owner and cluster, never its
+  cluster login (also removed from paths in logs and hyperparameters), host,
   jump host, errors or settings. Only an account's owner can change it or its
   jobs. Team invites are single-use (even under concurrent use), expire after 7
   days and are stored as hashes.

@@ -10,9 +10,10 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import update
 
-from pulse.models import TeamInvite
+from pulse.models import Job, TeamInvite
 from pulse.services import notifier as notifier_module
 from pulse.services.container import Services
+from pulse.services.teams import hide_username
 from tests.conftest import FakeClock
 
 MEMBER = {"username": "bob", "password": "bob's long password"}
@@ -257,7 +258,7 @@ async def test_member_alerts_are_opt_in(
     clock.advance(300)
     await services.poller.poll_account(account_id)
     to_bob = [payload for endpoint, payload in sent if endpoint == SUB["endpoint"]]
-    assert to_bob and all(p["title"].startswith("admin · alice@") for p in to_bob)
+    assert to_bob and all(p["title"] == "admin · LUMI" for p in to_bob)  # no cluster login
 
 
 async def test_members_use_pulse_personally_and_share_by_choice(
@@ -470,7 +471,7 @@ async def test_teams_never_see_each_others_shares(
         assert eve_team != alice_team
 
 
-async def test_teammates_get_a_label_not_connection_details(
+async def test_teammates_see_owner_and_cluster_only(
     client: AsyncClient, member: AsyncClient, services: Services, clock: FakeClock
 ) -> None:
     await team_with_member(client, member)
@@ -489,9 +490,9 @@ async def test_teammates_get_a_label_not_connection_details(
     await share_job(client, job_id, await team_id(client))
 
     [seen] = (await member.get("/api/accounts")).json()
-    assert (seen["username"], seen["cluster"], seen["owner"]) == ("alice", "LUMI", "admin")
+    assert (seen["cluster"], seen["owner"]) == ("LUMI", "admin")
     text = json.dumps(seen)
-    assert "example.org" not in text and "alice-jump" not in text
+    assert "alice" not in text and "example.org" not in text
     assert seen["last_error"] is None and seen["shared_with"] == []
     [own] = (await client.get("/api/accounts")).json()
     assert own["host"] == "lumi.example.org"  # the owner still sees everything
@@ -510,3 +511,87 @@ async def test_a_used_invite_cannot_be_used_again(
         assert first.status_code == 201
         again = await other.post(f"/api/teams/invites/{token}/accept")
         assert again.status_code == 404
+
+
+async def test_sharing_everything_covers_accounts_added_later(
+    client: AsyncClient, member: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    await team_with_member(client, member)
+    team = await team_id(member)
+    first = await polled_account(member, services, clock)
+    assert (await client.get("/api/jobs")).json() == []
+
+    on = await member.patch(f"/api/teams/{team}/membership", json={"share_all": True})
+    assert on.json()["memberships"][0]["share_all"] is True
+    assert on.json()["memberships"][0]["alerts"] is False  # untouched
+    later = (
+        await member.post("/api/accounts", json={"username": "bob", "host": "levante.example.org"})
+    ).json()["id"]
+    await services.poller.poll_account(later)
+    seen = {j["account_id"] for j in (await client.get("/api/jobs")).json()}
+    assert seen == {first, later}
+    assert {a["id"] for a in (await client.get("/api/accounts")).json()} >= {first, later}
+    # Sharing all is one-way: the owner's own accounts stay private.
+    await polled_account(client, services, clock)
+    assert {j["account_id"] for j in (await member.get("/api/jobs")).json()} == {first, later}
+
+    await member.patch(f"/api/teams/{team}/membership", json={"share_all": False})
+    assert {j["account_id"] for j in (await client.get("/api/jobs")).json()} - {first, later}
+    assert not {j["account_id"] for j in (await client.get("/api/jobs")).json()} & {first, later}
+
+
+async def test_access_changes_reach_open_apps_at_once(
+    client: AsyncClient, member: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    await team_with_member(client, member)
+    account_id = await polled_account(client, services, clock)
+    team = await team_id(client)
+    bob = (await client.get("/api/teams")).json()["owned"]["members"][0]["user_id"]
+    async with services.broadcaster.subscribe(bob) as queue:
+        await share(client, account_id)
+        assert json.loads(queue.get_nowait()) == {"type": "access"}
+        await client.delete(f"/api/accounts/{account_id}/shares/{team}")
+        assert json.loads(queue.get_nowait()) == {"type": "access"}
+        await client.patch(f"/api/teams/{team}/membership", json={"share_all": True})
+        assert json.loads(queue.get_nowait()) == {"type": "access"}
+        await client.delete(f"/api/teams/mine/members/{bob}")
+        assert json.loads(queue.get_nowait()) == {"type": "access"}
+
+
+async def test_teammates_never_see_the_cluster_login_in_paths(
+    client: AsyncClient, member: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    await team_with_member(client, member)
+    account_id = await polled_account(client, services, clock)
+    await share(client, account_id)
+    job_id = (await client.get("/api/jobs")).json()[0]["id"]
+    async with services.sessions() as session:
+        await session.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(
+                log_tail=["saving to /scratch/alice/run1/ckpt.pt"],
+                hparams={"data": "/home/alice/data", "note": "alice's run"},
+            )
+        )
+        await session.commit()
+
+    detail = (await member.get(f"/api/jobs/{job_id}")).json()
+    assert detail["log_tail"] == ["saving to /scratch/…/run1/ckpt.pt"]
+    assert detail["hparams"]["data"] == "/home/…/data"
+    run = next(r for r in (await member.get("/api/runs")).json() if r["id"] == job_id)
+    assert run["hparams"]["data"] == "/home/…/data"
+    assert (await member.get(f"/api/jobs/{job_id}/metrics")).json()["hparams"]["data"] == (
+        "/home/…/data"
+    )
+    # The owner sees their own paths unchanged.
+    own = (await client.get(f"/api/jobs/{job_id}")).json()
+    assert own["hparams"]["data"] == "/home/alice/data"
+
+
+def test_hide_username_only_touches_whole_path_segments() -> None:
+    assert (
+        hide_username("/home/al/x /home/alice /home/al.d", "al")
+        == "/home/…/x /home/alice /home/al.d"
+    )
+    assert hide_username({"a": ["/u/al"], "n": 3}, "al") == {"a": ["/u/…"], "n": 3}

@@ -95,6 +95,8 @@ class TeamMember(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     # Push alerts for the team's shared jobs; off until the member opts in.
     alerts: Mapped[bool] = mapped_column(default=False)
+    # Share every job of every account this member has, now and later.
+    share_all: Mapped[bool] = mapped_column(default=False)
     joined_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     team: Mapped[Team] = relationship(back_populates="members")

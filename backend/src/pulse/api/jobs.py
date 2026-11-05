@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pulse.api.deps import CurrentUser, SessionDep
+from pulse.api.deps import CurrentUser, ServicesDep, SessionDep
 from pulse.constants import CHART_POINTS, SERIES_POINTS, TREND_POINTS
 from pulse.domain import JobState
 from pulse.metrics.downsample import downsample
@@ -18,7 +18,14 @@ from pulse.schemas import (
     MetricPoint,
     StepPoint,
 )
-from pulse.services.teams import can_view_job, is_member, visible_jobs
+from pulse.services.teams import (
+    announce_access_change,
+    can_view_job,
+    hide_username,
+    is_member,
+    team_member_ids,
+    visible_jobs,
+)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -62,22 +69,28 @@ async def get_job(job_id: int, session: SessionDep, user: CurrentUser) -> JobDet
     trends = await _loss_trends(session, [job])
     detail = JobDetailOut.model_validate(job)
     account = await session.get(Account, job.account_id)
-    shared_with = (
-        list(await session.scalars(select(JobShare.team_id).where(JobShare.job_id == job.id)))
-        if account is not None and account.user_id == user.id
-        else []  # which teams a job is shared with is the owner's business
-    )
+    assert account is not None  # enforced by the foreign key
+    if account.user_id == user.id:
+        shares = await session.scalars(select(JobShare.team_id).where(JobShare.job_id == job.id))
+        private = {"shared_with": list(shares)}
+    else:  # a teammate: no share list, and no cluster login in paths
+        private = {
+            "log_tail": hide_username(detail.log_tail, account.username),
+            "hparams": hide_username(detail.hparams, account.username),
+        }
     return detail.model_copy(
         update={
             "series": {k: downsample(v, SERIES_POINTS) for k, v in series.items()},
             "loss_trend": trends.get(job.id, []),
-            "shared_with": shared_with,
+            **private,
         }
     )
 
 
 @router.put("/{job_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def share_job(job_id: int, team_id: int, session: SessionDep, user: CurrentUser) -> None:
+async def share_job(
+    job_id: int, team_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
+) -> None:
     """Share one job with a team you're in, when its account doesn't share every job."""
     job = await _get_owned_job(session, user, job_id)
     if not await is_member(session, user.id, team_id):
@@ -88,15 +101,19 @@ async def share_job(job_id: int, team_id: int, session: SessionDep, user: Curren
     if exists is None:
         session.add(JobShare(job_id=job.id, team_id=team_id))
         await session.commit()
+        announce_access_change(services.broadcaster, await team_member_ids(session, team_id))
 
 
 @router.delete("/{job_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def unshare_job(job_id: int, team_id: int, session: SessionDep, user: CurrentUser) -> None:
+async def unshare_job(
+    job_id: int, team_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
+) -> None:
     job = await _get_owned_job(session, user, job_id)
     await session.execute(
         delete(JobShare).where(JobShare.job_id == job.id, JobShare.team_id == team_id)
     )
     await session.commit()
+    announce_access_change(services.broadcaster, await team_member_ids(session, team_id))
 
 
 @router.patch("/{job_id}")
@@ -130,12 +147,17 @@ async def get_job_metrics(
     metrics: dict[str, list[StepPoint]] = defaultdict(list)
     for name, step, ts, value in rows.all():
         metrics[name].append(StepPoint(s=step, t=ts, v=value))
-    files = await session.scalars(select(MetricFile.path).where(MetricFile.job_id == job.id))
+    files = list(await session.scalars(select(MetricFile.path).where(MetricFile.job_id == job.id)))
+    hparams = job.hparams
+    account = await session.get(Account, job.account_id)
+    if account is not None and account.user_id != user.id:  # a teammate's job
+        files = hide_username(files, account.username)
+        hparams = hide_username(hparams, account.username)
     return JobMetrics(
         metrics={name: downsample(points, max_points) for name, points in metrics.items()},
         primary=job.primary_metric,
-        hparams=job.hparams,
-        files=list(files),
+        hparams=hparams,
+        files=files,
     )
 
 

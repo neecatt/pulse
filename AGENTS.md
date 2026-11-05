@@ -156,13 +156,15 @@ Run lint, types, and tests for every package you touched before committing.
   (job, metric, step). Discovery rules live in `metrics/discovery.py` and are
   mirrored in the agent (a test keeps them equal).
 - Teams (`api/teams.py`, `services/teams.py`): an owner invites members by
-  single-use link; any member shares their own accounts (`account_shares`) or
-  single jobs (`job_shares`) with a team. **Reads** of jobs, runs, metrics,
+  single-use link; any member shares all their jobs (`team_members.share_all`),
+  chosen accounts (`account_shares`) or single jobs (`job_shares`) with a team. **Reads** of jobs, runs, metrics,
   events and accounts go through the filters in `services.teams`
   (`visible_jobs`, `visible_events`, `visible_account_ids`); **writes** stay
   owner-only (`get_owned_account`, `_get_owned_job`). Poll results carry the
   account's `viewers` (and which jobs partial viewers may see), so live updates,
-  the fast polling interval and opt-in member alerts follow whoever is watching.
+  the fast polling interval and opt-in member alerts follow whoever is watching;
+  sharing changes send an `access` message so open apps refetch at once.
+  Teammates never get a shared account's cluster login (`hide_username`).
 - Auth (`pulse/auth/`, `services/auth.py`, `api/auth.py`): scrypt passwords,
   cookie sessions stored as token hashes. `PULSE_ADMIN_USERNAME`/`PASSWORD` are
   synced on every start and stay authoritative; without them, first-run setup
