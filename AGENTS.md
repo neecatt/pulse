@@ -178,7 +178,16 @@ Run lint, types, and tests for every package you touched before committing.
   verification. The relying party comes from `PULSE_PUBLIC_URL` or the request's
   own host. Challenges are single-use and kept in memory, one more reason Pulse
   runs as one instance. `tests/softauthn.py` is a software authenticator for
-  end-to-end tests.
+  end-to-end tests. With sign-ups on, an account can be created with just a
+  passkey (`/auth/passkeys/signup/*`); it exists only once the passkey verifies,
+  and `has_password` is false until a backup password is set.
+- Demo mode (`PULSE_DEMO`, `services/demo.py`): `/auth/demo` creates a guest
+  (`User.is_guest`) with simulated accounts (`Account.simulated`); the poller
+  deletes guests after `DEMO_GUEST_TTL_SECONDS`. `slurm.WithSimulated` routes
+  simulated accounts to `MockSlurmClient` (whose story starts at the account's
+  creation) and everything else to SSH. `simulated` is only ever set by the
+  server, so guests can't reach real hosts. Guests can't set a password or add
+  passkeys.
 
 ## Frontend notes
 

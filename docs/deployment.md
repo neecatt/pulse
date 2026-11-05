@@ -110,13 +110,37 @@ CPU and GPU usage.
 - **Admin:** the account from `PULSE_ADMIN_USERNAME`/`PASSWORD`, or the one
   created with the setup code.
 - **More users:** set `PULSE_ALLOW_SIGNUP=true`, or create them on the server:
-  `docker compose exec pulse pulse create-user alice`.
+  `docker compose exec pulse pulse create-user alice`. With sign-ups on, people
+  create an account with just a username and a passkey (a password is optional,
+  and can be added later in Settings as a backup). No email is involved.
 - **Passkeys:** after signing in, **Settings → Your account → Add a passkey**,
   once per device. Passkeys only work over HTTPS (or on `localhost`), and are
   tied to the domain you created them on. If Pulse is reachable under several
   names, set `PULSE_PUBLIC_URL` to the one you use.
 - **Forgotten password:** `docker compose exec pulse pulse reset-password alice`.
   To rotate the admin password, change it in `.env` and restart.
+
+## A public site with a demo
+
+`PULSE_DEMO=true` turns a server into a public site: signed-out visitors get a
+landing page with **Try the demo**, which signs them into a temporary guest
+account with two simulated clusters (jobs start, fail and diverge within
+minutes). Guests are deleted with everything they had a day later. Real
+accounts on the same server keep using real Slurm; guests' accounts are always
+simulated, so a visitor can't make the server connect anywhere. Combine it with
+`PULSE_ALLOW_SIGNUP=true` so visitors can also create real accounts:
+
+```sh
+PULSE_DEMO=true
+PULSE_ALLOW_SIGNUP=true
+PULSE_PUBLIC_URL=https://pulse.example.org
+```
+
+Keep your own monitoring on a **separate** instance (its own volume, sign-ups
+off), so nothing you own sits on a server strangers can sign up to. Both run the
+same image; for example `pulse.example.org` (public, demo) and
+`my.pulse.example.org` (private). Sign-ins and passkeys never carry over between
+the two: cookies and passkeys are tied to the exact domain.
 
 ## Backups and upgrades
 

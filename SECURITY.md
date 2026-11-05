@@ -42,6 +42,12 @@ falls short.
   you nowhere. Users who aren't admins can only connect to public internet
   addresses, and push messages only go to the browsers' push services, so a user
   can't point the server at its own network.
+- **Demo guests** (`PULSE_DEMO`) only ever get simulated clusters, whatever
+  host they type: the server decides, and never opens a connection for them.
+  Guests are rate-limited per address, capped in number, and deleted with all
+  their data after a day. Passkey sign-up creates the account only after the
+  passkey verifies, and follows the same sign-up switch and rate limit as
+  passwords.
 - **Clusters.** Pulse runs read-only Slurm commands with its own key and pins
   each server's host key on first connect. It ignores `~/.ssh/config` and any
   SSH agent. Values from the cluster are quoted, and paths must be absolute
