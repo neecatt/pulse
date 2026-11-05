@@ -329,3 +329,23 @@ def test_agent_logs_errors_to_a_file(agent: ModuleType) -> None:
     agent.log("after rotation")
     assert log_file.read_text().endswith("after rotation\n")
     assert Path(agent.LOG_PATH + ".1").exists()
+
+
+def test_report_budget_fits_the_servers_limit() -> None:
+    # JSON framing and the other fields need headroom on top of the budget.
+    assert load_agent().REPORT_BUDGET_BYTES <= constants.MAX_AGENT_REPORT_BYTES * 0.8
+
+
+def test_collect_keeps_reports_within_budget(
+    agent: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    jobs = [(str(1000 + i), 1) for i in range(50)]
+    monkeypatch.setattr(agent, "running_jobs", lambda sacct: list(jobs))
+    monkeypatch.setattr(agent, "REPORT_BUDGET_BYTES", 1_000_000)
+    big = {"log_tail": ["x" * 4000] * 40}  # ~160 KB per job
+    monkeypatch.setattr(agent, "job_telemetry", lambda *args: big)
+
+    payload = agent.collect(False, {}, {})
+
+    assert len(agent.json.dumps(payload)) <= 1_000_000 + 64 * 1024  # sacct + framing
+    assert 0 < len(payload["jobs"]) < len(jobs)  # the rest wait for a later report

@@ -58,6 +58,14 @@ STREAM_QUEUE_SIZE = 32  # per connected client; a slow client skips updates
 # Scheduling
 POLL_TICK_SECONDS = 5  # how often the poller checks which accounts are due
 
+# Request bodies larger than this are refused before they're read, so an
+# unauthenticated client can't make the server buffer gigabytes. Agent reports
+# carry log tails and metric-file chunks; the agent keeps them under
+# AGENT_REPORT_BUDGET_BYTES (in pulse_agent.py, which a test keeps below this).
+MAX_REQUEST_BYTES = 1024 * 1024
+MAX_AGENT_REPORT_BYTES = 16 * 1024 * 1024
+AGENT_REPORT_PATH = "/api/agent/report"
+
 # Web Push
 PUSH_EXPIRED_STATUSES = frozenset({404, 410})
 VAPID_KEYS_FILE = "vapid.json"  # in data_dir, when the keys aren't set in the environment

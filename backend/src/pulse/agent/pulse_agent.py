@@ -19,6 +19,7 @@ import fcntl
 import json
 import os
 import pwd
+import random
 import subprocess
 import sys
 import time
@@ -42,6 +43,9 @@ MIN_INTERVAL = 5
 COMMAND_TIMEOUT = 30
 STATS_TIMEOUT = 20
 LOG_TAIL_BYTES = 16384
+# A report must stay under the server's size limit for agent reports
+# (pulse.constants.MAX_AGENT_REPORT_BYTES); jobs that don't fit go in a later one.
+REPORT_BUDGET_BYTES = 12 * 1024 * 1024
 LOG_TAIL_LINES = 40
 LOOKBACK = "now-48hours"
 
@@ -236,12 +240,20 @@ def collect(
         payload["error"] = str(exc)
         return payload
     payload["sacct"] = sacct
-    payload["jobs"] = {
-        job_id: job_telemetry(
+    jobs = {}  # type: Dict[str, object]
+    used = len(json.dumps(sacct))
+    running = running_jobs(sacct)
+    random.shuffle(running)  # with more jobs than fit, each still gets its turn
+    for job_id, nodes in running:
+        telemetry = job_telemetry(
             job_id, nodes if include_stats else 0, cursors.get(job_id, {}), discovered
         )
-        for job_id, nodes in running_jobs(sacct)
-    }
+        size = len(json.dumps(telemetry))
+        if used + size > REPORT_BUDGET_BYTES:
+            continue  # unread bytes stay unread; the next report picks them up
+        used += size
+        jobs[job_id] = telemetry
+    payload["jobs"] = jobs
     return payload
 
 
