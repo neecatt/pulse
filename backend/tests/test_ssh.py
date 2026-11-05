@@ -284,3 +284,39 @@ async def test_unreachable_jump_host_is_named(
         closed_port = probe.getsockname()[1]
     with pytest.raises(SlurmError, match=r"jump host 127\.0\.0\.1:\d+ refused the connection"):
         await client.check(via_jump(cluster, jump_host.hop(port=closed_port)))
+
+
+# Pulse's SSH must not depend on whoever's home directory it runs with.
+
+
+async def test_unreadable_home_does_not_break_ssh(
+    client: SshSlurmClient,
+    cluster: FakeCluster,
+    jump_host: JumpHost,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In the image, Pulse ran with HOME=/root, which its user can't read."""
+    home = tmp_path / "root-home"
+    (home / ".ssh").mkdir(parents=True)
+    home.chmod(0o000)
+    monkeypatch.setenv("HOME", str(home))
+    try:
+        keys = await client.check(via_jump(cluster, jump_host.hop()))
+    finally:
+        home.chmod(0o700)
+    assert keys.target == cluster.host_key
+
+
+async def test_ambient_ssh_config_and_agent_are_ignored(
+    client: SshSlurmClient, cluster: FakeCluster, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    # If Pulse read this, every connection would go through a dead jump host.
+    (home / ".ssh" / "config").write_text("Host *\n  ProxyJump nobody@127.0.0.1:1\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("SSH_AUTH_SOCK", str(tmp_path / "no-agent.sock"))
+
+    keys = await client.check(cluster.account())
+    assert keys.target == cluster.host_key

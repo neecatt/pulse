@@ -3,6 +3,18 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Direct SSH from the Docker image (`fix/ssh-ambient-config`)
+
+- Every direct connection from the image failed with `Permission denied:
+'/root/.ssh/crt'`: the entrypoint dropped to the pulse user but kept
+  `HOME=/root`, and asyncssh reads `~/.ssh` defaults (X.509 certs, config,
+  agent). Tests run with a readable home, so they never saw it.
+- The entrypoint now sets `HOME=/home/pulse`, and `asyncssh.connect` gets
+  `config=None`, `agent_path=None` and no X.509 paths: Pulse uses only its own
+  key and host-key pins, whatever environment it runs in.
+- Tests: an unreadable `HOME` (the container's case) and a hostile
+  `~/.ssh/config` plus `SSH_AUTH_SOCK`; both failed before the fix.
+
 ## 2026-11-05 — Release 0.1.2
 
 - Push notifications without setup (generated VAPID keys), sturdier push
