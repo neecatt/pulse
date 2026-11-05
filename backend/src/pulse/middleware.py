@@ -5,6 +5,7 @@ import json
 import logging
 from urllib.parse import urlsplit
 
+from fastapi import HTTPException, status
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -47,6 +48,49 @@ class SecurityHeadersMiddleware:
             await send(message)
 
         await self._app(scope, receive, send_with_headers)
+
+
+class RequestTooLarge(HTTPException):
+    def __init__(self, limit: int) -> None:
+        super().__init__(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            f"Request body is larger than {limit // 1024} KB.",
+        )
+
+
+class BodySizeLimitMiddleware:
+    """Refuse request bodies over a size limit, before the app buffers them.
+
+    A declared Content-Length over the limit is rejected straight away; bodies
+    without one (chunked) are counted as they arrive and cut off at the limit.
+    """
+
+    def __init__(self, app: ASGIApp, default_limit: int, limits: dict[str, int]) -> None:
+        self._app = app
+        self._default = default_limit
+        self._limits = limits
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        limit = self._limits.get(scope["path"], self._default)
+        declared = dict(scope["headers"]).get(b"content-length")
+        if declared is not None and (not declared.isdigit() or int(declared) > limit):
+            await _json_response(send, 413, RequestTooLarge(limit).detail)
+            return
+        received = 0
+
+        async def limited_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    raise RequestTooLarge(limit)  # FastAPI turns this into a 413
+            return message
+
+        await self._app(scope, limited_receive, send)
 
 
 class OriginCheckMiddleware:
@@ -93,11 +137,15 @@ def _own_origin(scope: Scope, headers: dict[bytes, bytes]) -> str:
 
 async def _forbidden(send: Send, hint: str | None = None) -> None:
     detail = "Cross-site request blocked." + (f" {hint}" if hint else "")
+    await _json_response(send, 403, detail)
+
+
+async def _json_response(send: Send, status_code: int, detail: str) -> None:
     body = json.dumps({"detail": detail}).encode()
     await send(
         {
             "type": "http.response.start",
-            "status": 403,
+            "status": status_code,
             "headers": [(b"content-type", b"application/json")],
         }
     )

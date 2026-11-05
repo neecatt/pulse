@@ -15,9 +15,14 @@ from pulse.api import api_router
 from pulse.auth.rate_limit import LoginRateLimiter
 from pulse.auth.webauthn import ChallengeStore
 from pulse.config import Settings, get_settings
+from pulse.constants import AGENT_REPORT_PATH, MAX_AGENT_REPORT_BYTES, MAX_REQUEST_BYTES
 from pulse.db import create_engine, create_session_factory, init_db
 from pulse.domain import Clock
-from pulse.middleware import OriginCheckMiddleware, SecurityHeadersMiddleware
+from pulse.middleware import (
+    BodySizeLimitMiddleware,
+    OriginCheckMiddleware,
+    SecurityHeadersMiddleware,
+)
 from pulse.models import utcnow
 from pulse.services.auth import make_setup_code, sync_admin_from_env
 from pulse.services.broadcaster import Broadcaster
@@ -85,6 +90,12 @@ def create_app(
     )
     app.add_middleware(OriginCheckMiddleware, allowed_origins=settings.cors_origins)
     app.add_middleware(SecurityHeadersMiddleware)
+    # Outermost: oversized bodies are refused before any other work.
+    app.add_middleware(
+        BodySizeLimitMiddleware,
+        default_limit=MAX_REQUEST_BYTES,
+        limits={AGENT_REPORT_PATH: MAX_AGENT_REPORT_BYTES},
+    )
     app.include_router(api_router, prefix="/api")
     if settings.static_dir is not None:
         # Serve the built web app from the same process: one port, one command.
