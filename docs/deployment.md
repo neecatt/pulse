@@ -2,7 +2,7 @@
 
 Pulse ships as one container image, [`neecat/pulse`](https://hub.docker.com/r/neecat/pulse)
 on Docker Hub (multi-architecture: amd64 and arm64; mirrored to
-`ghcr.io/neecatt/hpc-monitoring-app`). Use `latest` or a version tag such as
+`ghcr.io/neecatt/pulse`). Use `latest` or a version tag such as
 `0.1.0`; `edge` follows `main`. It runs on any Docker host, and on
 container platforms that set a `PORT` variable: Pulse listens on it. It serves the web app and the API on
 port 8000, keeps everything in `/data` (SQLite database and Pulse's SSH key),
