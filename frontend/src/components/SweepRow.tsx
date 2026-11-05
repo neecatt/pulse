@@ -15,7 +15,7 @@ const STATE_WORDS: Partial<Record<JobState, string>> = {
   PENDING: "queued",
   COMPLETED: "done",
   FAILED: "failed",
-  TIMEOUT: "timed out",
+  TIMEOUT: "at time limit",
   CANCELLED: "cancelled",
 };
 
