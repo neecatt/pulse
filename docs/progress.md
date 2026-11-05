@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Release 0.1.4
+
+- Security hardening before going public (see below): per-user SSH keys,
+  request size limits, outgoing-connection limits, bounded memory, option
+  injection and agent fixes, updated image packages.
+
 ## 2026-11-05 — Security review before going public (`fix/security-hardening`)
 
 Scans: gitleaks over every branch (no secrets, no keys or databases ever
