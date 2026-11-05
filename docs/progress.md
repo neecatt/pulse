@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Release 0.2.1
+
+- Team sharing polish (see below): "Share all my jobs" per team, instant
+  updates when sharing changes, cluster logins hidden from teammates, in-app
+  confirm dialogs and a tidier create-team row.
+
 ## 2026-11-05 — Team sharing polish (`feat/team-sharing-polish`)
 
 - "Share all my jobs" per team (Settings → Team): every account a member has,
