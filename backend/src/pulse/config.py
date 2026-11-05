@@ -81,10 +81,10 @@ class Settings(BaseSettings):
     diverge_percent: int = 50  # smoothed loss this far above its best
     plateau_minutes: int = 60  # no new best loss for this long
 
-    # Web Push (generate with `pulse gen-vapid`)
+    # Web Push. Unset: Pulse generates a key pair in data_dir on first start.
     vapid_public_key: str | None = None
     vapid_private_key: str | None = None
-    vapid_subject: str = "mailto:admin@example.com"  # set your own contact in .env
+    vapid_subject: str | None = None  # contact for push services; defaults to public_url
     push_ttl_seconds: int = 6 * 3600  # how long a push service keeps an undelivered alert
     push_timeout_seconds: float = 10.0
 

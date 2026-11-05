@@ -30,8 +30,5 @@ poller ──snapshot()──▶ SlurmClient ──(mock | ssh: sacct, scontrol,
 
 ## Web Push
 
-```sh
-.venv/bin/pulse gen-vapid >> .env
-```
-
-Without VAPID keys the app works normally but sends no notifications.
+Pulse generates its VAPID keys in `data/vapid.json` on first start. To set them
+yourself instead: `.venv/bin/pulse gen-vapid >> .env`.

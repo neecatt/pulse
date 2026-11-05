@@ -164,7 +164,7 @@ function Notifications() {
               {push.status ? PUSH_STATUS_TEXT[push.status] : "Checking notification support…"}
             </p>
             {push.status === "off" && (
-              <Button onClick={push.enable} disabled={push.busy || !push.serverEnabled}>
+              <Button onClick={push.enable} disabled={push.busy || !push.ready}>
                 Enable on this device
               </Button>
             )}
@@ -179,13 +179,6 @@ function Notifications() {
               </div>
             )}
           </div>
-          {!push.serverEnabled && push.status === "off" && (
-            <p className="text-xs text-muted-foreground">
-              The server has no push keys yet. Run{" "}
-              <code className="font-mono">pulse gen-vapid</code> and add the output to{" "}
-              <code className="font-mono">backend/.env</code>.
-            </p>
-          )}
           {push.error && <p className="text-xs text-fail">{push.error}</p>}
           {testResult && <p className="text-xs text-muted-foreground">{testResult}</p>}
         </Card>

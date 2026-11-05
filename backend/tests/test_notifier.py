@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import requests
 from httpx import AsyncClient
 from pywebpush import WebPushException
 
@@ -78,6 +79,21 @@ async def test_expired_subscriptions_are_removed(
     # The subscription was deleted, so a working push now reaches nobody.
     monkeypatch.setattr(notifier_module, "webpush", lambda **_: None)
     assert (await client.post("/api/push/test")).json() == {"delivered": 0}
+
+
+async def test_unreachable_push_service_keeps_the_subscription(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def offline(**_: Any) -> None:
+        raise requests.ConnectionError("push service unreachable")
+
+    monkeypatch.setattr(notifier_module, "webpush", offline)
+    await client.post("/api/push/subscriptions", json=SUB)
+
+    assert (await client.post("/api/push/test")).json() == {"delivered": 0}
+    # A network hiccup isn't the device's fault: the next push still reaches it.
+    monkeypatch.setattr(notifier_module, "webpush", lambda **_: None)
+    assert (await client.post("/api/push/test")).json() == {"delivered": 1}
 
 
 async def test_stalled_job_is_reported_once(
