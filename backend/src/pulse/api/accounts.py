@@ -16,6 +16,18 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 # Host labels that say nothing about which cluster it is.
 _GENERIC_LABELS = {"login", "ssh", "gateway", "access", "frontend", "hpc", "cluster", "www"}
 
+# What teammates don't see of a shared account: how to reach it, its raw errors
+# and the owner's settings. They get a label (username@cluster) and sync time.
+_PRIVATE_TO_OWNER = {
+    "host": "",
+    "port": 22,
+    "jump_host": None,
+    "jump_port": 22,
+    "jump_username": None,
+    "last_error": None,
+    "notify": False,
+}
+
 
 @router.get("")
 async def list_accounts(session: SessionDep, user: CurrentUser) -> list[AccountOut]:
@@ -39,7 +51,7 @@ async def list_accounts(session: SessionDep, user: CurrentUser) -> list[AccountO
             update=(
                 {"shared_with": teams_by_account.get(account.id, [])}
                 if account.user_id == user.id
-                else {"owner": owner}  # which teams it's shared with stays private
+                else {"owner": owner, **_PRIVATE_TO_OWNER}  # so do its teams
             )
         )
         for account, owner in rows.all()

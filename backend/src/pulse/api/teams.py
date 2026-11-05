@@ -225,8 +225,11 @@ async def _join(session: AsyncSession, invite: TeamInvite, user_id: int) -> None
     )
     if (members or 0) >= TEAM_MAX_MEMBERS:
         raise HTTPException(status.HTTP_409_CONFLICT, f"{team.name} is full.")
+    # Use the invite up first: of two joins racing on one link, only one wins.
+    used = await session.execute(delete(TeamInvite).where(TeamInvite.id == invite.id))
+    if used.rowcount != 1:  # type: ignore[attr-defined]
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _INVALID_INVITE)
     session.add(TeamMember(team_id=team.id, user_id=user_id))
-    await session.delete(invite)
 
 
 async def _valid_invite(session: AsyncSession, token: str) -> TeamInvite:

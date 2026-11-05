@@ -73,7 +73,8 @@ class AccountOut(ORMModel):
     # Teams you share this account with (your own accounts only).
     shared_with: list[int] = []
     # Username of the account's owner when it's shared with you by a teammate;
-    # None for your own accounts (only those can be changed).
+    # None for your own accounts (only those can be changed). A teammate's
+    # account comes without its connection details, errors or settings.
     owner: str | None = None
 
 

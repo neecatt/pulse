@@ -408,3 +408,105 @@ async def test_one_shared_job_sends_only_its_own_updates(
         }
     assert set(seen["me"]) - {job_id}  # other jobs changed meanwhile
     assert set(seen["bob"]) <= {job_id}
+
+
+async def test_teams_never_see_each_others_shares(
+    app: FastAPI, client: AsyncClient, member: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    """Two separate teams on one server: each sees exactly its own shares."""
+    await team_with_member(client, member)
+    alice_account = await polled_account(client, services, clock)
+    await share(client, alice_account)
+    alice_jobs = {j["id"] for j in (await client.get("/api/jobs")).json()}
+
+    services.settings.allow_signup = True
+    async with new_client(app) as eve, new_client(app) as mallory:
+        await eve.post("/api/auth/signup", json={"username": "eve", "password": "e" * 12})
+        assert (await eve.post("/api/teams", json={"name": "Other lab"})).status_code == 201
+        token = await invite(eve)
+        mallory_joins = await mallory.post(
+            f"/api/teams/invites/{token}/signup", json={"username": "mal", "password": "m" * 12}
+        )
+        assert mallory_joins.status_code == 201
+        eve_account = (
+            await eve.post("/api/accounts", json={"username": "eve", "host": "lumi.example.org"})
+        ).json()["id"]
+        await services.poller.poll_account(eve_account)
+        clock.advance(300)
+        await services.poller.poll_account(eve_account)
+        eve_jobs = [j["id"] for j in (await eve.get("/api/jobs")).json()]
+        await share_job(eve, eve_jobs[0], await team_id(eve))
+
+        # Each side sees its own team's shares only, on every read.
+        for outsider, theirs, others in (
+            (mallory, {eve_jobs[0]}, alice_jobs),
+            (member, alice_jobs, set(eve_jobs)),
+        ):
+            assert {j["id"] for j in (await outsider.get("/api/jobs")).json()} == theirs
+            assert {r["id"] for r in (await outsider.get("/api/runs")).json()} == theirs
+            assert {
+                e["job_id"] for e in (await outsider.get("/api/events?limit=500")).json()
+            } <= theirs | {None}
+            for job_id in others:
+                assert (await outsider.get(f"/api/jobs/{job_id}")).status_code == 404
+                assert (await outsider.get(f"/api/jobs/{job_id}/metrics")).status_code == 404
+        assert {a["id"] for a in (await mallory.get("/api/accounts")).json()} == {eve_account}
+        assert {a["id"] for a in (await member.get("/api/accounts")).json()} == {alice_account}
+
+        # Nobody can share into, join, or act on a team they aren't in.
+        alice_team, eve_team = await team_id(client), await team_id(eve)
+        assert (
+            await eve.put(f"/api/accounts/{eve_account}/shares/{alice_team}")
+        ).status_code == 404
+        assert (await eve.put(f"/api/jobs/{eve_jobs[0]}/shares/{alice_team}")).status_code == 404
+        assert (
+            await mallory.patch(f"/api/teams/{alice_team}/membership", json={"alerts": True})
+        ).status_code == 404
+        assert (await mallory.delete(f"/api/teams/{alice_team}/membership")).status_code == 404
+        bob = (await client.get("/api/teams")).json()["owned"]["members"][0]["user_id"]
+        assert (await eve.delete(f"/api/teams/mine/members/{bob}")).status_code == 204  # a no-op
+        assert (await member.get("/api/jobs")).json()
+        assert (await member.get("/api/teams")).json()["memberships"][0]["team_id"] == alice_team
+        assert eve_team != alice_team
+
+
+async def test_teammates_get_a_label_not_connection_details(
+    client: AsyncClient, member: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    await team_with_member(client, member)
+    account = await client.post(
+        "/api/accounts",
+        json={
+            "username": "alice",
+            "host": "lumi.example.org",
+            "jump_host": "bastion.example.org",
+            "jump_username": "alice-jump",
+        },
+    )
+    account_id = account.json()["id"]
+    await services.poller.poll_account(account_id)
+    job_id = (await client.get("/api/jobs")).json()[0]["id"]
+    await share_job(client, job_id, await team_id(client))
+
+    [seen] = (await member.get("/api/accounts")).json()
+    assert (seen["username"], seen["cluster"], seen["owner"]) == ("alice", "LUMI", "admin")
+    text = json.dumps(seen)
+    assert "example.org" not in text and "alice-jump" not in text
+    assert seen["last_error"] is None and seen["shared_with"] == []
+    [own] = (await client.get("/api/accounts")).json()
+    assert own["host"] == "lumi.example.org"  # the owner still sees everything
+
+
+async def test_a_used_invite_cannot_be_used_again(
+    client: AsyncClient, member: AsyncClient, app: FastAPI
+) -> None:
+    await team_with_member(client, member)
+    token = await invite(client)
+    assert (await member.post(f"/api/teams/invites/{token}/accept")).status_code == 409
+    async with new_client(app) as other:
+        first = await other.post(
+            f"/api/teams/invites/{token}/signup", json={"username": "carol", "password": "c" * 12}
+        )
+        assert first.status_code == 201
+        again = await other.post(f"/api/teams/invites/{token}/accept")
+        assert again.status_code == 404
