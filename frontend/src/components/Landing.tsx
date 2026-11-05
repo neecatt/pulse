@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useTryDemo } from "@/api/queries";
 import type { AuthStatus, JobState } from "@/api/types";
+import { cn } from "@/lib/utils";
 
 import { AccountDot } from "./AccountDot";
 import { AuthPanel } from "./AuthScreen";
@@ -41,8 +42,10 @@ export function Landing({ status }: { status: AuthStatus }) {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-16">
-        <section className="grid items-center gap-10 py-10 md:grid-cols-2 md:py-20">
-          <div className="space-y-6">
+        <section className="grid grid-cols-1 items-center gap-10 py-10 md:grid-cols-2 md:py-20">
+          {/* On phones an open sign-in or sign-up form takes the hero's place, so
+              it's on screen at once instead of below the fold. */}
+          <div className={cn("space-y-6", panel && "hidden md:block")}>
             <p className="font-mono text-xs tracking-wider text-muted-foreground uppercase">
               Slurm job monitoring
             </p>
@@ -56,7 +59,7 @@ export function Landing({ status }: { status: AuthStatus }) {
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
-                className="h-10 px-4 text-sm"
+                className="h-10 flex-1 px-4 text-sm whitespace-nowrap sm:flex-none"
                 disabled={demo.isPending}
                 onClick={() => demo.mutate()}
               >
@@ -65,7 +68,7 @@ export function Landing({ status }: { status: AuthStatus }) {
               {status.signup_allowed && (
                 <Button
                   variant="ghost"
-                  className="h-10 px-4 text-sm"
+                  className="h-10 flex-1 px-4 text-sm whitespace-nowrap sm:flex-none"
                   onClick={() => setPanel("signup")}
                 >
                   Create your account
@@ -113,7 +116,9 @@ export function Landing({ status }: { status: AuthStatus }) {
           <span>Your accounts and jobs are private to you.</span>
           <span>
             Open source. Run your own:{" "}
-            <code className="font-mono text-foreground">docker run neecat/pulse</code>
+            <code className="font-mono whitespace-nowrap text-foreground">
+              docker run neecat/pulse
+            </code>
           </span>
         </footer>
       </main>
@@ -164,13 +169,13 @@ function Preview() {
               data={job.curve}
               className={`hidden w-24 sm:block ${job.state === "FAILED" ? "text-fail" : "text-run"}`}
             />
-            <StateBadge state={job.state} className="w-24 justify-end" />
+            <StateBadge state={job.state} className="shrink-0 justify-end sm:w-24" />
           </div>
         ))}
       </Card>
       <Card className="ml-auto flex max-w-xs items-start gap-3 px-4 py-3 shadow-sm">
         <span className="mt-1.5 size-2 shrink-0 rounded-full bg-fail" />
-        <div className="min-w-0 text-xs">
+        <div className="min-w-0 flex-1 text-xs">
           <div className="flex justify-between gap-3">
             <span className="font-medium">ana · LUMI</span>
             <span className="text-muted-foreground">now</span>

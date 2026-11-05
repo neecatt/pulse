@@ -3,6 +3,18 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Landing page on phones (`fix/landing-mobile`)
+
+- The hero grid sized its one phone column to the preview's longest line, so
+  the page was ~450 px wide and scrolled sideways; it now fits (`grid-cols-1`).
+- On phones an opened sign-in or sign-up form replaces the hero instead of
+  opening below the fold (the demo banner's "Create your account" landed there).
+- Buttons keep their labels on one line and share the row or stack evenly;
+  preview badges size to their text; the notification's time sits at the
+  right; the footer command doesn't break.
+- Checked at 320, 360, 375, 390, 414, 768 and 1280 px: no sideways scroll, no
+  wrapped buttons.
+
 ## 2026-11-05 — Release 0.2.3
 
 - Public site (see below): `PULSE_DEMO` landing page and demo guests on
