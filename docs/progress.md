@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-05 — Release 0.2.3
+
+- Public site (see below): `PULSE_DEMO` landing page and demo guests on
+  simulated clusters, passkey-first sign-up, and the security hardening for
+  both.
+
 ## 2026-11-05 — Public site: landing page, demo, passkey sign-up (`feat/public-site`)
 
 - `PULSE_DEMO=true` makes a server a public site. Signed-out visitors see a
