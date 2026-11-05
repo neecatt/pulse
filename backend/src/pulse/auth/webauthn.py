@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from fastapi import Request
 
 from pulse.config import Settings
-from pulse.constants import PASSKEY_CHALLENGE_TTL_SECONDS
+from pulse.constants import PASSKEY_CHALLENGE_TTL_SECONDS, PASSKEY_MAX_PENDING_CHALLENGES
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,12 +45,19 @@ class _Pending:
 class ChallengeStore:
     """Short-lived, single-use challenges, in memory (Pulse runs as one instance)."""
 
-    def __init__(self, ttl_seconds: int = PASSKEY_CHALLENGE_TTL_SECONDS) -> None:
+    def __init__(
+        self,
+        ttl_seconds: int = PASSKEY_CHALLENGE_TTL_SECONDS,
+        max_pending: int = PASSKEY_MAX_PENDING_CHALLENGES,
+    ) -> None:
         self._ttl = ttl_seconds
+        self._max_pending = max_pending
         self._pending: dict[str, _Pending] = {}
 
     def issue(self, challenge: bytes, purpose: str, user_id: int | None = None) -> str:
         self._expire()
+        while len(self._pending) >= self._max_pending:  # a flood; the oldest retries
+            del self._pending[next(iter(self._pending))]
         challenge_id = secrets.token_urlsafe(16)
         self._pending[challenge_id] = _Pending(
             challenge, purpose, user_id, time.monotonic() + self._ttl

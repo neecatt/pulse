@@ -15,7 +15,13 @@ from pulse.api import api_router
 from pulse.auth.rate_limit import LoginRateLimiter
 from pulse.auth.webauthn import ChallengeStore
 from pulse.config import Settings, get_settings
-from pulse.constants import AGENT_REPORT_PATH, MAX_AGENT_REPORT_BYTES, MAX_REQUEST_BYTES
+from pulse.constants import (
+    AGENT_REPORT_PATH,
+    MAX_AGENT_REPORT_BYTES,
+    MAX_REQUEST_BYTES,
+    SIGNUP_WINDOW_SECONDS,
+    SIGNUPS_PER_ADDRESS,
+)
 from pulse.db import create_engine, create_session_factory, init_db
 from pulse.domain import Clock
 from pulse.middleware import (
@@ -57,6 +63,7 @@ def create_app(
         broadcaster = Broadcaster()
         poller = Poller(sessions, slurm, notifier, broadcaster, settings, clock)
         limiter = LoginRateLimiter(settings.login_max_failures, settings.login_window_seconds)
+        signup_limiter = LoginRateLimiter(SIGNUPS_PER_ADDRESS, SIGNUP_WINDOW_SECONDS)
         setup_code = await make_setup_code(sessions)
         app.state.services = Services(
             settings,
@@ -66,6 +73,7 @@ def create_app(
             broadcaster,
             poller,
             limiter,
+            signup_limiter,
             setup_code,
             ChallengeStore(),
         )

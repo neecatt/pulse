@@ -116,6 +116,12 @@ PASSWORD_MAX_LENGTH = 256
 # Passkeys (WebAuthn)
 PASSKEY_RP_NAME = "Pulse"  # shown by the browser when creating a passkey
 PASSKEY_CHALLENGE_TTL_SECONDS = 300
+# Unauthenticated clients can create these, so their number is capped (memory).
+PASSKEY_MAX_PENDING_CHALLENGES = 10_000
+RATE_LIMIT_MAX_KEYS = 10_000  # addresses and usernames tracked by a rate limiter
+# Each sign-up hashes a password (deliberately slow): limit them per address.
+SIGNUPS_PER_ADDRESS = 5
+SIGNUP_WINDOW_SECONDS = 3600
 PASSKEY_NAME_MAX_LENGTH = 64
 PASSKEY_MAX_PER_USER = 20
 

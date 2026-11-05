@@ -3,9 +3,13 @@
 from collections.abc import AsyncIterator
 
 import pytest
-from httpx import AsyncClient
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
 from pulse import constants
+from pulse.auth.rate_limit import LoginRateLimiter
+from pulse.auth.webauthn import ChallengeStore
+from pulse.config import Settings
 from pulse.services.container import Services
 
 
@@ -73,3 +77,48 @@ async def test_push_subscriptions_only_reach_browser_push_services(
 
 def test_push_delivery_follows_no_redirects(services: Services) -> None:
     assert services.notifier._http.max_redirects == 0
+
+
+def test_rate_limiter_memory_is_bounded() -> None:
+    limiter = LoginRateLimiter(max_failures=3, window_seconds=60, max_keys=100)
+    for i in range(1000):
+        assert not limiter.blocked(f"user:probe-{i}")  # looking up stores nothing
+    assert len(limiter._failures) == 0
+    for i in range(1000):
+        limiter.record_failure(f"user:spray-{i}")
+    assert len(limiter._failures) <= 100
+
+    for _ in range(3):
+        limiter.record_failure("ip:1.2.3.4")
+    assert limiter.blocked("ip:1.2.3.4")  # still limits what it tracks
+
+
+def test_passkey_challenges_are_capped() -> None:
+    store = ChallengeStore(max_pending=50)
+    ids = [store.issue(b"c", "login") for _ in range(500)]
+    assert len(store._pending) == 50
+    assert store.take(ids[-1], "login") is not None  # the newest still works
+
+
+async def test_signups_are_limited_per_address(app: FastAPI, settings: Settings) -> None:
+    settings.allow_signup = True
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as anon:
+        statuses = [
+            (
+                await anon.post(
+                    "/api/auth/signup", json={"username": f"spam{i}", "password": "p" * 12}
+                )
+            ).status_code
+            for i in range(constants.SIGNUPS_PER_ADDRESS + 2)
+        ]
+    assert statuses[: constants.SIGNUPS_PER_ADDRESS] == [201] * constants.SIGNUPS_PER_ADDRESS
+    assert statuses[-1] == 429
+
+
+async def test_setup_code_guesses_are_limited(anon: AsyncClient, settings: Settings) -> None:
+    body = {"username": "admin", "password": "p" * 12, "setup_code": "0000-0000-0000"}
+    statuses = [
+        (await anon.post("/api/auth/setup", json=body)).status_code
+        for _ in range(settings.login_max_failures + 1)
+    ]
+    assert statuses[0] == 403 and statuses[-1] == 429
