@@ -30,7 +30,7 @@ from pulse.services.events import (
     state_change_event,
 )
 from pulse.services.notifier import Notifier
-from pulse.services.teams import alert_recipients, audience, audiences
+from pulse.services.teams import alert_recipients, audience, audiences, partial_viewers
 from pulse.slurm import AccountSnapshot, JobTelemetry, SlurmClient, SlurmError, SlurmJob
 from pulse.slurm.base import NodeStats
 from pulse.slurm.parsing import mean_gpu_usage
@@ -45,6 +45,8 @@ class PollResult:
     events: list[dict[str, Any]] = field(default_factory=list)
     # Everyone who sees this account live: the owner, plus their team if it's shared.
     viewers: set[int] = field(default_factory=set)
+    # Viewers who see only some of its jobs, and which: they get only those events.
+    partial: dict[int, set[int]] = field(default_factory=dict)
 
 
 class Poller:
@@ -149,7 +151,7 @@ class Poller:
                 {
                     "type": "update",
                     "accounts": [r.account_id for r in items],
-                    "events": [e for r in items for e in r.events],
+                    "events": [e for r in items for e in _visible(r, user_id)],
                 },
             )
 
@@ -199,6 +201,7 @@ class Poller:
                 user_id=account.user_id,
                 account_id=account.id,
                 viewers=await audience(session, account),
+                partial=await partial_viewers(session, account),
             )
             if isinstance(snapshot, SlurmError):
                 account.last_error = str(snapshot)[:500]
@@ -218,11 +221,11 @@ class Poller:
             result.events = [EventOut.model_validate(e).model_dump(mode="json") for e in events]
             if events and account.notify:
                 await self._notifier.send_events(session, account.user_id, events)
-            if events:  # teammates who opted in to alerts in a team it's shared with
-                for user_id in await alert_recipients(session, account):
-                    await self._notifier.send_events(
-                        session, user_id, events, shared_by=account.user.username
-                    )
+            # Teammates who opted in, for the events of what's shared with them.
+            for user_id, theirs in (await alert_recipients(session, account, events)).items():
+                await self._notifier.send_events(
+                    session, user_id, theirs, shared_by=account.user.username
+                )
             return result
 
     def _is_due(self, account: Account, now: datetime, teams: dict[int, set[int]]) -> bool:
@@ -416,3 +419,11 @@ def _node_points(nodes: dict[str, NodeStats]) -> list[Point]:
             if value is not None
         )
     return points
+
+
+def _visible(result: PollResult, user_id: int) -> list[dict[str, Any]]:
+    """The result's events this viewer may see."""
+    jobs = result.partial.get(user_id)
+    if jobs is None:
+        return result.events
+    return [e for e in result.events if e.get("job_id") in jobs]

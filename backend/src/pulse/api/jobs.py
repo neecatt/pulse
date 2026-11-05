@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pulse.api.deps import CurrentUser, SessionDep
@@ -9,7 +9,7 @@ from pulse.constants import CHART_POINTS, SERIES_POINTS, TREND_POINTS
 from pulse.domain import JobState
 from pulse.metrics.downsample import downsample
 from pulse.metrics.ingest import system_metric_filter
-from pulse.models import Account, Job, JobMetric, MetricFile, User
+from pulse.models import Account, Job, JobMetric, JobShare, MetricFile, User
 from pulse.schemas import (
     JobDetailOut,
     JobMetrics,
@@ -18,7 +18,7 @@ from pulse.schemas import (
     MetricPoint,
     StepPoint,
 )
-from pulse.services.teams import can_view, visible_account_ids
+from pulse.services.teams import can_view_job, is_member, visible_jobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -32,7 +32,7 @@ async def list_jobs(
     account_id: int | None = None,
     state: JobState | None = None,
 ) -> list[JobOut]:
-    query = select(Job).where(Job.account_id.in_(visible_account_ids(user.id)))
+    query = select(Job).where(visible_jobs(user.id))
     if account_id is not None:
         query = query.where(Job.account_id == account_id)
     if state is not None:
@@ -61,12 +61,42 @@ async def get_job(job_id: int, session: SessionDep, user: CurrentUser) -> JobDet
         series[name].append(MetricPoint(t=ts, v=value))
     trends = await _loss_trends(session, [job])
     detail = JobDetailOut.model_validate(job)
+    account = await session.get(Account, job.account_id)
+    shared_with = (
+        list(await session.scalars(select(JobShare.team_id).where(JobShare.job_id == job.id)))
+        if account is not None and account.user_id == user.id
+        else []  # which teams a job is shared with is the owner's business
+    )
     return detail.model_copy(
         update={
             "series": {k: downsample(v, SERIES_POINTS) for k, v in series.items()},
             "loss_trend": trends.get(job.id, []),
+            "shared_with": shared_with,
         }
     )
+
+
+@router.put("/{job_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def share_job(job_id: int, team_id: int, session: SessionDep, user: CurrentUser) -> None:
+    """Share one job with a team you're in, when its account doesn't share every job."""
+    job = await _get_owned_job(session, user, job_id)
+    if not await is_member(session, user.id, team_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "You're not in that team.")
+    exists = await session.scalar(
+        select(JobShare.id).where(JobShare.job_id == job.id, JobShare.team_id == team_id)
+    )
+    if exists is None:
+        session.add(JobShare(job_id=job.id, team_id=team_id))
+        await session.commit()
+
+
+@router.delete("/{job_id}/shares/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unshare_job(job_id: int, team_id: int, session: SessionDep, user: CurrentUser) -> None:
+    job = await _get_owned_job(session, user, job_id)
+    await session.execute(
+        delete(JobShare).where(JobShare.job_id == job.id, JobShare.team_id == team_id)
+    )
+    await session.commit()
 
 
 @router.patch("/{job_id}")
@@ -112,7 +142,7 @@ async def get_job_metrics(
 async def _get_visible_job(session: AsyncSession, user: User, job_id: int) -> Job:
     """A job the user may read: their own, or one on an account shared with their team."""
     job = await session.get(Job, job_id)
-    if job is None or not await can_view(session, user.id, job.account_id):
+    if job is None or not await can_view_job(session, user.id, job.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
     return job
 

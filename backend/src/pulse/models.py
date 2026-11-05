@@ -114,6 +114,17 @@ class AccountShare(Base):
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
 
 
+class JobShare(Base):
+    """One job shared with a team, for accounts that don't share all their jobs."""
+
+    __tablename__ = "job_shares"
+    __table_args__ = (UniqueConstraint("job_id", "team_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+
+
 class TeamInvite(Base):
     """A single-use invite link. Only the token's hash is stored."""
 

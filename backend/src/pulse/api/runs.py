@@ -6,7 +6,7 @@ from pulse.api.jobs import sort_time
 from pulse.metrics.ingest import is_system_metric
 from pulse.models import Job
 from pulse.schemas import MetricStats, RunOut
-from pulse.services.teams import visible_account_ids
+from pulse.services.teams import visible_jobs
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -18,7 +18,7 @@ async def list_runs(
     """Jobs with metric summaries and hyperparameters, for the runs table.
 
     ``array_id`` narrows it to one job array (a sweep)."""
-    query = select(Job).where(Job.account_id.in_(visible_account_ids(user.id)))
+    query = select(Job).where(visible_jobs(user.id))
     if array_id is not None:
         query = query.where(Job.array_id == array_id)
     jobs = sorted(await session.scalars(query), key=lambda j: -sort_time(j))

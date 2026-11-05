@@ -255,6 +255,8 @@ class JobDetailOut(JobOut):
     node_stats: dict[str, Any]  # latest per node: {cpu, mem, gpus: [{util, mem}]}
     # System metrics: gpu_util, gpu_mem and per node sys/<node>/{cpu,mem,gpu,gpu_mem}
     series: dict[str, list[MetricPoint]] = {}
+    # Teams this one job is shared with (the owner's view; empty for teammates).
+    shared_with: list[int] = []
 
 
 class MetricStats(BaseModel):

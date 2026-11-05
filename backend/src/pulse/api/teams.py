@@ -17,7 +17,17 @@ from pulse.api.deps import CurrentUser, ServicesDep, SessionDep
 from pulse.auth.passwords import hash_password
 from pulse.auth.tokens import hash_token, new_token
 from pulse.constants import TEAM_INVITE_TTL_SECONDS, TEAM_MAX_MEMBERS, TEAM_MAX_PENDING_INVITES
-from pulse.models import Account, AccountShare, Team, TeamInvite, TeamMember, User, utcnow
+from pulse.models import (
+    Account,
+    AccountShare,
+    Job,
+    JobShare,
+    Team,
+    TeamInvite,
+    TeamMember,
+    User,
+    utcnow,
+)
 from pulse.schemas import (
     Credentials,
     InviteInfo,
@@ -140,10 +150,14 @@ async def _remove_from_team(session: AsyncSession, team_id: int, user_id: int) -
         delete(TeamMember).where(TeamMember.team_id == team_id, TeamMember.user_id == user_id)
     )
     their_accounts = select(Account.id).where(Account.user_id == user_id)
+    their_jobs = select(Job.id).where(Job.account_id.in_(their_accounts))
     await session.execute(
         delete(AccountShare).where(
             AccountShare.team_id == team_id, AccountShare.account_id.in_(their_accounts)
         )
+    )
+    await session.execute(
+        delete(JobShare).where(JobShare.team_id == team_id, JobShare.job_id.in_(their_jobs))
     )
 
 

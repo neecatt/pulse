@@ -342,3 +342,69 @@ async def test_the_owner_is_a_member_but_cannot_leave(client: AsyncClient) -> No
     assert (await client.delete(f"/api/teams/mine/members/{me}")).status_code == 409
     toggled = await client.patch(f"/api/teams/{team}/membership", json={"alerts": True})
     assert toggled.json()["owned"]["alerts"] is True
+
+
+async def share_job(user: AsyncClient, job_id: int, team: int) -> None:
+    response = await user.put(f"/api/jobs/{job_id}/shares/{team}")
+    assert response.status_code == 204, response.text
+
+
+async def test_sharing_one_job_shows_only_that_job(
+    client: AsyncClient, member: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    await team_with_member(client, member)
+    account_id = await polled_account(client, services, clock)
+    team = await team_id(client)
+    jobs = (await client.get("/api/jobs")).json()
+    assert len(jobs) > 1
+    job_id, other_id = jobs[0]["id"], jobs[1]["id"]
+
+    await share_job(client, job_id, team)
+    await share_job(client, job_id, team)  # sharing twice is harmless
+
+    assert [j["id"] for j in (await member.get("/api/jobs")).json()] == [job_id]
+    assert [r["id"] for r in (await member.get("/api/runs")).json()] == [job_id]
+    assert {e["job_id"] for e in (await member.get("/api/events")).json()} <= {job_id}
+    assert (await member.get(f"/api/jobs/{other_id}")).status_code == 404
+    [account] = (await member.get("/api/accounts")).json()
+    assert account["id"] == account_id  # for the job's label
+    assert (await client.get(f"/api/jobs/{job_id}")).json()["shared_with"] == [team]
+    assert (await member.get(f"/api/jobs/{job_id}")).json()["shared_with"] == []
+
+    # Only the owner shares, and only with teams they're in.
+    assert (await member.put(f"/api/jobs/{other_id}/shares/{team}")).status_code == 404
+    assert (await member.delete(f"/api/jobs/{job_id}/shares/{team}")).status_code == 404
+    assert (await client.put(f"/api/jobs/{job_id}/shares/{team + 1}")).status_code == 404
+
+    assert (await client.delete(f"/api/jobs/{job_id}/shares/{team}")).status_code == 204
+    assert (await member.get("/api/jobs")).json() == []
+    assert (await member.get(f"/api/jobs/{job_id}")).status_code == 404
+
+
+async def test_one_shared_job_sends_only_its_own_updates(
+    client: AsyncClient, member: AsyncClient, services: Services, clock: FakeClock
+) -> None:
+    await team_with_member(client, member)
+    await polled_account(client, services, clock)
+    team = await team_id(client)
+    job_id = (await client.get("/api/jobs")).json()[0]["id"]
+    await share_job(client, job_id, team)
+    bob = (await client.get("/api/teams")).json()["owned"]["members"][0]["user_id"]
+
+    me = (await client.get("/api/auth/me")).json()["id"]
+
+    async with (
+        services.broadcaster.subscribe(bob) as theirs,
+        services.broadcaster.subscribe(me) as mine,
+    ):
+        for _ in range(6):
+            clock.advance(300)
+            await services.poller.poll_all()
+        seen = {
+            user: [
+                e["job_id"] for _ in range(q.qsize()) for e in json.loads(q.get_nowait())["events"]
+            ]
+            for user, q in (("bob", theirs), ("me", mine))
+        }
+    assert set(seen["me"]) - {job_id}  # other jobs changed meanwhile
+    assert set(seen["bob"]) <= {job_id}
