@@ -22,5 +22,6 @@ class Services:
     broadcaster: Broadcaster
     poller: Poller
     login_limiter: LoginRateLimiter
+    signup_limiter: LoginRateLimiter
     setup_code: str | None  # required to create the first account; None once set up
     passkey_challenges: ChallengeStore
