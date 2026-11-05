@@ -156,7 +156,7 @@ const FEATURES: [string, string][] = [
 /** A still of the jobs list, drawn with the app's own components. */
 function Preview() {
   return (
-    <div className="space-y-3" aria-hidden>
+    <div aria-hidden>
       <Card className="divide-y">
         {PREVIEW.map((job) => (
           <div key={job.name} className="flex items-center gap-4 px-4 py-3">
@@ -173,16 +173,20 @@ function Preview() {
           </div>
         ))}
       </Card>
-      <Card className="ml-auto flex max-w-xs items-start gap-3 px-4 py-3 shadow-sm">
-        <span className="mt-1.5 size-2 shrink-0 rounded-full bg-fail" />
-        <div className="min-w-0 flex-1 text-xs">
-          <div className="flex justify-between gap-3">
-            <span className="font-medium">ana · LUMI</span>
-            <span className="text-muted-foreground">now</span>
+      {/* A push notification arriving over the app, drawn the way phones show them. */}
+      <div className="relative z-10 mx-3 -mt-3 flex items-start gap-3 rounded-2xl border bg-surface/90 p-3 shadow-lg backdrop-blur sm:mx-8">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-foreground">
+          <span className="size-2.5 rounded-full bg-run" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex justify-between gap-3 text-[11px] text-muted-foreground">
+            <span className="tracking-wider uppercase">Pulse</span>
+            <span>now</span>
           </div>
-          <div className="text-muted-foreground">mixtral-eval failed — OUT_OF_MEMORY</div>
+          <div className="text-sm font-medium">ana · LUMI</div>
+          <div className="text-sm text-muted-foreground">mixtral-eval failed — OUT_OF_MEMORY</div>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }
