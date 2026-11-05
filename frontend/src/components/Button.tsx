@@ -6,6 +6,7 @@ const variants = {
   primary: "bg-foreground text-background hover:bg-foreground/90",
   ghost: "border text-foreground hover:bg-muted",
   danger: "border text-fail hover:bg-fail/10",
+  destructive: "bg-fail text-white hover:bg-fail/90",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

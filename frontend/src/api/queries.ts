@@ -18,8 +18,17 @@ import type {
   JobMetrics,
   JobUpdate,
   Me,
+  MembershipUpdate,
   PreferencesUpdate,
 } from "./types";
+
+/** A team you can share with, from your side. */
+export interface ShareTeam {
+  id: number;
+  name: string;
+  /** You share all your jobs with it already. */
+  shareAll: boolean;
+}
 
 export const queryKeys = {
   accounts: ["accounts"] as const,
@@ -297,20 +306,28 @@ export const useRenameTeam = () => useTeamMutation(api.teams.rename);
 export const useRemoveMember = () => useTeamMutation(api.teams.removeMember);
 export const useCreateInvite = () => useTeamMutation(() => api.teams.invite());
 export const useRevokeInvite = () => useTeamMutation(api.teams.revokeInvite);
-export const useSetTeamAlerts = () =>
-  useTeamMutation(({ teamId, alerts }: { teamId: number; alerts: boolean }) =>
-    api.teams.setAlerts(teamId, alerts),
+export const useUpdateMembership = () =>
+  useTeamMutation(({ teamId, ...body }: MembershipUpdate & { teamId: number }) =>
+    api.teams.updateMembership(teamId, body),
   );
 export const useDeleteTeam = () => useAccessMutation(() => api.teams.remove());
 export const useLeaveTeam = () => useAccessMutation(api.teams.leave);
 export const useAcceptInvite = () => useAccessMutation(api.teams.accept);
 
-/** Every team you can share with: your own and the ones you joined. */
-export function useMyTeams(): { id: number; name: string }[] {
+/** Every team you can share with (your own and the ones you joined), and
+ * whether you already share all your jobs with it. */
+export function useMyTeams(): ShareTeam[] {
   const { data } = useTeams();
   if (!data) return [];
-  const joined = data.memberships.map((m) => ({ id: m.team_id, name: m.name }));
-  return data.owned ? [{ id: data.owned.id, name: data.owned.name }, ...joined] : joined;
+  const joined = data.memberships.map((m) => ({
+    id: m.team_id,
+    name: m.name,
+    shareAll: m.share_all,
+  }));
+  const { owned } = data;
+  return owned
+    ? [{ id: owned.id, name: owned.name, shareAll: owned.share_all }, ...joined]
+    : joined;
 }
 
 /** The team an invite link is for; works signed out. */

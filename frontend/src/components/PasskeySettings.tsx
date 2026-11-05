@@ -7,6 +7,7 @@ import { formatAgo } from "@/lib/format";
 import { passkeysSupported } from "@/lib/passkeys";
 
 import { Button } from "./Button";
+import { useConfirm } from "@/hooks/use-confirm";
 
 /** Passkeys on this account: add one for this device, or remove old ones. */
 export function PasskeySettings() {
@@ -14,12 +15,20 @@ export function PasskeySettings() {
   const { data: passkeys = [] } = usePasskeys();
   const { add, busy, error } = useAddPasskey();
   const supported = passkeysSupported();
+  const confirm = useConfirm();
 
-  const remove = async (id: number, name: string) => {
-    if (!confirm(`Remove the passkey "${name}"? You can still sign in with your password.`)) return;
-    await api.passkeys.remove(id);
-    await client.invalidateQueries({ queryKey: queryKeys.passkeys });
-  };
+  const remove = (id: number, name: string) =>
+    confirm.ask({
+      title: `Remove the passkey "${name}"?`,
+      description: "You can still sign in with your password.",
+      action: "Remove passkey",
+      danger: true,
+      onConfirm: () => {
+        void api.passkeys
+          .remove(id)
+          .then(() => client.invalidateQueries({ queryKey: queryKeys.passkeys }));
+      },
+    });
 
   return (
     <div className="space-y-2 p-4">
@@ -58,6 +67,7 @@ export function PasskeySettings() {
           ))}
         </ul>
       )}
+      {confirm.dialog}
     </div>
   );
 }

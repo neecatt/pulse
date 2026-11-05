@@ -141,7 +141,7 @@ function JobDetailView({ job }: { job: JobDetail }) {
 /** Share just this job with teams that don't already see its whole account. */
 function ShareJob({ job, account }: { job: JobDetail; account: Account }) {
   const share = useShareJob(job.id);
-  const teams = useMyTeams().filter((t) => !account.shared_with.includes(t.id));
+  const teams = useMyTeams().filter((t) => !t.shareAll && !account.shared_with.includes(t.id));
   if (!teams.length) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
