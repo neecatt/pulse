@@ -30,7 +30,10 @@ falls short.
 - **Requests.** State-changing requests from other websites are refused (Origin
   check), responses carry a strict Content Security Policy and HSTS, and request
   bodies over 1 MB (16 MB for agent reports) are refused before they're read.
-- **Users are isolated.** Every endpoint returns only the signed-in user's data.
+- **Users are isolated.** Every endpoint returns only the signed-in user's data,
+  plus, read-only, the accounts a teammate chose to share with their team. Only
+  an account's owner can change it or its jobs. Team invites are single-use,
+  expire after 7 days and are stored as hashes.
   Each user has their own SSH key, so adding someone else's cluster login gets
   you nowhere. Users who aren't admins can only connect to public internet
   addresses, and push messages only go to the browsers' push services, so a user

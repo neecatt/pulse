@@ -4,11 +4,12 @@ import { ArrowLeft } from "lucide-react";
 import { useAccountMap, useJob, useJobMetrics } from "@/api/queries";
 import type { JobDetail } from "@/api/types";
 import { HparamsTable } from "@/components/HparamsTable";
-import { JobNotes } from "@/components/JobNotes";
+import { JobNotes, SharedJobNotes } from "@/components/JobNotes";
 import { MetricsPanel } from "@/components/MetricsPanel";
 import { NodeUsage } from "@/components/NodeUsage";
 import { Meter } from "@/components/Meter";
 import { ErrorNotice, LoadingRows, Section } from "@/components/Section";
+import { accountLabel } from "@/lib/accounts";
 import { StateBadge } from "@/components/StateBadge";
 import {
   formatAgo,
@@ -46,7 +47,7 @@ function JobDetailView({ job }: { job: JobDetail }) {
   const running = job.state === "RUNNING";
 
   const details: [string, string | number][] = [
-    ["Account", account ? `${account.username}@${account.cluster}` : "—"],
+    ["Account", account ? accountLabel(account) : "—"],
     ["Partition", job.partition],
     ["Nodes", job.nodes],
     ["GPUs", job.gpus],
@@ -70,7 +71,7 @@ function JobDetailView({ job }: { job: JobDetail }) {
         <StateBadge state={job.state} />
       </header>
 
-      <JobNotes key={job.id} job={job} />
+      {account?.owner ? <SharedJobNotes job={job} /> : <JobNotes key={job.id} job={job} />}
 
       {job.time_used !== null && (
         <div className="space-y-1.5">

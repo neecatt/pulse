@@ -4,6 +4,9 @@ Features planned for Pulse, grouped by what they give you. Nothing here has a
 date yet. Ideas and votes are welcome in the issues; see
 [CONTRIBUTING.md](CONTRIBUTING.md) to help build them.
 
+Done so far: **teams** (invite links, read-only sharing of chosen accounts, live
+updates and opt-in alerts for members).
+
 Every feature is held to the same rules as the rest of Pulse (see
 [AGENTS.md](AGENTS.md)): light to run, live, and simple to use.
 
@@ -86,12 +89,6 @@ logs stay fast on a phone.
 Send alerts to email, Slack, Discord, Telegram or [ntfy](https://ntfy.sh)
 besides Web Push, chosen per alert type. Useful on desktops without push and for
 team channels.
-
-### Teams
-
-Share selected accounts and runs with lab members, read-only: everyone sees the
-team's jobs and curves in one place, without sharing cluster logins. Members
-keep their own alerts and settings.
 
 ### Metrics export
 

@@ -85,7 +85,7 @@ function RowContent({
         </div>
         <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
           {[
-            account?.cluster,
+            account?.owner ? `${account.owner} · ${account.cluster}` : account?.cluster,
             job.partition,
             `${job.nodes}n${job.gpus ? `/${job.gpus}g` : ""}`,
             job.state === "PENDING" ? job.reason : formatDuration(job.elapsed_s),

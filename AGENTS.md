@@ -156,6 +156,12 @@ Run lint, types, and tests for every package you touched before committing.
   parsers consume complete records only. Points are unique per
   (job, metric, step). Discovery rules live in `metrics/discovery.py` and are
   mirrored in the agent (a test keeps them equal).
+- Teams (`api/teams.py`, `services/teams.py`): an owner invites members by
+  single-use link and marks accounts `shared`. **Reads** of jobs, runs, metrics,
+  events and accounts go through `services.teams.visible_account_ids`; **writes**
+  stay owner-only (`get_owned_account`, `_get_owned_job`). Poll results carry the
+  account's `viewers`, so live updates, the fast polling interval and opt-in member
+  alerts follow whoever is watching.
 - Auth (`pulse/auth/`, `services/auth.py`, `api/auth.py`): scrypt passwords,
   cookie sessions stored as token hashes. `PULSE_ADMIN_USERNAME`/`PASSWORD` are
   synced on every start and stay authoritative; without them, first-run setup

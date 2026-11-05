@@ -31,6 +31,9 @@ import type {
   PushSubscriptionJSON,
   Run,
   SetupInfo,
+  InviteInfo,
+  NewTeamInvite,
+  TeamOverview,
 } from "./types";
 
 const BASE_URL = `${API_URL}/api`;
@@ -151,6 +154,35 @@ export const api = {
     get: () => request<Preferences>("/preferences"),
     update: (body: PreferencesUpdate) =>
       request<Preferences>("/preferences", { method: "PATCH", body: json(body) }),
+  },
+  teams: {
+    overview: () => request<TeamOverview>("/teams"),
+    create: (name: string) =>
+      request<TeamOverview>("/teams", { method: "POST", body: json({ name }) }),
+    rename: (name: string) =>
+      request<TeamOverview>("/teams/mine", { method: "PATCH", body: json({ name }) }),
+    remove: () => request<void>("/teams/mine", { method: "DELETE" }),
+    removeMember: (userId: number) =>
+      request<void>(`/teams/mine/members/${userId}`, { method: "DELETE" }),
+    invite: () => request<NewTeamInvite>("/teams/mine/invites", { method: "POST" }),
+    revokeInvite: (id: number) => request<void>(`/teams/mine/invites/${id}`, { method: "DELETE" }),
+    setAlerts: (teamId: number, alerts: boolean) =>
+      request<TeamOverview>(`/teams/${teamId}/membership`, {
+        method: "PATCH",
+        body: json({ alerts }),
+      }),
+    leave: (teamId: number) => request<void>(`/teams/${teamId}/membership`, { method: "DELETE" }),
+    inviteInfo: (token: string) =>
+      request<InviteInfo>(`/teams/invites/${encodeURIComponent(token)}`),
+    accept: (token: string) =>
+      request<TeamOverview>(`/teams/invites/${encodeURIComponent(token)}/accept`, {
+        method: "POST",
+      }),
+    signup: (token: string, body: Credentials) =>
+      request<Me>(`/teams/invites/${encodeURIComponent(token)}/signup`, {
+        method: "POST",
+        body: json(body),
+      }),
   },
   push: {
     config: () => request<PushConfig>("/push/config"),

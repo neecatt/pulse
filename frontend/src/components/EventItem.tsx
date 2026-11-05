@@ -5,6 +5,8 @@ import { formatAgo, formatClock } from "@/lib/format";
 import { EVENT_LABELS, EVENT_STATE, stateTone } from "@/lib/labels";
 import { useUiSettings } from "@/lib/ui-settings";
 
+import { accountLabel } from "@/lib/accounts";
+
 import { AccountDot } from "./AccountDot";
 
 export function EventItem({ event, account }: { event: PulseEvent; account: Account | undefined }) {
@@ -16,11 +18,7 @@ export function EventItem({ event, account }: { event: PulseEvent; account: Acco
         <div className="break-words">{event.message}</div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 font-mono text-[11px] text-muted-foreground">
           <span className={stateTone[EVENT_STATE[event.kind]]}>{EVENT_LABELS[event.kind]}</span>
-          {account && (
-            <span>
-              · {account.username}@{account.cluster}
-            </span>
-          )}
+          {account && <span>· {accountLabel(account)}</span>}
           <span>
             · {timeFormat === "clock" ? formatClock(event.created_at) : formatAgo(event.created_at)}
           </span>

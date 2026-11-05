@@ -31,6 +31,10 @@ export interface Account {
   jump_username: string | null;
   last_polled_at: string | null;
   last_error: string | null;
+  /** Visible, read-only, to the owner's team. */
+  shared: boolean;
+  /** Owner's username when a teammate shares it with you; null for your own accounts. */
+  owner: string | null;
 }
 
 export interface AccountCreate {
@@ -46,7 +50,7 @@ export interface AccountCreate {
   jump_username?: string;
 }
 
-export type AccountUpdate = Partial<Pick<Account, "cluster" | "notify">>;
+export type AccountUpdate = Partial<Pick<Account, "cluster" | "notify" | "shared">>;
 
 export interface AccountCheck {
   ok: boolean;
@@ -238,4 +242,51 @@ export interface Passkey {
 export interface PasskeyOptions<T> {
   challenge_id: string;
   options: T;
+}
+
+// Teams
+
+export interface TeamMember {
+  user_id: number;
+  username: string;
+  joined_at: string;
+}
+
+export interface TeamInvite {
+  id: number;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface NewTeamInvite extends TeamInvite {
+  /** Shown once; the link is /join/<token>. */
+  token: string;
+}
+
+export interface OwnedTeam {
+  id: number;
+  name: string;
+  members: TeamMember[];
+  /** Pending invites, not yet used or expired. */
+  invites: TeamInvite[];
+}
+
+/** A team you belong to, owned by someone else. */
+export interface TeamMembership {
+  team_id: number;
+  name: string;
+  owner: string;
+  alerts: boolean;
+  joined_at: string;
+}
+
+export interface TeamOverview {
+  owned: OwnedTeam | null;
+  memberships: TeamMembership[];
+}
+
+/** What an invite link shows before you join. */
+export interface InviteInfo {
+  team: string;
+  owner: string;
 }

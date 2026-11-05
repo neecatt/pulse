@@ -1,5 +1,11 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { HeadContent, Link, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
+import {
+  HeadContent,
+  Link,
+  Outlet,
+  createRootRouteWithContext,
+  useRouterState,
+} from "@tanstack/react-router";
 
 import { useMe } from "@/api/queries";
 import { AuthScreen } from "@/components/AuthScreen";
@@ -14,10 +20,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootLayout() {
   const { data: me, isPending } = useMe();
+  // Invite links work signed out: the page offers to create an account.
+  const joining = useRouterState({ select: (s) => s.location.pathname.startsWith("/join/") });
   return (
     <>
       <HeadContent />
-      {isPending ? null : me ? <SignedInApp /> : <AuthScreen />}
+      {isPending ? null : me ? <SignedInApp /> : joining ? <Outlet /> : <AuthScreen />}
     </>
   );
 }
