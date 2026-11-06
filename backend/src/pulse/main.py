@@ -96,7 +96,16 @@ def create_app(
             await slurm.close()
             await engine.dispose()
 
-    app = FastAPI(title="Pulse", version=__version__, lifespan=lifespan)
+    # No /docs, /redoc or /openapi.json: a public map of every endpoint helps
+    # attackers more than anyone else; the API is documented by its code.
+    app = FastAPI(
+        title="Pulse",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
