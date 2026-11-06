@@ -3,6 +3,20 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-06 — Site stats for admins (`feat/site-stats`)
+
+- Settings → **Site · last 7 days**, for admins: visitors and page views,
+  demos started (and how many are running), sign-ups (and how many came from an
+  address that tried the demo that day), active users of all accounts, and a
+  30-day bar chart of visitors.
+- Counted on the server with no cookies and no third parties: a view is a
+  signed-out load of the landing or sign-in page; one row per day and counter
+  in `daily_counts`; distinct visitors via a salted hash that's rotated daily
+  and kept only in memory. `GET /api/stats` is admin-only (others get 404).
+- Tests: 5 backend (counting, a new day, only totals stored, signed-in use
+  isn't a visit, admin-only), 2 frontend (weekly totals). Checked in a browser
+  on desktop and a phone.
+
 ## 2026-11-06 — Release 0.2.5
 
 - Pre-public hardening (see below): no public API map or server banner, an

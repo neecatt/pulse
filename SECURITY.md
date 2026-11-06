@@ -31,6 +31,9 @@ falls short.
   check), responses carry a strict Content Security Policy and HSTS, and request
   bodies over 1 MB (16 MB for agent reports) are refused before they're read.
   There's no public API map (`/docs`, `/openapi.json`) and no server banner.
+- **Site stats** (admins only) keep daily totals and nothing identifying: no
+  cookies, no addresses, no third parties. Visitors are told apart within a day
+  by a salted hash kept only in memory.
 - **The image** runs as an unprivileged user, keeps `/data` private to it, and
   ships without pip or setuptools, which Pulse doesn't need at runtime.
 - **Users are isolated.** Every endpoint returns only the signed-in user's data,
