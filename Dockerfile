@@ -26,12 +26,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Security updates published since the base image was built.
 RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --upgrade pip setuptools
+    && pip install --upgrade pip  # the newest pip installs Pulse below
 
 WORKDIR /app
 COPY backend/pyproject.toml backend/README.md ./backend/
 COPY backend/src ./backend/src
-RUN pip install ./backend && rm -rf ./backend
+# pip and setuptools only install packages; Pulse doesn't need them at runtime,
+# so they go (less code in the image, and nothing for scanners to flag).
+RUN pip install ./backend && rm -rf ./backend && pip uninstall -y setuptools pip
 COPY --from=web /web/dist ./web
 
 # Defaults for running in a container; every one can be overridden. The port
