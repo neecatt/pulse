@@ -56,6 +56,7 @@ def main() -> None:
             # from X-Forwarded-* headers, but only from these proxies.
             proxy_headers=True,
             forwarded_allow_ips=settings.trusted_proxies,
+            server_header=False,  # don't advertise the server software
         )
     elif args.command == "gen-vapid":
         _print_vapid_keys()

@@ -133,3 +133,10 @@ def test_self_referencing_config_does_not_recurse_forever() -> None:
 
 def test_dev_origin_is_not_trusted_by_default() -> None:
     assert Settings(_env_file=None).cors_origins == []  # type: ignore[call-arg]
+
+
+async def test_no_public_map_of_the_api(anon: AsyncClient) -> None:
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        response = await anon.get(path)
+        assert response.status_code == 404, path
+        assert "openapi" not in response.text.lower()

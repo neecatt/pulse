@@ -21,7 +21,7 @@ Self-hosted monitoring for HPC jobs and training runs, with push alerts when som
 
 [Quick start](#quick-start) · [Deploy](#deploy-it-for-real) · [Connect a cluster](#connecting-clusters) · [Configuration](#configuration) · [Self-hosting guide](docs/deployment.md) · [Roadmap](ROADMAP.md)
 
-<a href="https://buymeacoffee.com/neecat"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-support%20Pulse-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
+<a href="https://buymeacoffee.com/neecat"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50" width="181"></a>
 
 </div>
 
@@ -359,7 +359,7 @@ make demo        # build and run the Docker image locally
 
 | Tag                      | Contents                                         |
 | ------------------------ | ------------------------------------------------ |
-| `latest`, `0.2`, `0.2.2` | Releases. Pin a version for predictable upgrades |
+| `latest`, `0.2`, `0.2.4` | Releases. Pin a version for predictable upgrades |
 
 ## Support
 
@@ -368,7 +368,7 @@ a few `ssh … squeue` round trips and you'd like to say thanks, you can buy me 
 star, a bug report or a pull request helps just as much.
 
 <a href="https://buymeacoffee.com/neecat" target="_blank">
-  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50" width="181">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="60" width="217">
 </a>
 
 ## Contributing and security

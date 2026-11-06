@@ -30,6 +30,9 @@ falls short.
 - **Requests.** State-changing requests from other websites are refused (Origin
   check), responses carry a strict Content Security Policy and HSTS, and request
   bodies over 1 MB (16 MB for agent reports) are refused before they're read.
+  There's no public API map (`/docs`, `/openapi.json`) and no server banner.
+- **The image** runs as an unprivileged user, keeps `/data` private to it, and
+  ships without pip or setuptools, which Pulse doesn't need at runtime.
 - **Users are isolated.** Every endpoint returns only the signed-in user's data,
   plus, read-only, the accounts or single jobs a teammate chose to share with a
   team you're both in. Live updates and alerts follow the same rule, job by job.
