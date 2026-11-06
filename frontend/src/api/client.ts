@@ -32,6 +32,7 @@ import type {
   PushSubscriptionJSON,
   Run,
   SetupInfo,
+  SiteStats,
   InviteInfo,
   NewTeamInvite,
   TeamOverview,
@@ -137,6 +138,7 @@ export const api = {
       }),
   },
   health: () => request<Health>("/health"),
+  siteStats: () => request<SiteStats>("/stats"),
   setup: () => request<SetupInfo>("/setup"),
   accounts: {
     list: () => request<Account[]>("/accounts"),
