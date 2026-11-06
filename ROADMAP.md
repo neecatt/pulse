@@ -13,8 +13,9 @@ Every feature is held to the same rules as the rest of Pulse (see
 ## Ground rules for acting on clusters
 
 Pulse is **read-only** on clusters today: it never submits, cancels or changes
-anything. Three planned features change that (job actions, the terminal and job
-submission), so they share these safeguards:
+anything. Four planned features change that (job actions, the terminal, job
+submission and the Claude and Codex integration), so they share these
+safeguards:
 
 - **Off unless the admin turns it on**, per server (for example
   `PULSE_ALLOW_JOB_ACTIONS`, `PULSE_ALLOW_TERMINAL`). A default install stays
@@ -58,6 +59,21 @@ no button for: checking a file, editing a config, running a quick command.
 Resubmit a finished or failed job with the same script, or submit from saved
 `sbatch` templates with a few fields to fill in (time, GPUs, arguments).
 Submitted jobs appear in the list immediately and get the usual alerts.
+
+### Claude and Codex
+
+Run jobs by asking an AI assistant. Connect Claude or Codex to Pulse, describe
+what you want ("fine-tune this model on 4 GPUs for 12 hours", "resubmit the
+failed sweep tasks with half the learning rate"), and the assistant writes the
+`sbatch` script, submits it on the right cluster, and follows the job through
+the same status, logs and metrics you see in Pulse.
+
+- **Your assistant, your account:** you connect your own Claude or Codex
+  access. Pulse sends nothing to an AI provider unless you set one up.
+- **You approve every step:** the script and each command are shown before
+  they run, and nothing reaches the cluster without your confirmation.
+- **Same limits as you:** jobs run as your cluster login with your Pulse key,
+  under the ground rules above.
 
 ## Know more about your jobs and clusters
 
