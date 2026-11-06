@@ -230,6 +230,7 @@ async def signup_with_invite(
     session.add(user)
     await session.flush()
     await _join(session, invite, user.id)
+    await services.site.signup(session, client_address(request))
     await issue_session_cookie(user, request, response, session, services.settings)
     return Me.model_validate(user)
 

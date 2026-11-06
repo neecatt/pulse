@@ -37,6 +37,9 @@ async def auth_status(request: Request, session: SessionDep, services: ServicesD
     """Always 200, so a signed-out browser learns what to show without an error."""
     token = request.cookies.get(SESSION_COOKIE)
     resolved = await resolve_session(session, token, services.settings) if token else None
+    if resolved is None:  # the landing or sign-in page, opened by a visitor
+        await services.site.visit(session, client_address(request))
+        await session.commit()
     return AuthStatus(
         setup_required=await user_count(session) == 0,
         signup_allowed=services.settings.allow_signup,
@@ -85,6 +88,7 @@ async def signup(
     limit_signups(request, services)
     if await session.scalar(select(User.id).where(User.username == body.username)):
         raise HTTPException(status.HTTP_409_CONFLICT, "That username is taken.")
+    await services.site.signup(session, client_address(request))
     return await _create_and_sign_in(
         body, request, response, session, services.settings, admin=False
     )
@@ -106,6 +110,7 @@ async def try_demo(
     services.demo_limiter.record_failure(address)  # every guest counts
     services.total_limiter.record_failure("guests")
     user = await create_guest(session, services.clock())
+    await services.site.demo(session, client_address(request))
     await issue_session_cookie(user, request, response, session, services.settings)
     services.poller.trigger()  # fill the simulated clusters right away
     return Me.model_validate(user)

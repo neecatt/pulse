@@ -359,3 +359,16 @@ class PushSubscription(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="push_subscriptions")
+
+
+class DailyCount(Base):
+    """One counter per day for the admin's site stats (views, demos, sign-ups).
+    Only totals: no addresses, users or cookies are stored."""
+
+    __tablename__ = "daily_counts"
+    __table_args__ = (UniqueConstraint("day", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    day: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD, UTC
+    name: Mapped[str] = mapped_column(String(32))
+    count: Mapped[int] = mapped_column(default=0)

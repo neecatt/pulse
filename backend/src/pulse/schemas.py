@@ -370,6 +370,24 @@ class TeamOverview(BaseModel):
     memberships: list[TeamMembership]
 
 
+class DayStats(BaseModel):
+    day: str  # YYYY-MM-DD, UTC
+    views: int = 0  # the landing or sign-in page opened while signed out
+    visitors: int = 0  # distinct addresses among those
+    demos: int = 0
+    signups: int = 0
+    signups_after_demo: int = 0  # from an address that started a demo that day
+
+
+class SiteStats(BaseModel):
+    """What an admin sees about the site: daily counts and who's using it."""
+
+    days: list[DayStats]  # oldest first, SITE_STATS_DAYS of them
+    users: int  # real accounts (not demo guests)
+    active_users: int  # real accounts seen in the last ACTIVE_USER_DAYS
+    guests: int  # demo guests alive right now
+
+
 class MembershipUpdate(BaseModel):
     alerts: bool | None = None
     share_all: bool | None = None

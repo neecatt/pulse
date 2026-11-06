@@ -9,6 +9,7 @@ from pulse.domain import Clock
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.notifier import Notifier
 from pulse.services.poller import Poller
+from pulse.services.stats import SiteCounter
 from pulse.slurm import SlurmClient
 
 
@@ -30,3 +31,4 @@ class Services:
     # New guests and new sign-ups across all addresses (keys "guests", "signups").
     total_limiter: LoginRateLimiter
     clock: Clock  # the poller's notion of now (injected in tests)
+    site: SiteCounter  # daily totals for the admin's site stats
