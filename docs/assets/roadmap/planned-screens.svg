@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620" role="img" aria-labelledby="title desc">
+  <title id="title">Planned Pulse screens</title>
+  <desc id="desc">Three phone sketches: job actions on a job page, an SSH terminal with a phone key bar, and asking Claude or Codex to write and submit a job.</desc>
+  <style>
+    .sans { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: "SFMono-Regular", Menlo, Consolas, monospace; }
+  </style>
+
+  <rect width="960" height="620" rx="24" fill="#f4f4f2"/>
+
+  <!-- Captions -->
+  <g class="sans" text-anchor="middle">
+    <text x="170" y="44" font-size="16" font-weight="600" fill="#1a1a1a">Job actions</text>
+    <text x="170" y="64" font-size="12" fill="#6b6b6b">Cancel, hold or requeue in one tap</text>
+    <text x="480" y="44" font-size="16" font-weight="600" fill="#1a1a1a">Terminal</text>
+    <text x="480" y="64" font-size="12" fill="#6b6b6b">SSH with a key bar made for phones</text>
+    <text x="790" y="44" font-size="16" font-weight="600" fill="#1a1a1a">Claude and Codex</text>
+    <text x="790" y="64" font-size="12" fill="#6b6b6b">Describe a job; review; submit</text>
+  </g>
+
+  <!-- Phone 1: job actions -->
+  <g transform="translate(40 84)">
+    <rect width="260" height="516" rx="38" fill="#141414"/>
+    <rect x="9" y="9" width="242" height="498" rx="30" fill="#ffffff"/>
+    <g class="sans">
+      <text x="26" y="40" font-size="11" font-weight="600" fill="#1a1a1a">9:41</text>
+      <text x="26" y="72" font-size="11" fill="#8a8a8a">← All jobs</text>
+      <text x="26" y="98" font-size="10" fill="#8a8a8a" class="mono">#3378892</text>
+      <text x="26" y="120" font-size="18" font-weight="600" fill="#1a1a1a">llama-7b-sft</text>
+      <circle cx="176" cy="116" r="3" fill="#3f9b3f"/>
+      <text x="184" y="120" font-size="10" fill="#3f9b3f" class="mono">RUNNING</text>
+      <text x="26" y="140" font-size="9.5" fill="#8a8a8a" class="mono">LUMI · gpu · 8n/32g · 14h 02m</text>
+      <rect x="26" y="156" width="208" height="70" rx="10" fill="#f6f6f4"/>
+      <polyline points="34,170 50,186 66,196 84,203 104,208 126,211 150,213 176,214 204,215 226,215" fill="none" stroke="#3f9b3f" stroke-width="2"/>
+    </g>
+    <!-- Dim the page behind the sheet -->
+    <rect x="9" y="9" width="242" height="498" rx="30" fill="#000000" fill-opacity="0.28"/>
+    <!-- Bottom sheet -->
+    <path d="M9 286 a22 22 0 0 1 22 -22 h198 a22 22 0 0 1 22 22 v191 a30 30 0 0 1 -30 30 h-182 a30 30 0 0 1 -30 -30 z" fill="#ffffff"/>
+    <rect x="112" y="274" width="36" height="4" rx="2" fill="#d4d4d0"/>
+    <g class="sans">
+      <text x="28" y="306" font-size="14" font-weight="600" fill="#1a1a1a">llama-7b-sft</text>
+      <rect x="22" y="320" width="216" height="38" rx="10" fill="#f6f6f4"/>
+      <text x="38" y="344" font-size="13" fill="#1a1a1a">Hold</text>
+      <rect x="22" y="366" width="216" height="38" rx="10" fill="#f6f6f4"/>
+      <text x="38" y="390" font-size="13" fill="#1a1a1a">Requeue</text>
+      <rect x="22" y="412" width="216" height="38" rx="10" fill="#fbecea"/>
+      <text x="38" y="436" font-size="13" font-weight="600" fill="#c63a2f">Cancel job</text>
+      <text x="130" y="478" font-size="10" fill="#8a8a8a" text-anchor="middle">Asks to confirm · recorded in the log</text>
+    </g>
+  </g>
+
+  <!-- Phone 2: terminal -->
+  <g transform="translate(350 84)">
+    <rect width="260" height="516" rx="38" fill="#141414"/>
+    <rect x="9" y="9" width="242" height="498" rx="30" fill="#0e1013"/>
+    <g class="sans">
+      <text x="26" y="40" font-size="11" font-weight="600" fill="#e8e8e8">9:41</text>
+    </g>
+    <g class="mono" font-size="10" fill="#d9d9d9">
+      <text x="26" y="72" fill="#7d8590">LUMI · ~/runs/vit-l</text>
+      <text x="26" y="102"><tspan fill="#5fbf5f">$</tspan> squeue --me</text>
+      <text y="120" fill="#7d8590"><tspan x="26">JOBID</tspan><tspan x="74">NAME</tspan><tspan x="164">ST</tspan><tspan x="186">TIME</tspan></text>
+      <text y="136"><tspan x="26">3378892</tspan><tspan x="74">llama-7b-sft</tspan><tspan x="164">R</tspan><tspan x="186">14:02</tspan></text>
+      <text y="152"><tspan x="26">3378901</tspan><tspan x="74">vit-l-pretr…</tspan><tspan x="164">R</tspan><tspan x="186">3:10</tspan></text>
+      <text y="168"><tspan x="26">3378917</tspan><tspan x="74">diffusion-ft</tspan><tspan x="164">PD</tspan><tspan x="186">0:00</tspan></text>
+      <text x="26" y="196"><tspan fill="#5fbf5f">$</tspan> quota -s</text>
+      <text y="214"><tspan x="26">/scratch</tspan><tspan x="92">412G of 500G</tspan></text>
+      <text y="230"><tspan x="26">/home</tspan><tspan x="104">8G of 20G</tspan></text>
+      <text x="26" y="258"><tspan fill="#5fbf5f">$</tspan> </text>
+      <rect x="38" y="249" width="7" height="12" fill="#d9d9d9"/>
+    </g>
+    <!-- Saved snippets -->
+    <g class="mono" font-size="9.5" fill="#c9d1d9">
+      <rect x="22" y="402" width="86" height="24" rx="12" fill="none" stroke="#3a4049"/>
+      <text x="65" y="418" text-anchor="middle">squeue --me</text>
+      <rect x="114" y="402" width="52" height="24" rx="12" fill="none" stroke="#3a4049"/>
+      <text x="140" y="418" text-anchor="middle">quota</text>
+      <rect x="172" y="402" width="52" height="24" rx="12" fill="none" stroke="#3a4049"/>
+      <text x="198" y="418" text-anchor="middle">sinfo</text>
+    </g>
+    <!-- Key bar -->
+    <path d="M9 438 h242 v39 a30 30 0 0 1 -30 30 h-182 a30 30 0 0 1 -30 -30 z" fill="#1b1f25"/>
+    <g class="sans" font-size="11" fill="#e8e8e8" text-anchor="middle">
+      <rect x="18" y="448" width="40" height="28" rx="7" fill="#2b313a"/>
+      <text x="38" y="466">Ctrl</text>
+      <rect x="62" y="448" width="36" height="28" rx="7" fill="#2b313a"/>
+      <text x="80" y="466">Esc</text>
+      <rect x="102" y="448" width="36" height="28" rx="7" fill="#2b313a"/>
+      <text x="120" y="466">Tab</text>
+      <rect x="142" y="448" width="30" height="28" rx="7" fill="#2b313a"/>
+      <text x="157" y="466">↑</text>
+      <rect x="176" y="448" width="30" height="28" rx="7" fill="#2b313a"/>
+      <text x="191" y="466">↓</text>
+      <rect x="210" y="448" width="30" height="28" rx="7" fill="#2b313a"/>
+      <text x="225" y="466">⋯</text>
+    </g>
+  </g>
+
+  <!-- Phone 3: Claude and Codex -->
+  <g transform="translate(660 84)">
+    <rect width="260" height="516" rx="38" fill="#141414"/>
+    <rect x="9" y="9" width="242" height="498" rx="30" fill="#ffffff"/>
+    <g class="sans">
+      <text x="26" y="40" font-size="11" font-weight="600" fill="#1a1a1a">9:41</text>
+      <text x="26" y="74" font-size="14" font-weight="600" fill="#1a1a1a">New job</text>
+      <text x="26" y="92" font-size="10" fill="#8a8a8a">Runs as you, after you confirm</text>
+      <!-- Your request -->
+      <rect x="74" y="108" width="162" height="50" rx="14" fill="#1a1a1a"/>
+      <text x="88" y="129" font-size="11" fill="#ffffff">Fine-tune vit-l on 4 GPUs</text>
+      <text x="88" y="146" font-size="11" fill="#ffffff">for 12 hours on LUMI</text>
+      <!-- Assistant's answer -->
+      <rect x="22" y="172" width="196" height="186" rx="14" fill="#f2f2ef"/>
+      <text x="36" y="194" font-size="11" fill="#1a1a1a">Here's the job script:</text>
+      <rect x="32" y="204" width="176" height="98" rx="8" fill="#ffffff" stroke="#e2e2de"/>
+    </g>
+    <g class="mono" font-size="9" fill="#333333">
+      <text x="42" y="222">#SBATCH --partition=gpu</text>
+      <text x="42" y="238">#SBATCH --gpus=4</text>
+      <text x="42" y="254">#SBATCH --time=12:00:00</text>
+      <text x="42" y="276">python train.py \</text>
+      <text x="54" y="290">--model vit-l</text>
+    </g>
+    <g class="sans">
+      <rect x="32" y="314" width="84" height="32" rx="8" fill="#1a1a1a"/>
+      <text x="74" y="334" font-size="12" font-weight="600" fill="#ffffff" text-anchor="middle">Submit</text>
+      <rect x="124" y="314" width="84" height="32" rx="8" fill="#ffffff" stroke="#d4d4d0"/>
+      <text x="166" y="334" font-size="12" fill="#1a1a1a" text-anchor="middle">Edit</text>
+      <!-- Then it shows up like any other job -->
+      <rect x="22" y="380" width="216" height="58" rx="12" fill="#ffffff" stroke="#e2e2de"/>
+      <text x="36" y="402" font-size="12" font-weight="600" fill="#1a1a1a">vit-l-finetune</text>
+      <circle cx="180" cy="398" r="3" fill="#c68a12"/>
+      <text x="188" y="402" font-size="9.5" fill="#c68a12" class="mono">PENDING</text>
+      <text x="36" y="424" font-size="9.5" fill="#8a8a8a" class="mono">LUMI · gpu · 1n/4g · queued 12s</text>
+      <text x="130" y="470" font-size="10" fill="#8a8a8a" text-anchor="middle">Followed live, with the usual alerts</text>
+    </g>
+  </g>
+</svg>
