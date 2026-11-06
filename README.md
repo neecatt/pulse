@@ -359,7 +359,7 @@ make demo        # build and run the Docker image locally
 
 | Tag                      | Contents                                         |
 | ------------------------ | ------------------------------------------------ |
-| `latest`, `0.2`, `0.2.5` | Releases. Pin a version for predictable upgrades |
+| `latest`, `0.2`, `0.2.6` | Releases. Pin a version for predictable upgrades |
 
 ## Support
 
