@@ -3,6 +3,27 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-06 — Check before going public (`chore/pre-public-check`)
+
+- **Secrets:** gitleaks over all 106 commits on every branch: none. No `.env`,
+  key, database or data file was ever committed.
+- **Dependencies:** pip-audit (66 Python packages) clean. Trivy on the frontend
+  lockfile: shipped packages clean; the dev server's Vite 8.1.5 (a nested copy
+  under Vitest) had a command-injection advisory, so `overrides` pins one
+  Vite 8.1.6. minimatch (dev-only, medium, needs a major version) remains.
+- **Image:** Trivy found setuptools 70.3.0 (HIGH, CVE-2025-47273), which turned
+  out to be pip's bundled copy; the image now ships without pip and setuptools.
+  Python packages are clean; Debian base packages have nothing fixable yet (the
+  build already applies every published update).
+- **App:** `/docs`, `/redoc` and `/openapi.json` were public; now off (test
+  added). The `server: uvicorn` banner is gone. Re-checked: signed-out
+  requests get 401, cross-site POSTs 403, oversized bodies 413, strict CSP and
+  frame/type headers, HSTS over HTTPS, the process runs as `pulse` with a
+  private `/data`. Bandit: one medium, a false positive (the agent only
+  accepts http(s) server addresses).
+- **Repository:** MIT licence, `SECURITY.md` reporting route, CI with read-only
+  permissions and no secrets.
+
 ## 2026-11-05 — Release 0.2.4
 
 - The landing page fits phones (see below).

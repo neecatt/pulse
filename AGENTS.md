@@ -71,7 +71,7 @@ Run lint, types, and tests for every package you touched before committing.
 
 ## Engineering rules
 
-- **Git workflow.** Remote: `github.com/neecatt/pulse` (private).
+- **Git workflow.** Remote: `github.com/neecatt/pulse` (public).
   `main` stays releasable and is only changed through pull requests. Work on a
   short-lived branch named `<type>/<short-topic>` (e.g. `feat/push-retention`),
   push it, open a PR with `gh pr create`, and merge with a merge commit once
