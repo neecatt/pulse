@@ -3,6 +3,14 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-06 — Release 0.2.5
+
+- Pre-public hardening (see below): no public API map or server banner, an
+  image without pip and setuptools, one patched Vite. The roadmap is easier to
+  scan and plans a Claude and Codex integration. On GitHub: private
+  vulnerability reporting, secret scanning, push protection and Dependabot
+  alerts and security updates are on.
+
 ## 2026-11-06 — Check before going public (`chore/pre-public-check`)
 
 - **Secrets:** gitleaks over all 106 commits on every branch: none. No `.env`,
