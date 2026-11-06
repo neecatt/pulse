@@ -295,6 +295,27 @@ export interface TeamMembership {
   joined_at: string;
 }
 
+export interface DayStats {
+  /** YYYY-MM-DD, UTC. */
+  day: string;
+  /** The landing or sign-in page opened while signed out. */
+  views: number;
+  /** Distinct addresses among those, told apart within the day only. */
+  visitors: number;
+  demos: number;
+  signups: number;
+  /** From an address that started a demo the same day. */
+  signups_after_demo: number;
+}
+
+export interface SiteStats {
+  /** Oldest first. */
+  days: DayStats[];
+  users: number;
+  active_users: number;
+  guests: number;
+}
+
 export interface MembershipUpdate {
   alerts?: boolean;
   share_all?: boolean;

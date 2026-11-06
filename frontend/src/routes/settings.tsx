@@ -10,6 +10,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { Card, Section } from "@/components/Section";
 import { Segmented } from "@/components/Segmented";
 import { SettingRow } from "@/components/SettingRow";
+import { SiteStats } from "@/components/SiteStats";
 import { TeamSettings } from "@/components/TeamSettings";
 import { Toggle } from "@/components/Toggle";
 import { usePush } from "@/hooks/use-push";
@@ -26,6 +27,7 @@ function SettingsPage() {
   return (
     <div className="space-y-10">
       <AccountSettings />
+      <SiteStats />
       <TeamSettings />
       <Appearance />
       <JobsDisplay />

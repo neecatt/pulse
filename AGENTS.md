@@ -188,6 +188,11 @@ Run lint, types, and tests for every package you touched before committing.
   creation) and everything else to SSH. `simulated` is only ever set by the
   server, so guests can't reach real hosts. Guests can't set a password or add
   passkeys.
+- Site stats (`services/stats.py`, `GET /api/stats`, admins only): daily
+  totals in `daily_counts` (views, visitors, demos, sign-ups, sign-ups after a
+  demo). Visitors are told apart by a hash of their address with a salt that
+  changes daily and lives only in memory; never store addresses or add
+  cookies or third-party analytics.
 
 ## Frontend notes
 

@@ -12,12 +12,26 @@ from pulse.api import (
     preferences,
     push,
     runs,
+    stats,
     teams,
 )
 from pulse.api.deps import ServicesDep
 
 api_router = APIRouter()
-for module in (auth, passkeys, accounts, jobs, runs, events, preferences, push, live, agent, teams):
+for module in (
+    auth,
+    passkeys,
+    accounts,
+    jobs,
+    runs,
+    events,
+    preferences,
+    push,
+    live,
+    agent,
+    teams,
+    stats,
+):
     api_router.include_router(module.router)
 
 

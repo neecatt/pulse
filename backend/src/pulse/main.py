@@ -38,6 +38,7 @@ from pulse.services.container import Services
 from pulse.services.notifier import Notifier
 from pulse.services.poller import Poller
 from pulse.services.push_keys import load_push_keys
+from pulse.services.stats import SiteCounter
 from pulse.slurm import SlurmClient, create_slurm_client
 
 
@@ -83,6 +84,7 @@ def create_app(
             LoginRateLimiter(DEMO_GUESTS_PER_ADDRESS, SIGNUP_WINDOW_SECONDS),
             LoginRateLimiter(NEW_ACCOUNTS_PER_WINDOW, SIGNUP_WINDOW_SECONDS),
             clock,
+            SiteCounter(clock),
         )
 
         task = asyncio.create_task(poller.run_forever()) if run_poller else None

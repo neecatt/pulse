@@ -27,7 +27,7 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
-from pulse.api.auth import issue_session_cookie, limit_signups
+from pulse.api.auth import client_address, issue_session_cookie, limit_signups
 from pulse.api.deps import CurrentUser, ServicesDep, SessionDep
 from pulse.auth.webauthn import relying_party
 from pulse.constants import PASSKEY_MAX_PER_USER, PASSKEY_RP_NAME
@@ -162,6 +162,7 @@ async def signup(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "That username or passkey is already in use."
         ) from exc
+    await services.site.signup(session, client_address(request))
     await issue_session_cookie(user, request, response, session, services.settings)
     return Me.model_validate(user)
 

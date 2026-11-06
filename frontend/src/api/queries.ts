@@ -48,6 +48,7 @@ export const queryKeys = {
   teams: ["teams"] as const,
   invite: (token: string) => ["invite", token] as const,
   health: ["health"] as const,
+  siteStats: ["site-stats"] as const,
 };
 
 /** Sign-in state: whether setup is needed, and who is signed in (or null). */
@@ -223,6 +224,11 @@ export function useEvents(limit = 50) {
 
 export function usePreferences() {
   return useQuery({ queryKey: queryKeys.preferences, queryFn: api.preferences.get });
+}
+
+/** Visitors, demos and sign-ups; admins only. */
+export function useSiteStats(enabled: boolean) {
+  return useQuery({ queryKey: queryKeys.siteStats, queryFn: api.siteStats, enabled });
 }
 
 export function useHealth() {

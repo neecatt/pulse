@@ -140,6 +140,11 @@ NEW_ACCOUNTS_PER_WINDOW = 300
 # Setting a first password on a passkey-only account needs a sign-in this recent,
 # so a stolen session can't be turned into a lasting password.
 FRESH_SIGN_IN_SECONDS = 10 * 60
+# Site stats: days shown, and distinct visitors remembered per day (in memory,
+# as salted hashes) before new ones are counted as views only.
+SITE_STATS_DAYS = 30
+SITE_STATS_MAX_VISITORS_PER_DAY = 100_000
+ACTIVE_USER_DAYS = 7
 PASSKEY_NAME_MAX_LENGTH = 64
 PASSKEY_MAX_PER_USER = 20
 
