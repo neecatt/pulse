@@ -3,6 +3,10 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-06 — Release 0.2.6
+
+- Site stats for admins (see below).
+
 ## 2026-11-06 — Site stats for admins (`feat/site-stats`)
 
 - Settings → **Site · last 7 days**, for admins: visitors and page views,
