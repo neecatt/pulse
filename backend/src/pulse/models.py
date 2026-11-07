@@ -159,9 +159,22 @@ class LoginSession(Base):
     user_agent: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    reauthenticated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
 
     user: Mapped[User] = relationship(back_populates="login_sessions")
+
+
+class AssistantAudit(Base):
+    """Assistant actions: never prompts, provider tokens or command output."""
+
+    __tablename__ = "assistant_audit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[str] = mapped_column(String(128), index=True)
+    action: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class Account(Base):

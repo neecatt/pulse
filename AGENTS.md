@@ -102,9 +102,10 @@ Run lint, types, and tests for every package you touched before committing.
   Never hardcode or commit secrets; `.env` files are gitignored and every
   variable is documented in `backend/.env.example` / `frontend/.env.example`.
   Lint enforces this: `os.environ`/`os.getenv` outside `Settings` (ruff TID251)
-  and `import.meta.env` outside `src/config/env.ts` (ESLint) are errors. The
-  agent script is the one exception: it must stay a standalone file, so it keeps
-  its own copies, and tests keep them equal to the server's.
+  and `import.meta.env` outside `src/config/env.ts` (ESLint) are errors. Standalone
+  cluster scripts are the exception: the reporting agent keeps copies of shared
+  rules (tests keep them equal to the server's), and the Claude metadata reader
+  keeps its own parser limits without importing the server package.
 
 - **Security rules.** Keep the protections in `SECURITY.md` intact:
   - Scope every query to the signed-in user.
@@ -194,6 +195,19 @@ Run lint, types, and tests for every package you touched before committing.
   changes daily and lives only in memory; never store addresses or add
   cookies or third-party analytics.
 
+- Assistants (`services/assistants.py`, `api/assistants.py`, `api/claude.py`):
+  optional Codex app-server and native Claude Code Remote Control over direct
+  SSH, sharing `SshSlurmClient.connection`. Provider auth
+  and transcripts stay on the cluster; only normalized chat data and official
+  device-login links reach the UI. Owner-only, no guests or reporting agents.
+  Keep request types allowlisted and approvals user-driven, with bounded memory.
+  `services/claude.py` forwards native setup and allowlisted provider links;
+  prompts/approvals for Claude stay in its first-party UI.
+  `assistants/claude_history.py` is a standalone Python 3 stdlib-only metadata
+  reader sent over SSH, with its own parser limits and old-Python-compatible
+  annotations; it never reads credentials.
+  `docs/assistants.md` describes lifecycle, auth and current provider limits.
+
 ## Frontend notes
 
 ```
@@ -203,7 +217,7 @@ src/
 ├── components/   presentational components; layout/AppShell.tsx (top bar + mobile tab bar)
 ├── hooks/        use-live-updates.ts (SSE), use-push.ts, use-copy.ts
 ├── lib/          pure logic: format, runs, smoothing, ssh-target, ui-settings, push, labels
-└── routes/       / (jobs), /jobs/$jobId, /runs, /compare, /activity, /accounts, /settings
+└── routes/       / (jobs), /jobs/$jobId, /runs, /compare, /activity, /accounts, /assistants, /settings
 ```
 
 - File-based routes live in `src/routes/`; `src/routeTree.gen.ts` is generated

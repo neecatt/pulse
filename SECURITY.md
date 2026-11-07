@@ -60,11 +60,24 @@ falls short.
   bulk. A passkey sign-up creates the account only after the passkey verifies.
   A passkey-only account can add a first password only within 10 minutes of
   signing in, so a stolen session can't be turned into a lasting password.
-- **Clusters.** Pulse runs read-only Slurm commands with its own key and pins
+- **Clusters.** By default, Pulse runs read-only Slurm commands with its own key and pins
   each server's host key on first connect. It ignores `~/.ssh/config` and any
   SSH agent. Values from the cluster are quoted, and paths must be absolute
   before they reach a command. The agent runs no shell, reads only files it
   found itself (no symlinks), and sends raw output for the server to parse.
+- **Optional assistants** are off by default. Only an owned, real direct SSH
+  account can run Codex's app-server or native Claude Code Remote Control; demo
+  guests, shared accounts and reporting agents cannot. A fresh password or
+  passkey confirmation is required to open connections or resume chats.
+  Codex's official device-login links/codes are shown in Pulse; its OAuth tokens
+  and transcripts stay with the cluster CLI. Claude uses its own CLI login;
+  an optional one-time authorization code is passed to that CLI without storage,
+  and provider/session links are allowlisted. Claude prompts and approvals open
+  in its first-party UI. Pulse's Codex command/file approval cards require a user
+  response and unsupported request types fail closed. Normal reads and permitted
+  edits still follow the native workspace/permission rules. Assistants have the
+  SSH user's permissions when actions are approved. This opt-in feature changes
+  Pulse's default read-only cluster model; see `docs/assistants.md`.
 - **Data at rest.** The data directory is readable by Pulse's user only; SSH and
   push keys are created with mode 600. The container runs Pulse as an
   unprivileged user.

@@ -3,6 +3,41 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-07 — Claude Code and Codex cluster conversations (`feat/remote-assistants`)
+
+- **Assistants** opens a native chat UI backed by `codex app-server` on an owned,
+  direct SSH account. Reuses Pulse's per-user keys, host pins and jump hosts;
+  no new services, runtime dependencies or browser requests to AI APIs.
+- Existing cluster-local Codex conversations can be browsed and resumed. New
+  chats use an absolute project directory. Replies and tool output stream over
+  SSE; background turns keep running when the phone closes.
+- Uses the cluster's existing Codex sign-in or its official ChatGPT device-code
+  flow, launched from the UI. No API keys or copied provider tokens.
+- Command/file approval cards, user questions, interrupt and disconnect controls;
+  untrusted command approvals, workspace sandbox and user review on resumed
+  threads. Session/action audit for owners and admins, without transcript content.
+- Off by default (`PULSE_ASSISTANTS_ENABLED`); real direct accounts only. Password
+  or session-bound, single-use passkey reauthentication; bounded RPC/state memory,
+  fail-closed unsupported requests, expiry of approvals, revocation/idle watchdog.
+- **Claude Code fallback:** native `claude auth login` with a provider link and
+  optional one-time code, followed by official Remote Control. Recent local
+  Claude conversations can be selected in Pulse; its unmodified CLI resumes
+  them on the cluster and **Open in Claude** hands off to Claude's own mobile/web
+  UI for prompts and approvals. No SDK subscription login or token copying.
+- Native project-trust/Remote Control confirmations are explicit, provider URLs
+  are allowlisted, and setup output stops being retained once connected. A
+  stdlib-only helper reads bounded local transcript metadata, never credentials.
+- Tests cover real local SSH with a scripted app-server (no inference or real
+  jobs): sign-in, existing history, explicit resume, pending sbatch approval,
+  audit, disconnect, user/guest/agent isolation, paths and passkey confirmation.
+- Validation: 245 backend tests and 78 frontend tests; lint/types clean, production
+  web build passes. Browser checked on a phone-sized and desktop viewport with
+  simulated sign-in, history/resume, explicit sbatch approval and reload recovery;
+  both provider flows have no horizontal scroll or JavaScript errors. Claude
+  native sign-in, code forwarding, explicit trust and handoff also pass at
+  320/390 px, with reload recovery and dark-mode checks. No real inference or
+  cluster job was started during validation.
+
 ## 2026-11-06 — Release 0.2.6
 
 - Site stats for admins (see below).

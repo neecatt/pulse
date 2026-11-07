@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountsRouteImport } from './routes/accounts'
 import { Route as ActivityRouteImport } from './routes/activity'
+import { Route as AssistantsRouteImport } from './routes/assistants'
 import { Route as CompareRouteImport } from './routes/compare'
 import { Route as RunsRouteImport } from './routes/runs'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -31,6 +32,11 @@ const AccountsRoute = AccountsRouteImport.update({
 const ActivityRoute = ActivityRouteImport.update({
   id: '/activity',
   path: '/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AssistantsRoute = AssistantsRouteImport.update({
+  id: '/assistants',
+  path: '/assistants',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CompareRoute = CompareRouteImport.update({
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/accounts': typeof AccountsRoute
   '/activity': typeof ActivityRoute
+  '/assistants': typeof AssistantsRoute
   '/compare': typeof CompareRoute
   '/runs': typeof RunsRoute
   '/settings': typeof SettingsRoute
@@ -73,6 +80,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/accounts': typeof AccountsRoute
   '/activity': typeof ActivityRoute
+  '/assistants': typeof AssistantsRoute
   '/compare': typeof CompareRoute
   '/runs': typeof RunsRoute
   '/settings': typeof SettingsRoute
@@ -84,6 +92,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/accounts': typeof AccountsRoute
   '/activity': typeof ActivityRoute
+  '/assistants': typeof AssistantsRoute
   '/compare': typeof CompareRoute
   '/runs': typeof RunsRoute
   '/settings': typeof SettingsRoute
@@ -96,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/accounts'
     | '/activity'
+    | '/assistants'
     | '/compare'
     | '/runs'
     | '/settings'
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/accounts'
     | '/activity'
+    | '/assistants'
     | '/compare'
     | '/runs'
     | '/settings'
@@ -116,6 +127,7 @@ export interface FileRouteTypes {
     | '/'
     | '/accounts'
     | '/activity'
+    | '/assistants'
     | '/compare'
     | '/runs'
     | '/settings'
@@ -127,6 +139,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountsRoute: typeof AccountsRoute
   ActivityRoute: typeof ActivityRoute
+  AssistantsRoute: typeof AssistantsRoute
   CompareRoute: typeof CompareRoute
   RunsRoute: typeof RunsRoute
   SettingsRoute: typeof SettingsRoute
@@ -155,6 +168,13 @@ declare module '@tanstack/react-router' {
       path: '/activity'
       fullPath: '/activity'
       preLoaderRoute: typeof ActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/assistants': {
+      id: '/assistants'
+      path: '/assistants'
+      fullPath: '/assistants'
+      preLoaderRoute: typeof AssistantsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/compare': {
@@ -199,6 +219,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountsRoute: AccountsRoute,
   ActivityRoute: ActivityRoute,
+  AssistantsRoute: AssistantsRoute,
   CompareRoute: CompareRoute,
   RunsRoute: RunsRoute,
   SettingsRoute: SettingsRoute,

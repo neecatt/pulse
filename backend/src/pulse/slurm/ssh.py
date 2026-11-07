@@ -102,6 +102,14 @@ class SshSlurmClient:
         await self._run(conn, "sacct --version")
         return keys
 
+    async def connection(
+        self, account: AccountRef
+    ) -> tuple[asyncssh.SSHClientConnection, HostKeys]:
+        """Reuse Pulse's pinned, per-user transport for interactive assistants."""
+        if account.simulated_since is not None:
+            raise SlurmError("Demo clusters cannot open an SSH connection.")
+        return await self._connect(account)
+
     async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
         conn, keys = await self._connect(account)
         jobs = parse_sacct(await self._run(conn, self._sacct_command(account.username)))

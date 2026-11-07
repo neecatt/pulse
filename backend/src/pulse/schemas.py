@@ -3,10 +3,19 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    computed_field,
+    field_validator,
+)
 
 from pulse.config import Settings
 from pulse.constants import (
+    ASSISTANT_MAX_INPUT,
+    ASSISTANT_MAX_PATH,
     PASSKEY_NAME_MAX_LENGTH,
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
@@ -32,6 +41,120 @@ Connection = Literal["direct", "agent"]
 
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+
+class AssistantAccess(BaseModel):
+    enabled: bool
+    verified: bool
+
+
+class AssistantCreate(BaseModel):
+    work_dir: str = Field(min_length=1, max_length=ASSISTANT_MAX_PATH)
+    confirmed: Literal[True]
+
+    @field_validator("work_dir")
+    @classmethod
+    def absolute_directory(cls, value: str) -> str:
+        if not value.startswith("/") or any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise ValueError("Use an absolute directory, such as /scratch/you/project.")
+        return value
+
+
+class AssistantTurn(BaseModel):
+    prompt: str = Field(min_length=1, max_length=ASSISTANT_MAX_INPUT)
+
+
+class AssistantDecision(BaseModel):
+    decision: Literal["accept", "decline"]
+    answers: dict[str, list[str]] = Field(default_factory=dict, max_length=10)
+
+
+class AssistantMessage(BaseModel):
+    id: str
+    role: Literal["user", "assistant", "tool"]
+    kind: str
+    text: str
+    status: str | None = None
+
+
+class AssistantThread(BaseModel):
+    id: str
+    title: str
+    work_dir: str
+    updated_at: int
+
+
+class AssistantThreads(BaseModel):
+    data: list[AssistantThread]
+    next_cursor: str | None = None
+
+
+class AssistantConversation(BaseModel):
+    thread: AssistantThread
+    messages: list[AssistantMessage]
+
+
+class AssistantConnection(BaseModel):
+    connected: bool
+    signed_in: bool
+    email: str | None = None
+
+
+class AssistantLogin(BaseModel):
+    url: str
+    code: str
+
+
+class AssistantApproval(BaseModel):
+    id: str
+    thread_id: str
+    kind: str
+    title: str
+    detail: str
+    questions: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AssistantLive(BaseModel):
+    connection: AssistantConnection
+    messages: dict[str, list[AssistantMessage]]
+    active: dict[str, str]
+    opened: list[str] = Field(default_factory=list)
+    approvals: list[AssistantApproval]
+    error: str | None = None
+    revision: int
+
+
+class AssistantAuditOut(ORMModel):
+    id: int
+    user_id: int
+    session_id: str
+    action: str
+    created_at: datetime
+
+
+class ClaudeStart(AssistantCreate):
+    session_id: str | None = Field(default=None, pattern=r"^[0-9a-fA-F-]{36}$")
+
+
+class ClaudeInput(BaseModel):
+    action: Literal["enter", "yes", "up", "down", "cancel", "code"]
+    code: str = Field(default="", max_length=2048, pattern=r"^[A-Za-z0-9_.~#:/+=-]*$")
+
+
+class ClaudeState(BaseModel):
+    connection_id: str = ""
+    phase: Literal["disconnected", "sign_in", "authorized", "starting", "ready", "closed", "error"]
+    running: bool = False
+    work_dir: str = ""
+    session_id: str | None = None
+    login_url: str | None = None
+    remote_url: str | None = None
+    setup_text: str = ""
+    error: str | None = None
+
+
+class Reauthenticate(BaseModel):
+    password: str = Field(max_length=PASSWORD_MAX_LENGTH)
 
 
 # Accounts
