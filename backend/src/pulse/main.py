@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 from starlette.responses import Response
@@ -32,6 +33,7 @@ from pulse.middleware import (
     SecurityHeadersMiddleware,
 )
 from pulse.models import utcnow
+from pulse.services.assistants import Assistants
 from pulse.services.auth import make_setup_code, sync_admin_from_env
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.container import Services
@@ -39,7 +41,8 @@ from pulse.services.notifier import Notifier
 from pulse.services.poller import Poller
 from pulse.services.push_keys import load_push_keys
 from pulse.services.stats import SiteCounter
-from pulse.slurm import SlurmClient, create_slurm_client
+from pulse.slurm import SlurmClient, SlurmError, create_slurm_client
+from pulse.slurm.ssh import SshSlurmClient
 
 
 def create_app(
@@ -63,7 +66,13 @@ def create_app(
         sessions = create_session_factory(engine)
         await sync_admin_from_env(sessions, settings)
 
-        slurm = slurm_client or create_slurm_client(settings)
+        ssh = (
+            SshSlurmClient(settings)
+            if settings.slurm_backend == "ssh" and slurm_client is None
+            else None
+        )
+        slurm = slurm_client or create_slurm_client(settings, ssh)
+        assistants = Assistants(settings, ssh)
         notifier = Notifier(settings, load_push_keys(settings))
         broadcaster = Broadcaster()
         poller = Poller(sessions, slurm, notifier, broadcaster, settings, clock)
@@ -85,16 +94,22 @@ def create_app(
             LoginRateLimiter(NEW_ACCOUNTS_PER_WINDOW, SIGNUP_WINDOW_SECONDS),
             clock,
             SiteCounter(clock),
+            assistants,
         )
 
         task = asyncio.create_task(poller.run_forever()) if run_poller else None
+        assistant_task = asyncio.create_task(assistants.watch(sessions))
         try:
             yield
         finally:
+            assistant_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await assistant_task
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+            await assistants.close()
             await slurm.close()
             await engine.dispose()
 
@@ -108,6 +123,11 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+
+    @app.exception_handler(SlurmError)
+    async def assistant_error(_request: object, exc: SlurmError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

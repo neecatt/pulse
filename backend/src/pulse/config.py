@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     ssh_connect_timeout_seconds: float = 10.0
     ssh_command_timeout_seconds: float = 30.0
     ssh_keepalive_seconds: int = 60
+    # Interactive assistants can write files and submit jobs. Off by default.
+    assistants_enabled: bool = False
+    assistant_idle_seconds: int = Field(default=900, ge=60, le=86400)
     sacct_lookback_hours: int = 48
     # `find` on shared filesystems is slow; look for new metric files this often.
     metric_discovery_interval_seconds: int = 60

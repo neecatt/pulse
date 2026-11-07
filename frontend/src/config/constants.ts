@@ -52,3 +52,6 @@ export const PASSWORD_MIN_LENGTH = 10;
 
 // Feedback timing
 export const COPIED_FEEDBACK_MS = 1500;
+
+// Prompt limit matches ASSISTANT_MAX_INPUT in the backend.
+export const ASSISTANT_MAX_INPUT = 16 * 1024;

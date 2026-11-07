@@ -15,6 +15,7 @@ from pulse.schemas import (
     LoginSessionOut,
     Me,
     PasswordChange,
+    Reauthenticate,
     Setup,
 )
 from pulse.services.auth import (
@@ -30,6 +31,31 @@ from pulse.services.demo import create_guest
 router = APIRouter(prefix="/auth", tags=["auth"])
 _TOO_MANY = "Too many failed attempts. Try again in a few minutes."
 _GUEST = "Demo accounts are temporary. Create your own account to keep using Pulse."
+
+
+@router.post("/reauth", status_code=204)
+async def reauthenticate(
+    body: Reauthenticate,
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> None:
+    keys = (f"reauth:{user.id}", f"reauth-address:{client_address(request)}")
+    if services.login_limiter.blocked(*keys):
+        raise HTTPException(429, _TOO_MANY)
+    if (
+        user.is_guest
+        or not user.has_password
+        or not verify_password(body.password, user.password_hash)
+    ):
+        services.login_limiter.record_failure(*keys)
+        raise HTTPException(403, "Wrong password. Try again or use your passkey.")
+    login = await session.get(LoginSession, request.state.login_session_id)
+    assert login is not None
+    login.reauthenticated_at = utcnow()
+    await session.commit()
+    services.login_limiter.reset(*keys)
 
 
 @router.get("/status")

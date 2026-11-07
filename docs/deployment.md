@@ -176,3 +176,12 @@ migration; release notes say when a fresh database is needed.
 - Only expose port 8000 through the proxy. Trust forwarded headers
   (`PULSE_TRUSTED_PROXIES`) only from the proxy, or clients could spoof their
   address and slip past the login rate limit.
+
+## Optional cluster assistants
+
+Set `PULSE_ASSISTANTS_ENABLED=true` and restart Pulse to enable the Assistants tab's
+Claude/Codex connections. The cluster must use direct SSH and have the chosen CLI
+in its login PATH. Users authorize through the provider's native sign-in from
+the app, or reuse the cluster's existing sign-in; no API key is required. Keep `/api/assistants/*/stream` unbuffered
+at your proxy, like `/api/stream` (the bundled Caddyfile handles both).
+See [the assistant guide](assistants.md) for setup, access controls and limitations.

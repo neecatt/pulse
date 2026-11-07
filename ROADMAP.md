@@ -6,7 +6,8 @@ them.
 
 **Already shipped:** teams (invite links, sharing whole accounts or single jobs,
 live read-only views, opt-in alerts) and the public site (one-click demo,
-passkey sign-up).
+passkey sign-up), plus cluster assistants: embedded Codex chat and official Claude Remote Control
+(optional, direct SSH, native sign-in and local conversation resume).
 
 <p align="center">
   <img src="docs/assets/roadmap/planned-screens.svg" alt="Sketches of three planned screens on a phone: job actions (hold, requeue, cancel), a terminal with a key bar, and asking Claude or Codex to write and submit a job." width="100%">
@@ -80,6 +81,13 @@ saved `sbatch` template with a few fields to fill in (time, GPUs, arguments).
 New jobs show up in the list at once, with the usual alerts.
 
 ### Claude and Codex
+
+**First version is implemented:** the Assistants tab connects to Codex with
+ChatGPT device sign-in and embedded chat/approvals, or to Claude Code with native
+sign-in and official Remote Control. Both can resume local cluster conversations.
+Claude prompts and approvals open in its own mobile/web UI. See
+[the assistant guide](docs/assistants.md). Richer script previews, a separate
+Pulse command-policy layer and explicit chat-to-job linking remain planned.
 
 Ask an AI assistant to run a job: "fine-tune vit-l on 4 GPUs for 12 hours",
 "resubmit the failed sweep tasks with half the learning rate". It writes the

@@ -13,6 +13,17 @@ it must stay a single standalone file; ``tests/test_agent.py`` keeps them equal.
 """
 
 # Metric files in a job's working directory (mirrored in pulse/agent/pulse_agent.py)
+ASSISTANT_MAX_SESSIONS = 8  # connected cluster accounts per Pulse user
+ASSISTANT_MAX_INPUT = 16 * 1024
+ASSISTANT_MAX_PATH = 4096
+ASSISTANT_CHECK_SECONDS = 15
+ASSISTANT_MAX_CONNECTIONS = 64
+ASSISTANT_MAX_RPC_BYTES = 4 * 1024 * 1024
+ASSISTANT_MAX_TEXT = 64 * 1024
+ASSISTANT_MAX_ITEMS = 100
+ASSISTANT_MAX_PENDING = 32
+ASSISTANT_MAX_STATE_CHARS = 128 * 1024
+
 CHUNK_BYTES = 256 * 1024  # max new bytes read per file per poll
 CONFIG_MAX_BYTES = 64 * 1024
 MAX_METRIC_FILES = 8  # newest first, per job

@@ -6,6 +6,7 @@ from pulse.auth.rate_limit import LoginRateLimiter
 from pulse.auth.webauthn import ChallengeStore
 from pulse.config import Settings
 from pulse.domain import Clock
+from pulse.services.assistants import Assistants
 from pulse.services.broadcaster import Broadcaster
 from pulse.services.notifier import Notifier
 from pulse.services.poller import Poller
@@ -32,3 +33,4 @@ class Services:
     total_limiter: LoginRateLimiter
     clock: Clock  # the poller's notion of now (injected in tests)
     site: SiteCounter  # daily totals for the admin's site stats
+    assistants: Assistants

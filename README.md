@@ -43,7 +43,8 @@ It's built to be easy to run and kind to clusters:
 - **Nothing to change in your jobs.** Pulse reads TensorBoard event files, JSONL/CSV logs
   and `loss=…` lines your code already produces.
 - **Read-only and gentle.** A few cheap Slurm commands per poll over one reused SSH
-  connection. Pulse never submits, cancels or changes jobs.
+  connection. Monitoring never submits, cancels or changes jobs. Optional
+  assistants can act only after the server admin enables them.
 - **Yours.** No accounts on someone else's server, no telemetry, no third-party requests
   from the web app (even the fonts are bundled). MIT licensed.
 
@@ -130,6 +131,18 @@ It's built to be easy to run and kind to clusters:
   Python 3.6+ script (standard library only) reports from the login node instead.
 - **Per-node usage**: CPU, memory and every GPU on every node of a running job, sampled at
   most once a minute.
+
+**Claude Code and Codex on your cluster** (optional)
+
+- Connect from **Assistants** using your own Claude or ChatGPT account, with no
+  API-key setup.
+- Pick and continue existing Claude or Codex conversations saved on a directly connected
+  cluster, or start a new chat in a project directory.
+- Codex streams chat and approvals inside Pulse. Claude opens its official Remote
+  Control interface, running on your cluster. Submitted Slurm jobs appear in the
+  usual monitoring views.
+- Off until the server admin enables `PULSE_ASSISTANTS_ENABLED`. See the
+  [assistant guide](docs/assistants.md) for setup, permissions and current limits.
 
 **Teams**
 

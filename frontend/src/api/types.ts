@@ -331,3 +331,82 @@ export interface InviteInfo {
   team: string;
   owner: string;
 }
+
+/** Codex runs on the cluster; provider credentials stay with its CLI. */
+export interface AssistantAccess {
+  enabled: boolean;
+  verified: boolean;
+}
+export interface AssistantConnection {
+  connected: boolean;
+  signed_in: boolean;
+  email: string | null;
+}
+export interface AssistantLogin {
+  url: string;
+  code: string;
+}
+export interface AssistantThread {
+  id: string;
+  title: string;
+  work_dir: string;
+  updated_at: number;
+}
+export interface AssistantThreads {
+  data: AssistantThread[];
+  next_cursor: string | null;
+}
+export interface AssistantMessage {
+  id: string;
+  role: "user" | "assistant" | "tool";
+  kind: string;
+  text: string;
+  status: string | null;
+}
+export interface AssistantConversation {
+  thread: AssistantThread;
+  messages: AssistantMessage[];
+}
+export interface AssistantQuestion {
+  id: string;
+  header?: string;
+  question: string;
+  options?: { label: string; description: string }[];
+}
+export interface AssistantApproval {
+  id: string;
+  thread_id: string;
+  kind: string;
+  title: string;
+  detail: string;
+  questions: AssistantQuestion[];
+}
+export interface AssistantLive {
+  connection: AssistantConnection;
+  messages: Record<string, AssistantMessage[]>;
+  active: Record<string, string>;
+  opened: string[];
+  approvals: AssistantApproval[];
+  error: string | null;
+  revision: number;
+}
+export interface AssistantAudit {
+  id: number;
+  user_id: number;
+  session_id: string;
+  action: string;
+  created_at: string;
+}
+
+export interface ClaudeState {
+  connection_id: string;
+  phase: "disconnected" | "sign_in" | "authorized" | "starting" | "ready" | "closed" | "error";
+  running: boolean;
+  work_dir: string;
+  session_id: string | null;
+  login_url: string | null;
+  remote_url: string | null;
+  setup_text: string;
+  error: string | null;
+}
+export type ClaudeSetupAction = "enter" | "yes" | "up" | "down" | "cancel" | "code";

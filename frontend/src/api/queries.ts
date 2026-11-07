@@ -49,7 +49,28 @@ export const queryKeys = {
   invite: (token: string) => ["invite", token] as const,
   health: ["health"] as const,
   siteStats: ["site-stats"] as const,
+  assistants: ["assistants"] as const,
+  assistantState: (account: number) => ["assistants", account, "state"] as const,
+  assistantThreads: (account: number) => ["assistants", account, "threads"] as const,
+  assistantHistory: (account: number, id: string) =>
+    ["assistants", account, "history", id] as const,
+  assistantAccess: ["assistant-access"] as const,
+  claudeState: (account: number) => ["assistants", account, "claude-state"] as const,
+  claudeThreads: (account: number) => ["assistants", account, "claude-threads"] as const,
+  assistantAudit: ["assistant-audit"] as const,
 };
+
+export function useAssistantAccess() {
+  return useQuery({
+    queryKey: queryKeys.assistantAccess,
+    queryFn: api.assistants.access,
+    refetchInterval: FALLBACK_REFRESH_MS,
+  });
+}
+
+export function useAssistantAudit() {
+  return useQuery({ queryKey: queryKeys.assistantAudit, queryFn: api.assistants.audit });
+}
 
 /** Sign-in state: whether setup is needed, and who is signed in (or null). */
 export function useAuthStatus() {
