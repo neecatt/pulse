@@ -3,15 +3,22 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { api } from "@/api/client";
-import { queryKeys, useMe } from "@/api/queries";
+import { queryKeys, useMe, usePasskeys } from "@/api/queries";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Section";
 import { passkeysSupported, passkeyErrorMessage } from "@/lib/passkeys";
 
 /** Confirm this browser's existing session without changing the signed-in user. */
-export function AssistantReauth() {
+export function SessionReauth({
+  message = "Confirm it’s you before opening a cluster assistant.",
+  onVerified,
+}: {
+  message?: string;
+  onVerified?: () => void;
+}) {
   const client = useQueryClient();
   const { data: me } = useMe();
+  const { data: passkeys = [] } = usePasskeys();
   const [password, setPassword] = useState("");
   const verify = useMutation({
     mutationFn: async (method: "password" | "passkey") => {
@@ -26,12 +33,13 @@ export function AssistantReauth() {
     onSuccess: () => {
       setPassword("");
       void client.invalidateQueries({ queryKey: queryKeys.assistantAccess });
+      onVerified?.();
     },
   });
   return (
     <Card className="space-y-3 p-4">
-      <p className="text-sm">Confirm it’s you before opening a cluster assistant.</p>
-      {passkeysSupported() && (
+      <p className="text-sm">{message}</p>
+      {passkeysSupported() && passkeys.length > 0 && (
         <Button disabled={verify.isPending} onClick={() => verify.mutate("passkey")}>
           Use passkey
         </Button>

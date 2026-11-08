@@ -28,7 +28,7 @@ from webauthn.helpers.structs import (
 )
 
 from pulse.api.auth import client_address, issue_session_cookie, limit_signups
-from pulse.api.deps import CurrentUser, ServicesDep, SessionDep
+from pulse.api.deps import CurrentUser, ServicesDep, SessionDep, require_verified
 from pulse.auth.webauthn import relying_party
 from pulse.constants import PASSKEY_MAX_PER_USER, PASSKEY_RP_NAME
 from pulse.models import LoginSession, Passkey, User, utcnow
@@ -54,7 +54,7 @@ async def reauth_options(
     request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> PasskeyOptions:
     if user.is_guest:
-        raise HTTPException(403, "Demo accounts cannot open assistants.")
+        raise HTTPException(403, "Demo accounts cannot confirm account changes.")
     passkeys = list(await session.scalars(select(Passkey).where(Passkey.user_id == user.id)))
     if not passkeys:
         raise HTTPException(409, "Add a passkey in Settings or confirm with your password.")
@@ -65,7 +65,7 @@ async def reauth_options(
         allow_credentials=[PublicKeyCredentialDescriptor(id=p.credential_id) for p in passkeys],
     )
     challenge_id = services.passkey_challenges.issue(
-        options.challenge, f"reauth:{request.state.login_session_id}", user.id
+        options.challenge, f"reauth:{request.state.login_session_hash}", user.id
     )
     return PasskeyOptions(challenge_id=challenge_id, options=json.loads(options_to_json(options)))
 
@@ -79,7 +79,7 @@ async def reauth_verify(
     services: ServicesDep,
 ) -> None:
     pending = services.passkey_challenges.take(
-        body.challenge_id, f"reauth:{request.state.login_session_id}"
+        body.challenge_id, f"reauth:{request.state.login_session_hash}"
     )
     if pending is None or pending.user_id != user.id:
         raise HTTPException(400, "This confirmation expired. Try again.")
@@ -125,6 +125,7 @@ async def registration_options(
             status.HTTP_403_FORBIDDEN,
             "Demo accounts are temporary. Create your own account to keep using Pulse.",
         )
+    await require_verified(request, session)
     existing = list(await session.scalars(select(Passkey).where(Passkey.user_id == user.id)))
     if len(existing) >= PASSKEY_MAX_PER_USER:
         raise HTTPException(status.HTTP_409_CONFLICT, "You have the maximum number of passkeys.")
@@ -137,7 +138,9 @@ async def registration_options(
         authenticator_selection=_DISCOVERABLE,
         exclude_credentials=[PublicKeyCredentialDescriptor(id=p.credential_id) for p in existing],
     )
-    challenge_id = services.passkey_challenges.issue(options.challenge, _REGISTER, user.id)
+    challenge_id = services.passkey_challenges.issue(
+        options.challenge, f"{_REGISTER}:{request.state.login_session_hash}", user.id
+    )
     return PasskeyOptions(challenge_id=challenge_id, options=json.loads(options_to_json(options)))
 
 
@@ -233,7 +236,10 @@ async def register(
     user: CurrentUser,
     services: ServicesDep,
 ) -> PasskeyOut:
-    pending = services.passkey_challenges.take(body.challenge_id, _REGISTER)
+    await require_verified(request, session)
+    pending = services.passkey_challenges.take(
+        body.challenge_id, f"{_REGISTER}:{request.state.login_session_hash}"
+    )
     if pending is None or pending.user_id != user.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This request expired. Try again.")
     rp = relying_party(request, services.settings)
@@ -262,10 +268,13 @@ async def register(
 
 
 @router.delete("/{passkey_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_passkey(passkey_id: int, session: SessionDep, user: CurrentUser) -> None:
+async def delete_passkey(
+    passkey_id: int, request: Request, session: SessionDep, user: CurrentUser
+) -> None:
     passkey = await session.get(Passkey, passkey_id)
     if passkey is None or passkey.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "passkey not found")
+    await require_verified(request, session)
     await session.delete(passkey)
     await session.commit()
 

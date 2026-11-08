@@ -12,9 +12,19 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pulse.api.deps import CurrentUser, CurrentUserId, ServicesDep, SessionDep, get_owned_account
-from pulse.constants import ASSISTANT_MAX_SESSIONS, FRESH_SIGN_IN_SECONDS, STREAM_KEEPALIVE_SECONDS
-from pulse.models import Account, AssistantAudit, LoginSession, User, utcnow
+from pulse.api.deps import (
+    CurrentUser,
+    CurrentUserId,
+    ServicesDep,
+    SessionDep,
+    get_owned_account,
+    recently_verified,
+    require_assistant_login,
+    require_verified,
+    session_is_active,
+)
+from pulse.constants import ASSISTANT_MAX_SESSIONS, STREAM_KEEPALIVE_SECONDS
+from pulse.models import Account, AssistantAudit, LoginSession, User
 from pulse.schemas import (
     AssistantAccess,
     AssistantAuditOut,
@@ -41,19 +51,6 @@ router = APIRouter(prefix="/assistants", tags=["assistants"])
 ThreadId = Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
 
 
-def recently_verified(login: LoginSession | None) -> bool:
-    return (
-        login is not None
-        and (utcnow() - (login.reauthenticated_at or login.created_at)).total_seconds()
-        < FRESH_SIGN_IN_SECONDS
-    )
-
-
-async def require_verified(request: Request, session: AsyncSession) -> None:
-    if not recently_verified(await session.get(LoginSession, request.state.login_session_id)):
-        raise HTTPException(403, "Confirm your password or passkey before opening an assistant.")
-
-
 async def account_for(
     session: AsyncSession, user: User, account_id: int, services: Services
 ) -> Account:
@@ -70,10 +67,13 @@ async def account_for(
     return account
 
 
-def connected(services: Services, user_id: int, account_id: int) -> CodexConnection:
+def connected(
+    services: Services, user_id: int, account_id: int, request: Request
+) -> CodexConnection:
     connection = services.assistants.get(user_id, account_id)
     if connection is None or not connection.connected:
         raise HTTPException(409, "Connect Codex on this cluster first.")
+    require_assistant_login(request, connection.authorized_logins)
     return connection
 
 
@@ -102,13 +102,13 @@ async def audit(session: SessionDep, user: CurrentUser) -> list[AssistantAuditOu
 
 @router.get("/{account_id}/state")
 async def state(
-    account_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
+    account_id: int, request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> AssistantLive:
     await account_for(session, user, account_id, services)
     connection = services.assistants.get(user.id, account_id)
     return (
         connection.snapshot()
-        if connection
+        if connection and request.state.login_session_hash in connection.authorized_logins
         else AssistantLive(
             connection=AssistantConnection(connected=False, signed_in=False),
             messages={},
@@ -137,7 +137,7 @@ async def connect(
         )
         raise HTTPException(400, message) from exc
     account.pin_host_keys(keys)
-    connection.authorized_logins.add(request.state.login_session_id)
+    connection.authorized_logins.add(request.state.login_session_hash)
     session.add(AssistantAudit(user_id=user.id, session_id=str(account_id), action="connected"))
     await session.commit()
     return connection.account
@@ -149,7 +149,7 @@ async def login(
 ) -> AssistantLogin:
     await require_verified(request, session)
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id)
+    connection = connected(services, user.id, account_id, request)
     async with connection.action_lock:
         if connection.login is not None:
             return connection.login
@@ -167,9 +167,12 @@ async def login(
 
 @router.post("/{account_id}/disconnect", status_code=204)
 async def disconnect(
-    account_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
+    account_id: int, request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> None:
     await account_for(session, user, account_id, services)
+    connection = services.assistants.get(user.id, account_id)
+    if connection is not None:
+        require_assistant_login(request, connection.authorized_logins)
     await services.assistants.disconnect(user.id, account_id)
     session.add(AssistantAudit(user_id=user.id, session_id=str(account_id), action="disconnected"))
     await session.commit()
@@ -178,25 +181,27 @@ async def disconnect(
 @router.get("/{account_id}/threads")
 async def threads(
     account_id: int,
+    request: Request,
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
     cursor: Annotated[str | None, Query(max_length=2048)] = None,
 ) -> AssistantThreads:
     await account_for(session, user, account_id, services)
-    return await connected(services, user.id, account_id).threads(cursor)
+    return await connected(services, user.id, account_id, request).threads(cursor)
 
 
 @router.get("/{account_id}/threads/{thread_id}")
 async def history(
     account_id: int,
     thread_id: ThreadId,
+    request: Request,
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
 ) -> AssistantConversation:
     await account_for(session, user, account_id, services)
-    return await connected(services, user.id, account_id).history(thread_id)
+    return await connected(services, user.id, account_id, request).history(thread_id)
 
 
 @router.post("/{account_id}/threads", status_code=201)
@@ -210,7 +215,7 @@ async def new_thread(
 ) -> AssistantThread:
     await require_verified(request, session)
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id)
+    connection = connected(services, user.id, account_id, request)
     async with connection.action_lock:
         result = await connection.rpc(
             "thread/start",
@@ -234,7 +239,7 @@ async def resume(
 ) -> AssistantThread:
     await require_verified(request, session)
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id)
+    connection = connected(services, user.id, account_id, request)
     async with connection.action_lock:
         conversation = await connection.history(thread_id)
         # A remote transcript's paths are untrusted too. Never resume with a relative cwd.
@@ -269,12 +274,13 @@ async def turn(
     account_id: int,
     thread_id: ThreadId,
     body: AssistantTurn,
+    request: Request,
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
 ) -> None:
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id)
+    connection = connected(services, user.id, account_id, request)
     opened(connection, thread_id)
     async with connection.action_lock:
         if thread_id in connection.active:
@@ -312,12 +318,13 @@ async def turn(
 async def interrupt(
     account_id: int,
     thread_id: ThreadId,
+    request: Request,
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
 ) -> None:
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id)
+    connection = connected(services, user.id, account_id, request)
     opened(connection, thread_id)
     if turn_id := connection.active.get(thread_id):
         await connection.rpc("turn/interrupt", {"threadId": thread_id, "turnId": turn_id})
@@ -332,12 +339,13 @@ async def decide(
     account_id: int,
     approval_id: str,
     body: AssistantDecision,
+    request: Request,
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
 ) -> None:
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id)
+    connection = connected(services, user.id, account_id, request)
     async with connection.action_lock:
         pending = connection.approvals.get(approval_id)
         if pending is None:
@@ -367,27 +375,30 @@ async def stream(
         user = await db.get(User, user_id)
         assert user is not None
         await account_for(db, user, account_id, services)
-    connection = connected(services, user_id, account_id)
+    connection = connected(services, user_id, account_id, request)
 
     async def events() -> AsyncIterator[str]:
         async with connection.subscribe() as queue:
+            if not await session_is_active(services, user_id, request.state.login_session_hash):
+                return
             yield f"data: {connection.snapshot().model_dump_json()}\n\n"
-            last_auth = time.monotonic()
             while not await request.is_disconnected():
-                if time.monotonic() - last_auth >= STREAM_KEEPALIVE_SECONDS:
-                    async with services.sessions() as db:
-                        login = await db.get(LoginSession, request.state.login_session_id)
-                        if login is None or login.expires_at <= utcnow():
-                            return
-                    last_auth = time.monotonic()
                 # Release all DB transactions before streaming. Session revocation and
                 # account removal are checked by the service's watchdog too.
                 try:
                     await asyncio.wait_for(queue.get(), STREAM_KEEPALIVE_SECONDS)
                 except TimeoutError:
+                    if not await session_is_active(
+                        services, user_id, request.state.login_session_hash
+                    ):
+                        return
                     yield ": keepalive\n\n"
                 else:
                     await asyncio.sleep(0.1)  # coalesce token deltas, never poll the cluster
+                    if not await session_is_active(
+                        services, user_id, request.state.login_session_hash
+                    ):
+                        return
                     yield f"data: {connection.snapshot().model_dump_json()}\n\n"
                 if not connection.connected:
                     return

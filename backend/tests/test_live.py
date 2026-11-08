@@ -1,17 +1,104 @@
+import asyncio
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from starlette.requests import Request
 
+from pulse.api import live
 from pulse.api.accounts import cluster_name_from_host
 from pulse.config import Settings
 from pulse.main import create_app
-from pulse.models import User
+from pulse.models import LoginSession, User, utcnow
 from pulse.services.container import Services
-from tests.conftest import FakeClock
+from tests.conftest import ADMIN, FakeClock
 
 ACCOUNT = {"username": "alice", "host": "login.leonardo.example.org"}
+
+
+async def stream_request(services: Services, login_id: int) -> Request:
+    async with services.sessions() as db:
+        login = await db.get(LoginSession, login_id)
+        assert login is not None
+        token_hash = login.token_hash
+
+    async def receive() -> dict[str, object]:
+        await asyncio.Event().wait()  # an open HTTP connection with no further input
+        return {"type": "http.disconnect"}
+
+    return Request(
+        {"type": "http", "state": {"login_session_id": login_id, "login_session_hash": token_hash}},
+        receive=receive,
+    )
+
+
+@pytest.mark.parametrize("revoke", ["logout", "revoke-others", "password", "expire"])
+@pytest.mark.parametrize("queued", [False, True])
+async def test_stream_closes_when_its_login_is_revoked_or_expires(
+    client: AsyncClient,
+    anon: AsyncClient,
+    services: Services,
+    monkeypatch: pytest.MonkeyPatch,
+    revoke: str,
+    queued: bool,
+) -> None:
+    assert (await anon.post("/api/auth/login", json=ADMIN)).status_code == 200
+    logins = (await client.get("/api/auth/sessions")).json()
+    login_id = next(login["id"] for login in logins if login["current"])
+    monkeypatch.setattr(live, "STREAM_KEEPALIVE_SECONDS", 0.01)
+    response = await live.stream(await stream_request(services, login_id), 1, services)
+    iterator = response.body_iterator
+    try:
+        assert await anext(iterator) == "retry: 3000\n\n"
+        services.broadcaster.publish(1, {"type": "update", "accounts": [1]})
+        assert '"accounts": [1]' in await anext(iterator)
+
+        if revoke == "logout":
+            assert (await client.post("/api/auth/logout")).status_code == 204
+        elif revoke == "revoke-others":
+            assert (await anon.post("/api/auth/sessions/revoke-others")).status_code == 204
+        elif revoke == "password":
+            assert (
+                await anon.post(
+                    "/api/auth/password",
+                    json={"current_password": ADMIN["password"], "new_password": "new password"},
+                )
+            ).status_code == 204
+        else:
+            async with services.sessions() as db:
+                login = await db.get(LoginSession, login_id)
+                assert login is not None
+                login.expires_at = utcnow() - timedelta(seconds=1)
+                await db.commit()
+
+        if queued:
+            services.broadcaster.publish(1, {"type": "update", "events": ["private event"]})
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(anext(iterator), 1)
+        assert not services.broadcaster.has_subscribers
+    finally:
+        await iterator.aclose()
+
+
+async def test_stream_does_not_inherit_a_reused_session_id(
+    client: AsyncClient, anon: AsyncClient, services: Services
+) -> None:
+    login_id = (await client.get("/api/auth/sessions")).json()[0]["id"]
+    response = await live.stream(await stream_request(services, login_id), 1, services)
+    iterator = response.body_iterator
+    try:
+        assert await anext(iterator) == "retry: 3000\n\n"
+        assert (await client.post("/api/auth/logout")).status_code == 204
+        assert (await anon.post("/api/auth/login", json=ADMIN)).status_code == 200
+        # SQLite reuses the id, but this is a different browser credential.
+        assert (await anon.get("/api/auth/sessions")).json()[0]["id"] == login_id
+        services.broadcaster.publish(1, {"type": "update", "events": ["private event"]})
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(anext(iterator), 1)
+    finally:
+        await iterator.aclose()
 
 
 @pytest.mark.parametrize(

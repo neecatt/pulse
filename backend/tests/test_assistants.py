@@ -17,6 +17,7 @@ from pulse.services.container import Services
 from pulse.slurm.ssh import SshSlurmClient
 from tests.conftest import ADMIN
 from tests.softauthn import SoftAuthenticator
+from tests.test_live import stream_request
 from tests.test_passkeys import register
 
 THREAD = {
@@ -401,3 +402,100 @@ async def test_unknown_requests_fail_closed_and_text_is_bounded(
             }
         )
     assert len(conn.snapshot().messages["old-chat"][-1].text) == 65536
+
+
+async def test_another_login_cannot_use_an_open_assistant_without_connecting(
+    client: AsyncClient, anon: AsyncClient, services: Services, cluster: dict[str, Any]
+) -> None:
+    assert (await anon.post("/api/auth/login", json=ADMIN)).status_code == 200
+    logins = (await anon.get("/api/auth/sessions")).json()
+    other_id = next(login["id"] for login in logins if login["current"])
+    async with services.sessions() as db:
+        login = await db.get(LoginSession, other_id)
+        assert login is not None
+        login.created_at = utcnow() - timedelta(days=1)
+        other_hash = login.token_hash
+        await db.commit()
+
+    account = await linked(client, cluster["port"])
+    base = f"/api/assistants/{account}"
+    assert (await client.post(base + "/connect")).status_code == 200
+    assert (await client.post(base + "/threads/old-chat/resume")).status_code == 200
+    assert (
+        await client.post(base + "/threads/old-chat/turn", json={"prompt": "Prepare a job"})
+    ).status_code == 204
+    conn = services.assistants.get(1, account)
+    assert conn is not None
+    for _ in range(100):
+        if conn.approvals:
+            break
+        await asyncio.sleep(0.01)
+    approval = next(iter(conn.approvals))
+
+    for confirmed in (False, True):
+        # Reauth alone does not inherit another browser's assistant grant.
+        if confirmed:
+            assert (
+                await anon.post("/api/auth/reauth", json={"password": ADMIN["password"]})
+            ).status_code == 204
+        state = (await anon.get(base + "/state")).json()
+        assert state["connection"]["connected"] is False
+        assert state["messages"] == {} and state["approvals"] == []
+        for suffix in ("threads", "threads/old-chat", "stream"):
+            assert (await anon.get(base + "/" + suffix)).status_code == 403
+        assert (
+            await anon.post(base + "/threads/old-chat/turn", json={"prompt": "Run it"})
+        ).status_code == 403
+        assert (await anon.post(base + "/threads/old-chat/interrupt")).status_code == 403
+        assert (await anon.post(base + "/disconnect")).status_code == 403
+        assert (
+            await anon.post(base + "/approvals/" + approval, json={"decision": "accept"})
+        ).status_code == 403
+        assert cluster["decisions"] == []
+        assert other_hash not in conn.authorized_logins
+
+    # Explicitly connecting this confirmed browser grants access to the same transport.
+    assert (await anon.post(base + "/connect")).status_code == 200
+    assert other_hash in conn.authorized_logins
+    assert (await anon.get(base + "/threads/old-chat")).status_code == 200
+    assert (
+        await anon.post(base + "/approvals/" + approval, json={"decision": "accept"})
+    ).status_code == 204
+    await asyncio.wait_for(cluster["completed"].wait(), 2)
+
+
+async def test_assistant_stream_drops_queued_updates_after_logout(
+    client: AsyncClient, services: Services, cluster: dict[str, Any]
+) -> None:
+    from pulse.api.assistants import stream
+
+    account = await linked(client, cluster["port"])
+    assert (await client.post(f"/api/assistants/{account}/connect")).status_code == 200
+    login_id = (await client.get("/api/auth/sessions")).json()[0]["id"]
+    response = await stream(account, await stream_request(services, login_id), 1, services)
+    iterator = response.body_iterator
+    try:
+        assert '"connected":true' in await anext(iterator)
+        assert (await client.post("/api/auth/logout")).status_code == 204
+        conn = services.assistants.get(1, account)
+        assert conn is not None
+        conn.changed()
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(anext(iterator), 1)
+    finally:
+        await iterator.aclose()
+
+
+async def test_reused_login_id_does_not_inherit_assistant_access(
+    client: AsyncClient, anon: AsyncClient, services: Services, cluster: dict[str, Any]
+) -> None:
+    account = await linked(client, cluster["port"])
+    base = f"/api/assistants/{account}"
+    assert (await client.post(base + "/connect")).status_code == 200
+    original_id = (await client.get("/api/auth/sessions")).json()[0]["id"]
+    assert (await client.post("/api/auth/logout")).status_code == 204
+    assert (await anon.post("/api/auth/login", json=ADMIN)).status_code == 200
+    assert (await anon.get("/api/auth/sessions")).json()[0]["id"] == original_id
+    assert (await anon.get(base + "/state")).json()["connection"]["connected"] is False
+    assert (await anon.get(base + "/threads")).status_code == 403
+    assert (await anon.post(base + "/disconnect")).status_code == 403

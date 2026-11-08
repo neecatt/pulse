@@ -203,6 +203,9 @@ Run lint, types, and tests for every package you touched before committing.
   Keep request types allowlisted and approvals user-driven, with bounded memory.
   `services/claude.py` forwards native setup and allowlisted provider links;
   prompts/approvals for Claude stay in its first-party UI.
+  Assistant grants and passkey registration/confirmation challenges are bound to
+  the login's token hash, never just its SQLite id (deleted ids may be reused).
+  All streams revalidate the original credential before updates and keepalives.
   `assistants/claude_history.py` is a standalone Python 3 stdlib-only metadata
   reader sent over SSH, with its own parser limits and old-Python-compatible
   annotations; it never reads credentials.

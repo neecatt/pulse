@@ -123,7 +123,7 @@ class CodexConnection:
         self.messages: OrderedDict[str, OrderedDict[str, AssistantMessage]] = OrderedDict()
         self.active: dict[str, str] = {}
         self.allowed_threads: set[str] = set()  # only explicitly opened conversations can act
-        self.authorized_logins: set[int] = set()
+        self.authorized_logins: set[str] = set()
         self.login: AssistantLogin | None = None
         self.login_id: str | None = None
         self.error: str | None = None
@@ -640,7 +640,7 @@ class Assistants:
                     valid_login = await db.scalar(
                         select(LoginSession.id)
                         .where(
-                            LoginSession.id.in_(connection.authorized_logins),
+                            LoginSession.token_hash.in_(connection.authorized_logins),
                             LoginSession.user_id == user_id,
                             LoginSession.expires_at > utcnow(),
                         )
@@ -673,7 +673,7 @@ class Assistants:
                     login = await db.scalar(
                         select(LoginSession.id)
                         .where(
-                            LoginSession.id.in_(native.authorized_logins),
+                            LoginSession.token_hash.in_(native.authorized_logins),
                             LoginSession.user_id == user_id,
                             LoginSession.expires_at > utcnow(),
                         )

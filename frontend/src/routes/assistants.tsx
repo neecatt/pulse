@@ -4,7 +4,7 @@ import { api } from "@/api/client";
 import { useAccounts, useAssistantAccess, useAssistantAudit } from "@/api/queries";
 import { AssistantChat } from "@/components/AssistantChat";
 import { ClaudeConnection } from "@/components/ClaudeConnection";
-import { AssistantReauth } from "@/components/AssistantReauth";
+import { SessionReauth } from "@/components/SessionReauth";
 import { Button } from "@/components/Button";
 import { Card, EmptyState, Section } from "@/components/Section";
 import { useAssistant, useAssistantAction, useAssistantThreads } from "@/hooks/use-assistant";
@@ -49,7 +49,7 @@ function AssistantsPage() {
         ) : (
           access.data?.enabled && (
             <div className="space-y-4">
-              {!access.data.verified && <AssistantReauth />}
+              {!access.data.verified && <SessionReauth />}
               {!accounts.isPending && !selected && (
                 <EmptyState title="Connect a cluster over SSH">
                   <p>

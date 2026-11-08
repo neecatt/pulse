@@ -73,7 +73,7 @@ class ClaudeSession:
         self.process = process
         self.is_login = login
         self.connected = True
-        self.authorized_logins: set[int] = set()
+        self.authorized_logins: set[str] = set()
         self.last_used = time.monotonic()
         self.state = ClaudeState(
             connection_id=secrets.token_hex(16),
