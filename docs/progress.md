@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-12 — Pre-release 0.3.0-rc.1
+
+- Claude Code and Codex on linked clusters, session security and assistant
+  robustness (see below). Published only as `neecat/pulse:0.3.0-rc.1` to test
+  on a real deployment; `latest` stays on 0.2.6.
+
 ## 2026-11-11 — Assistant robustness (`fix/session-security`)
 
 - The assistant watchdog logs a failed check and keeps running, so revocation,
