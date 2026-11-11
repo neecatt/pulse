@@ -26,7 +26,11 @@ falls short.
 - **Sign-in.** Passwords are hashed with scrypt; sessions are random 256-bit
   tokens in an HttpOnly, SameSite=Lax cookie (Secure over HTTPS), stored only as
   hashes. Failed sign-ins are limited per address and per username, sign-ups per
-  address. Passkeys use single-use, expiring challenges.
+  address. Password changes and password confirmations share the sign-in limits.
+  Adding or removing passkeys requires recent authentication; registration and
+  confirmation challenges are single-use, expiring and bound to the browser's
+  session token hash. Live streams recheck that same credential before each
+  update and on idle keepalives, and close after revocation or expiry.
 - **Requests.** State-changing requests from other websites are refused (Origin
   check), responses carry a strict Content Security Policy and HSTS, and request
   bodies over 1 MB (16 MB for agent reports) are refused before they're read.
@@ -60,11 +64,26 @@ falls short.
   bulk. A passkey sign-up creates the account only after the passkey verifies.
   A passkey-only account can add a first password only within 10 minutes of
   signing in, so a stolen session can't be turned into a lasting password.
-- **Clusters.** Pulse runs read-only Slurm commands with its own key and pins
+- **Clusters.** By default, Pulse runs read-only Slurm commands with its own key and pins
   each server's host key on first connect. It ignores `~/.ssh/config` and any
   SSH agent. Values from the cluster are quoted, and paths must be absolute
   before they reach a command. The agent runs no shell, reads only files it
   found itself (no symlinks), and sends raw output for the server to parse.
+- **Optional assistants** are off by default. Only an owned, real direct SSH
+  account can run Codex's app-server or native Claude Code Remote Control; demo
+  guests, shared accounts and reporting agents cannot. A fresh password or
+  passkey confirmation is required to open connections or resume chats. Each
+  browser must explicitly connect before reading assistant state/history or
+  sending prompts and approvals; another browser's connection grants no access.
+  Codex's official device-login links/codes are shown in Pulse; its OAuth tokens
+  and transcripts stay with the cluster CLI. Claude uses its own CLI login;
+  an optional one-time authorization code is passed to that CLI without storage,
+  and provider/session links are allowlisted. Claude prompts and approvals open
+  in its first-party UI. Pulse's Codex command/file approval cards require a user
+  response and unsupported request types fail closed. Normal reads and permitted
+  edits still follow the native workspace/permission rules. Assistants have the
+  SSH user's permissions when actions are approved. This opt-in feature changes
+  Pulse's default read-only cluster model; see `docs/assistants.md`.
 - **Data at rest.** The data directory is readable by Pulse's user only; SSH and
   push keys are created with mode 600. The container runs Pulse as an
   unprivileged user.

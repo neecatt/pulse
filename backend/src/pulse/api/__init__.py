@@ -4,7 +4,9 @@ from pulse import __version__
 from pulse.api import (
     accounts,
     agent,
+    assistants,
     auth,
+    claude,
     events,
     jobs,
     live,
@@ -22,6 +24,8 @@ for module in (
     auth,
     passkeys,
     accounts,
+    assistants,
+    claude,
     jobs,
     runs,
     events,

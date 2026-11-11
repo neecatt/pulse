@@ -8,6 +8,7 @@ from pydantic import SecretStr
 from pulse.auth.passwords import hash_password, verify_password
 from pulse.config import Settings
 from pulse.main import create_app
+from pulse.services.container import Services
 from tests.conftest import ADMIN, setup_body
 
 
@@ -86,6 +87,31 @@ async def test_failed_logins_are_rate_limited(client: AsyncClient, anon: AsyncCl
         await anon.post("/api/auth/login", json=ADMIN | {"password": "wrong-guess"})
     blocked = await anon.post("/api/auth/login", json=ADMIN)  # even the right password
     assert blocked.status_code == 429
+
+
+@pytest.mark.parametrize("source", ["login", "reauth", "password"])
+async def test_all_password_checks_share_attempt_limits(
+    client: AsyncClient, anon: AsyncClient, services: Services, source: str
+) -> None:
+    bodies = {
+        "login": ADMIN | {"password": "wrong-guess"},
+        "reauth": {"password": "wrong-guess"},
+        "password": {"current_password": "wrong-guess", "new_password": "new password value"},
+    }
+    for _ in range(services.settings.login_max_failures):
+        response = await client.post(f"/api/auth/{source}", json=bodies[source])
+        assert response.status_code == (401 if source == "login" else 403)
+    # Neither a correct password nor switching endpoints bypasses the limit.
+    for target, body in {
+        "login": ADMIN,
+        "reauth": {"password": ADMIN["password"]},
+        "password": {
+            "current_password": ADMIN["password"],
+            "new_password": "new password value",
+        },
+    }.items():
+        assert (await client.post(f"/api/auth/{target}", json=body)).status_code == 429
+    assert (await anon.post("/api/auth/login", json=ADMIN)).status_code == 429
 
 
 async def test_password_change_signs_out_other_devices(

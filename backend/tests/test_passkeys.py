@@ -1,6 +1,11 @@
+from datetime import timedelta
+
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
+from pulse.models import LoginSession, utcnow
+from pulse.services.container import Services
 from tests.conftest import ADMIN
 from tests.softauthn import SoftAuthenticator
 
@@ -107,3 +112,73 @@ async def test_public_url_pins_the_passkey_domain(app: FastAPI, client: AsyncCli
     app.state.services.settings.public_url = "https://pulse.example.org"
     options = (await client.post("/api/auth/passkeys/register/options")).json()["options"]
     assert options["rp"]["id"] == "pulse.example.org"
+
+
+async def test_passkey_changes_need_recent_authentication_at_both_steps(
+    client: AsyncClient, services: Services
+) -> None:
+    phone = SoftAuthenticator(ORIGIN)
+    added = await register(client, phone, "Existing phone")
+    started = (await client.post("/api/auth/passkeys/register/options")).json()
+    body = {
+        "challenge_id": started["challenge_id"],
+        "credential": SoftAuthenticator(ORIGIN).create(started["options"]),
+    }
+    async with services.sessions() as db:
+        login = await db.scalar(select(LoginSession))
+        assert login is not None
+        login.created_at = utcnow() - timedelta(days=1)
+        await db.commit()
+
+    assert (await client.post("/api/auth/passkeys/register/options")).status_code == 403
+    assert (await client.post("/api/auth/passkeys/register/verify", json=body)).status_code == 403
+    assert (await client.delete(f"/api/auth/passkeys/{added['id']}")).status_code == 403
+    assert len((await client.get("/api/auth/passkeys")).json()) == 1
+
+    # An existing passkey can confirm a stale session without signing out.
+    confirmation = (await client.post("/api/auth/passkeys/reauth/options")).json()
+    assert (
+        await client.post(
+            "/api/auth/passkeys/reauth/verify",
+            json={
+                "challenge_id": confirmation["challenge_id"],
+                "credential": phone.get(confirmation["options"]),
+            },
+        )
+    ).status_code == 204
+    assert (await client.post("/api/auth/passkeys/register/verify", json=body)).status_code == 201
+    assert (await client.post("/api/auth/passkeys/register/verify", json=body)).status_code == 400
+    assert (await client.delete(f"/api/auth/passkeys/{added['id']}")).status_code == 204
+
+
+async def test_passkey_registration_is_bound_to_the_confirmed_login(
+    client: AsyncClient, anon: AsyncClient
+) -> None:
+    assert (await anon.post("/api/auth/login", json=ADMIN)).status_code == 200
+    started = (await client.post("/api/auth/passkeys/register/options")).json()
+    response = await anon.post(
+        "/api/auth/passkeys/register/verify",
+        json={
+            "challenge_id": started["challenge_id"],
+            "credential": SoftAuthenticator(ORIGIN).create(started["options"]),
+        },
+    )
+    assert response.status_code == 400
+    assert (await client.get("/api/auth/passkeys")).json() == []
+
+
+async def test_reused_session_id_cannot_complete_an_old_passkey_registration(
+    client: AsyncClient, anon: AsyncClient
+) -> None:
+    original_id = (await client.get("/api/auth/sessions")).json()[0]["id"]
+    started = (await client.post("/api/auth/passkeys/register/options")).json()
+    credential = SoftAuthenticator(ORIGIN).create(started["options"])
+    assert (await client.post("/api/auth/logout")).status_code == 204
+    assert (await anon.post("/api/auth/login", json=ADMIN)).status_code == 200
+    assert (await anon.get("/api/auth/sessions")).json()[0]["id"] == original_id
+    assert (
+        await anon.post(
+            "/api/auth/passkeys/register/verify",
+            json={"challenge_id": started["challenge_id"], "credential": credential},
+        )
+    ).status_code == 400

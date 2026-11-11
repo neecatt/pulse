@@ -9,6 +9,16 @@ import { API_URL } from "@/config/env";
 
 import type {
   Account,
+  AssistantAccess,
+  AssistantConnection,
+  AssistantLogin,
+  AssistantLive,
+  AssistantThread,
+  AssistantThreads,
+  AssistantConversation,
+  ClaudeState,
+  ClaudeSetupAction,
+  AssistantAudit,
   AccountCheck,
   AccountCreate,
   AccountUpdate,
@@ -40,6 +50,9 @@ import type {
 
 const BASE_URL = `${API_URL}/api`;
 export const STREAM_URL = `${BASE_URL}/stream`;
+
+export const assistantStreamUrl = (id: number) => `${BASE_URL}/assistants/${id}/stream`;
+export const claudeStreamUrl = (id: number) => `${BASE_URL}/assistants/${id}/claude/stream`;
 
 export class ApiError extends Error {
   constructor(
@@ -86,7 +99,71 @@ export interface JobFilters {
 }
 
 export const api = {
+  claude: {
+    state: (account: number) => request<ClaudeState>(`/assistants/${account}/claude/state`),
+    threads: (account: number) =>
+      request<AssistantThreads>(`/assistants/${account}/claude/threads`),
+    login: (account: number) =>
+      request<ClaudeState>(`/assistants/${account}/claude/login`, { method: "POST" }),
+    start: (account: number, work_dir: string, session_id?: string) =>
+      request<ClaudeState>(`/assistants/${account}/claude/start`, {
+        method: "POST",
+        body: json({ work_dir, session_id, confirmed: true }),
+      }),
+    setup: (account: number, action: ClaudeSetupAction, code = "") =>
+      request<void>(`/assistants/${account}/claude/setup`, {
+        method: "POST",
+        body: json({ action, code }),
+      }),
+    stop: (account: number) =>
+      request<void>(`/assistants/${account}/claude/stop`, { method: "POST" }),
+  },
+  assistants: {
+    access: () => request<AssistantAccess>("/assistants/access"),
+    audit: () => request<AssistantAudit[]>("/assistants/audit"),
+    state: (account: number) => request<AssistantLive>(`/assistants/${account}/state`),
+    connect: (account: number) =>
+      request<AssistantConnection>(`/assistants/${account}/connect`, { method: "POST" }),
+    login: (account: number) =>
+      request<AssistantLogin>(`/assistants/${account}/login`, { method: "POST" }),
+    disconnect: (account: number) =>
+      request<void>(`/assistants/${account}/disconnect`, { method: "POST" }),
+    threads: (account: number, cursor?: string) =>
+      request<AssistantThreads>(`/assistants/${account}/threads${query({ cursor })}`),
+    history: (account: number, id: string) =>
+      request<AssistantConversation>(`/assistants/${account}/threads/${encodeURIComponent(id)}`),
+    create: (account: number, work_dir: string) =>
+      request<AssistantThread>(`/assistants/${account}/threads`, {
+        method: "POST",
+        body: json({ work_dir, confirmed: true }),
+      }),
+    resume: (account: number, id: string) =>
+      request<AssistantThread>(`/assistants/${account}/threads/${encodeURIComponent(id)}/resume`, {
+        method: "POST",
+      }),
+    turn: (account: number, id: string, prompt: string) =>
+      request<void>(`/assistants/${account}/threads/${encodeURIComponent(id)}/turn`, {
+        method: "POST",
+        body: json({ prompt }),
+      }),
+    interrupt: (account: number, id: string) =>
+      request<void>(`/assistants/${account}/threads/${encodeURIComponent(id)}/interrupt`, {
+        method: "POST",
+      }),
+    decide: (
+      account: number,
+      id: string,
+      decision: "accept" | "decline",
+      answers: Record<string, string[]>,
+    ) =>
+      request<void>(`/assistants/${account}/approvals/${encodeURIComponent(id)}`, {
+        method: "POST",
+        body: json({ decision, answers }),
+      }),
+  },
   auth: {
+    reauthenticate: (password: string) =>
+      request<void>("/auth/reauth", { method: "POST", body: json({ password }) }),
     status: () => request<AuthStatus>("/auth/status"),
     me: () => request<Me>("/auth/me"),
     setup: (body: Credentials) => request<Me>("/auth/setup", { method: "POST", body: json(body) }),
@@ -104,6 +181,16 @@ export const api = {
     revokeOthers: () => request<void>("/auth/sessions/revoke-others", { method: "POST" }),
   },
   passkeys: {
+    reauthOptions: () =>
+      request<PasskeyOptions<PublicKeyCredentialRequestOptionsJSON>>(
+        "/auth/passkeys/reauth/options",
+        { method: "POST" },
+      ),
+    reauthenticate: (challenge_id: string, credential: AuthenticationResponseJSON) =>
+      request<void>("/auth/passkeys/reauth/verify", {
+        method: "POST",
+        body: json({ challenge_id, credential }),
+      }),
     list: () => request<Passkey[]>("/auth/passkeys"),
     registerOptions: () =>
       request<PasskeyOptions<PublicKeyCredentialCreationOptionsJSON>>(

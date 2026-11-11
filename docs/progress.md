@@ -3,6 +3,71 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-11 — Assistant robustness (`fix/session-security`)
+
+- The assistant watchdog logs a failed check and keeps running, so revocation,
+  idle timeouts and approval expiry stay enforced after a transient DB error.
+- Codex streams send only the messages changed since the previous update
+  (`AssistantLive.partial`); the app merges them into what it already has.
+- Connecting Codex or Claude locks only that account; a shared lock just
+  reserves capacity, so a slow cluster no longer blocks other users.
+- The Claude history reader keeps the newest project directories and
+  transcripts instead of the first ones the filesystem returns.
+
+## 2026-11-08 — Session security (`fix/session-security`)
+
+- Require recent authentication when adding or deleting passkeys, including at
+  registration verification. Reuse inline password/passkey confirmation in the
+  settings and passkey hint, and retry the requested change after confirmation.
+- Share password-guessing limits across login, password confirmation and password
+  changes, so changing endpoints cannot bypass a lockout.
+- Bind Codex and Claude access to the confirmed browser that connected them;
+  another session cannot read transcripts, setup links or approvals, send prompts,
+  approve commands or stop its connection without explicitly connecting itself.
+- Revalidate live streams before sending updates and on idle keepalives. Logout,
+  session revocation, password changes and expiry close the original stream.
+- Use session token hashes for grants, challenges and stream identity, so reused
+  SQLite session ids cannot inherit access. No schema changes or new dependencies.
+- Add regression coverage for the reported attacks, cross-endpoint lockouts,
+  browser isolation, revocation/expiry and reused ids, plus inline passkey UI flows.
+- Validation: 264 backend tests and 81 frontend tests pass; lint, formatting,
+  backend/frontend type checks and the production web build pass.
+
+## 2026-11-07 — Claude Code and Codex cluster conversations (`feat/remote-assistants`)
+
+- **Assistants** opens a native chat UI backed by `codex app-server` on an owned,
+  direct SSH account. Reuses Pulse's per-user keys, host pins and jump hosts;
+  no new services, runtime dependencies or browser requests to AI APIs.
+- Existing cluster-local Codex conversations can be browsed and resumed. New
+  chats use an absolute project directory. Replies and tool output stream over
+  SSE; background turns keep running when the phone closes.
+- Uses the cluster's existing Codex sign-in or its official ChatGPT device-code
+  flow, launched from the UI. No API keys or copied provider tokens.
+- Command/file approval cards, user questions, interrupt and disconnect controls;
+  untrusted command approvals, workspace sandbox and user review on resumed
+  threads. Session/action audit for owners and admins, without transcript content.
+- Off by default (`PULSE_ASSISTANTS_ENABLED`); real direct accounts only. Password
+  or session-bound, single-use passkey reauthentication; bounded RPC/state memory,
+  fail-closed unsupported requests, expiry of approvals, revocation/idle watchdog.
+- **Claude Code fallback:** native `claude auth login` with a provider link and
+  optional one-time code, followed by official Remote Control. Recent local
+  Claude conversations can be selected in Pulse; its unmodified CLI resumes
+  them on the cluster and **Open in Claude** hands off to Claude's own mobile/web
+  UI for prompts and approvals. No SDK subscription login or token copying.
+- Native project-trust/Remote Control confirmations are explicit, provider URLs
+  are allowlisted, and setup output stops being retained once connected. A
+  stdlib-only helper reads bounded local transcript metadata, never credentials.
+- Tests cover real local SSH with a scripted app-server (no inference or real
+  jobs): sign-in, existing history, explicit resume, pending sbatch approval,
+  audit, disconnect, user/guest/agent isolation, paths and passkey confirmation.
+- Validation: 245 backend tests and 78 frontend tests; lint/types clean, production
+  web build passes. Browser checked on a phone-sized and desktop viewport with
+  simulated sign-in, history/resume, explicit sbatch approval and reload recovery;
+  both provider flows have no horizontal scroll or JavaScript errors. Claude
+  native sign-in, code forwarding, explicit trust and handoff also pass at
+  320/390 px, with reload recovery and dark-mode checks. No real inference or
+  cluster job was started during validation.
+
 ## 2026-11-06 — Release 0.2.6
 
 - Site stats for admins (see below).

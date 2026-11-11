@@ -15,6 +15,7 @@ from pulse.schemas import (
     LoginSessionOut,
     Me,
     PasswordChange,
+    Reauthenticate,
     Setup,
 )
 from pulse.services.auth import (
@@ -30,6 +31,21 @@ from pulse.services.demo import create_guest
 router = APIRouter(prefix="/auth", tags=["auth"])
 _TOO_MANY = "Too many failed attempts. Try again in a few minutes."
 _GUEST = "Demo accounts are temporary. Create your own account to keep using Pulse."
+
+
+@router.post("/reauth", status_code=204)
+async def reauthenticate(
+    body: Reauthenticate,
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+    services: ServicesDep,
+) -> None:
+    verify_current_password(body.password, request, user, services)
+    login = await session.get(LoginSession, request.state.login_session_id)
+    assert login is not None
+    login.reauthenticated_at = utcnow()
+    await session.commit()
 
 
 @router.get("/status")
@@ -125,7 +141,7 @@ async def login(
     services: ServicesDep,
 ) -> Me:
     limiter = services.login_limiter
-    keys = (f"ip:{client_address(request)}", f"user:{body.username.strip().lower()}")
+    keys = password_limit_keys(request, body.username)
     if limiter.blocked(*keys):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, _TOO_MANY)
     user = await authenticate(session, body.username.strip(), body.password)
@@ -155,7 +171,11 @@ async def me(user: CurrentUser) -> Me:
 
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
-    body: PasswordChange, request: Request, session: SessionDep, user: CurrentUser
+    body: PasswordChange,
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+    services: ServicesDep,
 ) -> None:
     """Change your password (or set a first one, after a passkey sign-up) and sign
     out your other devices."""
@@ -167,8 +187,7 @@ async def change_password(
     if user.is_guest:
         raise HTTPException(status.HTTP_403_FORBIDDEN, _GUEST)
     if user.has_password:
-        if not verify_password(body.current_password, user.password_hash):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Current password is wrong.")
+        verify_current_password(body.current_password, request, user, services)
     else:  # no password to confirm: ask for a recent passkey sign-in instead
         current = await session.get(LoginSession, request.state.login_session_id)
         age = (utcnow() - current.created_at).total_seconds() if current else None
@@ -261,3 +280,20 @@ def _normalise(code: str) -> str:
 
 def client_address(request: Request) -> str:
     return request.client.host if request.client else "unknown"
+
+
+def password_limit_keys(request: Request, username: str) -> tuple[str, str]:
+    return (f"ip:{client_address(request)}", f"user:{username.strip().lower()}")
+
+
+def verify_current_password(
+    password: str, request: Request, user: User, services: Services
+) -> None:
+    """All password checks share sign-in's address and username attempt limits."""
+    keys = password_limit_keys(request, user.username)
+    if services.login_limiter.blocked(*keys):
+        raise HTTPException(429, _TOO_MANY)
+    if user.is_guest or not user.has_password or not verify_password(password, user.password_hash):
+        services.login_limiter.record_failure(*keys)
+        raise HTTPException(403, "Wrong password. Try again or use your passkey.")
+    services.login_limiter.reset(*keys)
