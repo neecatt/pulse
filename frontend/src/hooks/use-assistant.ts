@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { api, assistantStreamUrl, claudeStreamUrl } from "@/api/client";
 import { queryKeys } from "@/api/queries";
 import type { AssistantLive, ClaudeState } from "@/api/types";
+import { applyAssistantLive } from "@/lib/assistant";
 
 export function useAssistant(account: number, enabled: boolean) {
   const client = useQueryClient();
@@ -19,7 +20,10 @@ export function useAssistant(account: number, enabled: boolean) {
     let previous: AssistantLive | undefined;
     const source = new EventSource(assistantStreamUrl(account));
     source.onmessage = (event: MessageEvent<string>) => {
-      const live = JSON.parse(event.data) as AssistantLive;
+      const live = applyAssistantLive(
+        client.getQueryData<AssistantLive>(queryKeys.assistantState(account)),
+        JSON.parse(event.data) as AssistantLive,
+      );
       if (previous) {
         for (const id of Object.keys(previous.active)) {
           if (!(id in live.active)) {

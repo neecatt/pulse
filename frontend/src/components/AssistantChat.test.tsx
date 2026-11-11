@@ -30,6 +30,7 @@ const state: AssistantLive = {
   approvals: [],
   error: null,
   revision: 0,
+  partial: false,
 };
 
 describe("cluster conversation UI", () => {

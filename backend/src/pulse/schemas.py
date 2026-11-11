@@ -122,6 +122,8 @@ class AssistantLive(BaseModel):
     approvals: list[AssistantApproval]
     error: str | None = None
     revision: int
+    # Stream updates carry only the messages changed since the previous update.
+    partial: bool = False
 
 
 class AssistantAuditOut(ORMModel):

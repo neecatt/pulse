@@ -12,7 +12,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from pulse.models import LoginSession, utcnow
-from pulse.services.assistants import CodexConnection
+from pulse.services import assistants as assistants_module
+from pulse.services.assistants import Assistants, CodexConnection
 from pulse.services.container import Services
 from pulse.slurm.ssh import SshSlurmClient
 from tests.conftest import ADMIN
@@ -499,3 +500,72 @@ async def test_reused_login_id_does_not_inherit_assistant_access(
     assert (await anon.get(base + "/state")).json()["connection"]["connected"] is False
     assert (await anon.get(base + "/threads")).status_code == 403
     assert (await anon.post(base + "/disconnect")).status_code == 403
+
+
+async def test_stream_updates_carry_only_changed_messages(
+    client: AsyncClient, services: Services, cluster: dict[str, Any]
+) -> None:
+    account = await linked(client, cluster["port"])
+    assert (await client.post(f"/api/assistants/{account}/connect")).status_code == 200
+    conn = services.assistants.get(1, account)
+    assert conn is not None
+
+    async def delta(item: str, text: str) -> None:
+        await conn._message(
+            {
+                "method": "item/agentMessage/delta",
+                "params": {"threadId": "old-chat", "itemId": item, "delta": text},
+            }
+        )
+
+    await delta("done", "Finished earlier")
+    await delta("streaming", "Hel")
+    sent = conn.snapshot()
+    await delta("streaming", "lo")
+    update = conn.snapshot(since=sent.revision)
+    assert update.partial and not sent.partial
+    assert [(m.id, m.text) for m in update.messages["old-chat"]] == [("streaming", "Hello")]
+    assert conn.snapshot(since=update.revision).messages == {}
+
+
+async def test_watchdog_keeps_running_after_a_failed_check(
+    services: Services, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(assistants_module, "ASSISTANT_CHECK_SECONDS", 0)
+    watchdog = Assistants(services.settings, None)
+    checks = 0
+    finished = asyncio.Event()
+
+    async def check(_sessions: object) -> None:
+        nonlocal checks
+        checks += 1
+        if checks == 1:
+            raise RuntimeError("database is locked")
+        finished.set()
+
+    monkeypatch.setattr(watchdog, "check", check)
+    task = asyncio.create_task(watchdog.watch(services.sessions))
+    try:
+        await asyncio.wait_for(finished.wait(), 2)
+    finally:
+        task.cancel()
+    assert checks >= 2
+
+
+async def test_one_slow_cluster_does_not_block_another(services: Services) -> None:
+    pool = Assistants(services.settings, None)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow() -> None:
+        async with pool._reserve("codex", (1, 1), (), "full"):
+            entered.set()
+            await release.wait()
+
+    task = asyncio.create_task(slow())
+    await entered.wait()
+    async with asyncio.timeout(1):
+        async with pool._reserve("codex", (2, 2), (), "full"):
+            pass
+    release.set()
+    await task

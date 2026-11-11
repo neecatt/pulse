@@ -3,6 +3,17 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-11 — Assistant robustness (`fix/session-security`)
+
+- The assistant watchdog logs a failed check and keeps running, so revocation,
+  idle timeouts and approval expiry stay enforced after a transient DB error.
+- Codex streams send only the messages changed since the previous update
+  (`AssistantLive.partial`); the app merges them into what it already has.
+- Connecting Codex or Claude locks only that account; a shared lock just
+  reserves capacity, so a slow cluster no longer blocks other users.
+- The Claude history reader keeps the newest project directories and
+  transcripts instead of the first ones the filesystem returns.
+
 ## 2026-11-08 — Session security (`fix/session-security`)
 
 - Require recent authentication when adding or deleting passkeys, including at

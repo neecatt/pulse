@@ -381,7 +381,8 @@ async def stream(
         async with connection.subscribe() as queue:
             if not await session_is_active(services, user_id, request.state.login_session_hash):
                 return
-            yield f"data: {connection.snapshot().model_dump_json()}\n\n"
+            sent = connection.snapshot()
+            yield f"data: {sent.model_dump_json()}\n\n"
             while not await request.is_disconnected():
                 # Release all DB transactions before streaming. Session revocation and
                 # account removal are checked by the service's watchdog too.
@@ -399,7 +400,8 @@ async def stream(
                         services, user_id, request.state.login_session_hash
                     ):
                         return
-                    yield f"data: {connection.snapshot().model_dump_json()}\n\n"
+                    sent = connection.snapshot(since=sent.revision)
+                    yield f"data: {sent.model_dump_json()}\n\n"
                 if not connection.connected:
                     return
 

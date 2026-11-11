@@ -389,6 +389,8 @@ export interface AssistantLive {
   approvals: AssistantApproval[];
   error: string | null;
   revision: number;
+  /** Stream updates carry only the messages changed since the previous update. */
+  partial: boolean;
 }
 export interface AssistantAudit {
   id: number;
