@@ -4,7 +4,7 @@
 
 # 1. Build the web app. Bun installs dependencies; Node runs the build tools
 #    (Vite needs Node APIs that this Bun version lacks), as in local development.
-FROM node:22-slim AS web
+FROM node:25-slim AS web
 COPY --from=oven/bun:1.1.6 /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /web
 COPY frontend/package.json frontend/bun.lockb frontend/bunfig.toml ./
