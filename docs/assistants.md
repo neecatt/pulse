@@ -55,6 +55,10 @@ without signing Codex out of the cluster or deleting its saved chats. Idle
 connections close after `PULSE_ASSISTANT_IDLE_SECONDS` (default 900), except while
 a turn is active. A fresh Pulse password or passkey confirmation is required to
 open a connection or resume a chat after ten minutes without authentication.
+Each browser must explicitly connect with its own confirmed Pulse session before
+it can read Codex history, see live state or respond to approvals. Confirmation
+alone does not inherit another browser's open connection. Claude setup and handoff
+links are likewise available only to the Pulse session that opened them.
 
 ## Access and data
 
@@ -69,7 +73,9 @@ Owners see their own records; admins see all records. Prompts, command output
 and provider credentials are not written to that audit log. Live text is held
 in bounded memory; persistent transcripts belong to Codex on the cluster.
 Revoked Pulse sessions and removed accounts lose their connection access;
-active connections are checked every 15 seconds.
+active connections are checked every 15 seconds. Streams also check their original
+session credential before sending updates or keepalives, so deleting and recreating
+a session cannot restore a revoked stream or inherit assistant access.
 
 ## Claude Code: native sign-in and Remote Control
 
@@ -103,8 +109,9 @@ credentials do not enable Remote Control; the CLI needs its native subscription
 sign-in. CLI login or project setup can be completed through the Pulse panel,
 so a laptop is not required. No extra Python packages are installed on the
 cluster; a bounded stdlib-only Python 3 script reads recent transcript metadata,
-not credential files. It scans at most 128 project directories and 512 candidate
-transcripts and returns up to 50 recent conversations. Custom config directories
+not credential files. It considers the 128 most recently changed project
+directories and the 512 newest transcripts in them, and returns up to 50 recent
+conversations. Custom config directories
 reported by the current CLI are respected.
 
 Closing Pulse keeps Claude's Remote Control process running. It does not idle

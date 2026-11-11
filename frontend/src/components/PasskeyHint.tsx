@@ -6,12 +6,13 @@ import { passkeysSupported } from "@/lib/passkeys";
 import { updateUiSettings, useUiSettings } from "@/lib/ui-settings";
 
 import { Button } from "./Button";
+import { SessionReauth } from "./SessionReauth";
 
 /** One-time suggestion to add a passkey, for accounts that have none yet. */
 export function PasskeyHint() {
   const { passkeyHintDismissed } = useUiSettings();
   const { data: passkeys } = usePasskeys();
-  const { add, busy, error } = useAddPasskey();
+  const { add, busy, error, needsVerification } = useAddPasskey();
 
   if (
     passkeyHintDismissed ||
@@ -40,6 +41,14 @@ export function PasskeyHint() {
       >
         <X className="size-4" />
       </button>
+      {needsVerification && (
+        <div className="w-full">
+          <SessionReauth
+            message="Confirm it’s you before adding a passkey."
+            onVerified={() => void add()}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,15 +1,23 @@
 import asyncio
 import json
+import os
 import shlex
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
 from httpx import AsyncClient
 
+from pulse.api.claude import stream
+from pulse.assistants import claude_history
 from pulse.assistants.claude_history import sessions
+from pulse.models import LoginSession, utcnow
 from pulse.services.claude import provider_url, remote_command
 from pulse.services.container import Services
+from tests.conftest import ADMIN
 from tests.test_assistants import linked
+from tests.test_live import stream_request
 
 pytest_plugins = ["tests.test_assistants"]
 
@@ -133,3 +141,73 @@ def test_remote_command_quotes_paths_and_provider_links_are_allowlisted() -> Non
         "https://claude.ai/settings",
     ]:
         assert provider_url(url, remote=True) is None
+
+
+async def test_claude_state_setup_and_stream_are_bound_to_the_opening_login(
+    client: AsyncClient, anon: AsyncClient, services: Services, cluster: dict[str, Any]
+) -> None:
+    assert (await anon.post("/api/auth/login", json=ADMIN)).status_code == 200
+    other_id = next(
+        row["id"] for row in (await anon.get("/api/auth/sessions")).json() if row["current"]
+    )
+    async with services.sessions() as db:
+        login = await db.get(LoginSession, other_id)
+        assert login is not None
+        login.created_at = utcnow() - timedelta(days=1)
+        await db.commit()
+    account = await linked(client, cluster["port"])
+    base = f"/api/assistants/{account}/claude"
+    assert (await client.post(base + "/login")).status_code == 200
+    native = services.assistants.claude[(1, account)]
+    for _ in range(100):
+        if native.state.login_url:
+            break
+        await asyncio.sleep(0.01)
+    assert native.state.login_url
+
+    for confirmed in (False, True):
+        if confirmed:
+            assert (
+                await anon.post("/api/auth/reauth", json={"password": ADMIN["password"]})
+            ).status_code == 204
+        state = (await anon.get(base + "/state")).json()
+        assert state["phase"] == "disconnected" and state["login_url"] is None
+        assert state["setup_text"] == "" and state["remote_url"] is None
+        assert (await anon.get(base + "/stream")).status_code == 403
+        assert (await anon.post(base + "/stop")).status_code == 403
+        assert (
+            await anon.post(base + "/setup", json={"action": "code", "code": "ATTACKER"})
+        ).status_code == 403
+        assert cluster["claude_inputs"] == []
+
+    login_id = next(
+        row["id"] for row in (await client.get("/api/auth/sessions")).json() if row["current"]
+    )
+    response = await stream(account, await stream_request(services, login_id), 1, services)
+    iterator = response.body_iterator
+    try:
+        assert "https://claude.ai/oauth/authorize" in await anext(iterator)
+        assert (await client.post("/api/auth/logout")).status_code == 204
+        native.changed()
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(anext(iterator), 1)
+    finally:
+        await iterator.aclose()
+
+
+def test_history_lists_the_newest_conversations_beyond_the_scan_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(claude_history, "MAX_PROJECTS", 1)
+    monkeypatch.setattr(claude_history, "MAX_FILES", 1)
+    for age, name in enumerate(["new", "old", "older"]):
+        project = tmp_path / "projects" / f"-scratch-{name}"
+        project.mkdir(parents=True)
+        for minutes in (0, 1):
+            transcript = project / f"{age}{minutes}{SESSION[2:]}.jsonl"
+            transcript.write_text(json.dumps({"type": "user", "cwd": f"/scratch/{name}"}))
+            stamp = 1_000_000 - age * 1000 - minutes * 60
+            os.utime(transcript, (stamp, stamp))
+        os.utime(project, (1_000_000 - age * 1000,) * 2)
+    result = sessions(str(tmp_path))
+    assert [item["id"] for item in result] == ["00" + SESSION[2:]]

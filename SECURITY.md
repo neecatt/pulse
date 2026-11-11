@@ -26,7 +26,11 @@ falls short.
 - **Sign-in.** Passwords are hashed with scrypt; sessions are random 256-bit
   tokens in an HttpOnly, SameSite=Lax cookie (Secure over HTTPS), stored only as
   hashes. Failed sign-ins are limited per address and per username, sign-ups per
-  address. Passkeys use single-use, expiring challenges.
+  address. Password changes and password confirmations share the sign-in limits.
+  Adding or removing passkeys requires recent authentication; registration and
+  confirmation challenges are single-use, expiring and bound to the browser's
+  session token hash. Live streams recheck that same credential before each
+  update and on idle keepalives, and close after revocation or expiry.
 - **Requests.** State-changing requests from other websites are refused (Origin
   check), responses carry a strict Content Security Policy and HSTS, and request
   bodies over 1 MB (16 MB for agent reports) are refused before they're read.
@@ -68,7 +72,9 @@ falls short.
 - **Optional assistants** are off by default. Only an owned, real direct SSH
   account can run Codex's app-server or native Claude Code Remote Control; demo
   guests, shared accounts and reporting agents cannot. A fresh password or
-  passkey confirmation is required to open connections or resume chats.
+  passkey confirmation is required to open connections or resume chats. Each
+  browser must explicitly connect before reading assistant state/history or
+  sending prompts and approvals; another browser's connection grants no access.
   Codex's official device-login links/codes are shown in Pulse; its OAuth tokens
   and transcripts stay with the cluster CLI. Claude uses its own CLI login;
   an optional one-time authorization code is passed to that CLI without storage,

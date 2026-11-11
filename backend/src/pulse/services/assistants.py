@@ -7,11 +7,12 @@ Pulse never reads auth.json, receives OAuth tokens, or asks for an API key.
 import asyncio
 import contextlib
 import json
+import logging
 import secrets
 import shlex
 import time
 from collections import OrderedDict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -45,6 +46,8 @@ from pulse.schemas import (
 from pulse.services.claude import HISTORY_SCRIPT, ClaudeSession, remote_command
 from pulse.slurm.base import AccountRef, HostKeys, SlurmError
 from pulse.slurm.ssh import SshSlurmClient
+
+logger = logging.getLogger(__name__)
 
 TRAINING_INSTRUCTIONS = (
     "You are running on an HPC login node through Pulse. Use Slurm for training "
@@ -120,10 +123,13 @@ class CodexConnection:
         self.account = AssistantConnection(connected=True, signed_in=False)
         self.pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self.approvals: dict[str, PendingApproval] = {}
-        self.messages: OrderedDict[str, OrderedDict[str, AssistantMessage]] = OrderedDict()
+        # thread -> item -> (revision it last changed in, item), so streams send only changes
+        self.messages: OrderedDict[str, OrderedDict[str, tuple[int, AssistantMessage]]] = (
+            OrderedDict()
+        )
         self.active: dict[str, str] = {}
         self.allowed_threads: set[str] = set()  # only explicitly opened conversations can act
-        self.authorized_logins: set[int] = set()
+        self.authorized_logins: set[str] = set()
         self.login: AssistantLogin | None = None
         self.login_id: str | None = None
         self.error: str | None = None
@@ -274,8 +280,7 @@ class CodexConnection:
             "item/plan/delta",
         }:
             item_id = str(params.get("itemId", ""))
-            items = self.messages.setdefault(thread_id, OrderedDict())
-            item = items.get(item_id)
+            item = self._item(thread_id, item_id)
             if item is None:
                 item = AssistantMessage(
                     id=item_id,
@@ -297,18 +302,22 @@ class CodexConnection:
             self.error = "Codex reported a problem. Check your plan access and cluster setup."
         self.changed()
 
+    def _item(self, thread_id: str, item_id: str) -> AssistantMessage | None:
+        stored = self.messages.get(thread_id, OrderedDict()).get(item_id)
+        return stored[1] if stored else None
+
     def _remember(self, thread_id: str, item: AssistantMessage) -> None:
         if not thread_id:
             return
         items = self.messages.setdefault(thread_id, OrderedDict())
-        items[item.id] = item
+        items[item.id] = (self.revision + 1, item)  # changed() bumps revision to match
         while len(items) > ASSISTANT_MAX_ITEMS:
             items.popitem(last=False)
         self.messages.move_to_end(thread_id)
         while len(self.messages) > ASSISTANT_MAX_SESSIONS:
             self.messages.popitem(last=False)
         while (
-            sum(len(item.text) for items in self.messages.values() for item in items.values())
+            sum(len(item.text) for items in self.messages.values() for _, item in items.values())
             > ASSISTANT_MAX_STATE_CHARS
         ):
             oldest_thread = next(iter(self.messages))
@@ -345,8 +354,7 @@ class CodexConnection:
             return
         kind = supported[method]
         item_id = str(params.get("itemId", ""))
-        items = self.messages.get(thread_id)
-        current = items.get(item_id) if items else None
+        current = self._item(thread_id, item_id)
         detail = str(
             params.get("command")
             or (current.text if current else "")
@@ -394,10 +402,16 @@ class CodexConnection:
         ]:
             await self.decide(key, False, {})
 
-    def snapshot(self) -> AssistantLive:
+    def snapshot(self, since: int | None = None) -> AssistantLive:
+        """Everything, or with ``since`` only the items changed after that revision."""
+        messages = {
+            key: [item for revision, item in items.values() if since is None or revision > since]
+            for key, items in self.messages.items()
+        }
         return AssistantLive(
             connection=self.account,
-            messages={key: list(items.values()) for key, items in self.messages.items()},
+            messages={key: items for key, items in messages.items() if items or since is None},
+            partial=since is not None,
             active=self.active,
             opened=list(self.allowed_threads),
             approvals=[pending.item for pending in self.approvals.values()],
@@ -455,7 +469,31 @@ class Assistants:
         self.ssh = ssh
         self._connections: dict[tuple[int, int], CodexConnection] = {}
         self.claude: dict[tuple[int, int], ClaudeSession] = {}
+        # Slow SSH work runs under a per-account lock; the shared lock only reserves
+        # capacity, so one unreachable cluster never blocks other users.
         self._lock = asyncio.Lock()
+        self._locks: dict[tuple[str, int, int], asyncio.Lock] = {}
+        self._starting: set[tuple[str, int, int]] = set()
+
+    @contextlib.asynccontextmanager
+    async def _reserve(
+        self, kind: str, key: tuple[int, int], open_keys: Iterable[tuple[int, int]], message: str
+    ) -> AsyncIterator[None]:
+        """Hold ``kind``'s lock for ``key``, counting it against the connection limits."""
+        slot = (kind, *key)
+        async with self._locks.setdefault(slot, asyncio.Lock()):
+            async with self._lock:
+                taken = set(open_keys) | {(u, a) for k, u, a in self._starting if k == kind}
+                if key not in taken and (
+                    len(taken) >= ASSISTANT_MAX_CONNECTIONS
+                    or sum(owner == key[0] for owner, _ in taken) >= ASSISTANT_MAX_SESSIONS
+                ):
+                    raise SlurmError(message)
+                self._starting.add(slot)
+            try:
+                yield
+            finally:
+                self._starting.discard(slot)
 
     async def claude_transport(
         self, account: AccountRef
@@ -483,14 +521,13 @@ class Assistants:
         work_dir: str = "",
         session_id: str | None = None,
     ) -> tuple[ClaudeSession, HostKeys]:
-        async with self._lock:
-            key = (account.owner_id, account_id)
-            if key not in self.claude and (
-                len(self.claude) >= ASSISTANT_MAX_CONNECTIONS
-                or sum(owner == account.owner_id for owner, _ in self.claude)
-                >= ASSISTANT_MAX_SESSIONS
-            ):
-                raise SlurmError("Disconnect another Claude session before opening this one.")
+        key = (account.owner_id, account_id)
+        async with self._reserve(
+            "claude",
+            key,
+            self.claude,
+            "Disconnect another Claude session before opening this one.",
+        ):
             conn, keys = await self.claude_transport(account)
             if not login:
                 status = await conn.run(
@@ -579,21 +616,21 @@ class Assistants:
     async def connect(
         self, account: AccountRef, account_id: int
     ) -> tuple[CodexConnection, HostKeys]:
-        async with self._lock:
-            existing = self.get(account.owner_id, account_id)
+        key = (account.owner_id, account_id)
+        if self.ssh is None or account.simulated_since is not None:
+            raise SlurmError("Assistants need a real cluster connected directly over SSH.")
+        async with self._reserve(
+            "codex",
+            key,
+            (k for k, c in self._connections.items() if c.connected),
+            "Disconnect another cluster assistant before connecting this one.",
+        ):
+            existing = self.get(*key)
             if existing is not None and existing.connected:
                 return existing, HostKeys()
             if existing is not None:
                 await existing.close()
-                del self._connections[(account.owner_id, account_id)]
-            if self.ssh is None or account.simulated_since is not None:
-                raise SlurmError("Assistants need a real cluster connected directly over SSH.")
-            if (
-                len(self._connections) >= ASSISTANT_MAX_CONNECTIONS
-                or sum(key[0] == account.owner_id for key in self._connections)
-                >= ASSISTANT_MAX_SESSIONS
-            ):
-                raise SlurmError("Disconnect another cluster assistant before connecting this one.")
+                self._connections.pop(key, None)
             conn, keys = await self.ssh.connection(account)
             probe = await conn.run(
                 login_command("command -v codex >/dev/null"),
@@ -616,7 +653,7 @@ class Assistants:
             except BaseException:
                 await connection.close()
                 raise
-            self._connections[(account.owner_id, account_id)] = connection
+            self._connections[key] = connection
             return connection, keys
 
     async def disconnect(self, user_id: int, account_id: int) -> None:
@@ -630,72 +667,79 @@ class Assistants:
     async def watch(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         while True:
             await asyncio.sleep(ASSISTANT_CHECK_SECONDS)
-            for user_id, account_id in self.keys():
-                connection = self.get(user_id, account_id)
-                if connection is None:
-                    continue
-                async with sessions() as db:
-                    account = await db.get(Account, account_id)
-                    user = await db.get(User, user_id)
-                    valid_login = await db.scalar(
-                        select(LoginSession.id)
-                        .where(
-                            LoginSession.id.in_(connection.authorized_logins),
-                            LoginSession.user_id == user_id,
-                            LoginSession.expires_at > utcnow(),
-                        )
-                        .limit(1)
+            try:
+                await self.check(sessions)
+            except Exception:
+                # Keep enforcing revocation and idle limits on the next pass.
+                logger.exception("assistant check failed")
+
+    async def check(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        """Close connections whose owner, account or login is no longer valid, or idle."""
+        for user_id, account_id in self.keys():
+            connection = self.get(user_id, account_id)
+            if connection is None:
+                continue
+            async with sessions() as db:
+                account = await db.get(Account, account_id)
+                user = await db.get(User, user_id)
+                valid_login = await db.scalar(
+                    select(LoginSession.id)
+                    .where(
+                        LoginSession.token_hash.in_(connection.authorized_logins),
+                        LoginSession.user_id == user_id,
+                        LoginSession.expires_at > utcnow(),
                     )
-                valid = (
-                    account is not None
-                    and account.user_id == user_id
-                    and account.connection == "direct"
-                    and not account.simulated
-                    and user is not None
-                    and not user.is_guest
-                    and valid_login is not None
-                    and self.settings.assistants_enabled
+                    .limit(1)
                 )
-                idle = (
-                    not connection.active
-                    and time.monotonic() - connection.last_used
-                    > self.settings.assistant_idle_seconds
-                )
-                if not valid or idle or not connection.connected:
-                    await self.disconnect(user_id, account_id)
-                else:
-                    with contextlib.suppress(SlurmError, asyncssh.Error, OSError):
-                        await connection.expire_approvals()
-            for (user_id, account_id), native in list(self.claude.items()):
-                async with sessions() as db:
-                    account = await db.get(Account, account_id)
-                    user = await db.get(User, user_id)
-                    login = await db.scalar(
-                        select(LoginSession.id)
-                        .where(
-                            LoginSession.id.in_(native.authorized_logins),
-                            LoginSession.user_id == user_id,
-                            LoginSession.expires_at > utcnow(),
-                        )
-                        .limit(1)
+            valid = (
+                account is not None
+                and account.user_id == user_id
+                and account.connection == "direct"
+                and not account.simulated
+                and user is not None
+                and not user.is_guest
+                and valid_login is not None
+                and self.settings.assistants_enabled
+            )
+            idle = (
+                not connection.active
+                and time.monotonic() - connection.last_used > self.settings.assistant_idle_seconds
+            )
+            if not valid or idle or not connection.connected:
+                await self.disconnect(user_id, account_id)
+            else:
+                with contextlib.suppress(SlurmError, asyncssh.Error, OSError):
+                    await connection.expire_approvals()
+        for (user_id, account_id), native in list(self.claude.items()):
+            async with sessions() as db:
+                account = await db.get(Account, account_id)
+                user = await db.get(User, user_id)
+                login = await db.scalar(
+                    select(LoginSession.id)
+                    .where(
+                        LoginSession.token_hash.in_(native.authorized_logins),
+                        LoginSession.user_id == user_id,
+                        LoginSession.expires_at > utcnow(),
                     )
-                valid = (
-                    account is not None
-                    and account.user_id == user_id
-                    and account.connection == "direct"
-                    and not account.simulated
-                    and user is not None
-                    and not user.is_guest
-                    and login is not None
-                    and self.settings.assistants_enabled
+                    .limit(1)
                 )
-                # Native Remote Control owns its activity; don't idle out someone
-                # who is working in the Claude app rather than in the Pulse tab.
-                idle = native.state.phase != "ready" and (
-                    time.monotonic() - native.last_used > self.settings.assistant_idle_seconds
-                )
-                if not valid or idle:
-                    await self.stop_claude(user_id, account_id)
+            valid = (
+                account is not None
+                and account.user_id == user_id
+                and account.connection == "direct"
+                and not account.simulated
+                and user is not None
+                and not user.is_guest
+                and login is not None
+                and self.settings.assistants_enabled
+            )
+            # Native Remote Control owns its activity; don't idle out someone
+            # who is working in the Claude app rather than in the Pulse tab.
+            idle = native.state.phase != "ready" and (
+                time.monotonic() - native.last_used > self.settings.assistant_idle_seconds
+            )
+            if not valid or idle:
+                await self.stop_claude(user_id, account_id)
 
     async def close(self) -> None:
         for user_id, account_id in self.keys():

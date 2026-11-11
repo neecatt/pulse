@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from pulse.api.deps import CurrentUser, CurrentUserId, ServicesDep
+from pulse.api.deps import CurrentUser, CurrentUserId, ServicesDep, session_is_active
 from pulse.constants import STREAM_KEEPALIVE_SECONDS
 from pulse.schemas import SetupInfo
 
@@ -21,14 +21,17 @@ async def stream(
 
     async def events() -> AsyncIterator[str]:
         async with services.broadcaster.subscribe(user_id) as queue:
+            if not await session_is_active(services, user_id, request.state.login_session_hash):
+                return
             yield "retry: 3000\n\n"
             while not await request.is_disconnected():
                 try:
                     message = await asyncio.wait_for(queue.get(), STREAM_KEEPALIVE_SECONDS)
                 except TimeoutError:
-                    yield ": keepalive\n\n"
-                else:
-                    yield f"data: {message}\n\n"
+                    message = None
+                if not await session_is_active(services, user_id, request.state.login_session_hash):
+                    return
+                yield f"data: {message}\n\n" if message is not None else ": keepalive\n\n"
 
     return StreamingResponse(
         events(),

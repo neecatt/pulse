@@ -3,6 +3,36 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-11 — Assistant robustness (`fix/session-security`)
+
+- The assistant watchdog logs a failed check and keeps running, so revocation,
+  idle timeouts and approval expiry stay enforced after a transient DB error.
+- Codex streams send only the messages changed since the previous update
+  (`AssistantLive.partial`); the app merges them into what it already has.
+- Connecting Codex or Claude locks only that account; a shared lock just
+  reserves capacity, so a slow cluster no longer blocks other users.
+- The Claude history reader keeps the newest project directories and
+  transcripts instead of the first ones the filesystem returns.
+
+## 2026-11-08 — Session security (`fix/session-security`)
+
+- Require recent authentication when adding or deleting passkeys, including at
+  registration verification. Reuse inline password/passkey confirmation in the
+  settings and passkey hint, and retry the requested change after confirmation.
+- Share password-guessing limits across login, password confirmation and password
+  changes, so changing endpoints cannot bypass a lockout.
+- Bind Codex and Claude access to the confirmed browser that connected them;
+  another session cannot read transcripts, setup links or approvals, send prompts,
+  approve commands or stop its connection without explicitly connecting itself.
+- Revalidate live streams before sending updates and on idle keepalives. Logout,
+  session revocation, password changes and expiry close the original stream.
+- Use session token hashes for grants, challenges and stream identity, so reused
+  SQLite session ids cannot inherit access. No schema changes or new dependencies.
+- Add regression coverage for the reported attacks, cross-endpoint lockouts,
+  browser isolation, revocation/expiry and reused ids, plus inline passkey UI flows.
+- Validation: 264 backend tests and 81 frontend tests pass; lint, formatting,
+  backend/frontend type checks and the production web build pass.
+
 ## 2026-11-07 — Claude Code and Codex cluster conversations (`feat/remote-assistants`)
 
 - **Assistants** opens a native chat UI backed by `codex app-server` on an owned,

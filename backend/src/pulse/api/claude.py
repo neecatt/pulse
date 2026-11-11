@@ -1,36 +1,50 @@
 """Claude Code's own sign-in and Remote Control. No subscription-token proxy."""
 
 import asyncio
-import time
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from pulse.api.assistants import account_for, require_verified
-from pulse.api.deps import CurrentUser, CurrentUserId, ServicesDep, SessionDep
+from pulse.api.assistants import account_for
+from pulse.api.deps import (
+    CurrentUser,
+    CurrentUserId,
+    ServicesDep,
+    SessionDep,
+    require_assistant_login,
+    require_verified,
+    session_is_active,
+)
 from pulse.constants import STREAM_KEEPALIVE_SECONDS
-from pulse.models import AssistantAudit, LoginSession, User, utcnow
+from pulse.models import AssistantAudit, User
 from pulse.schemas import AssistantThreads, ClaudeInput, ClaudeStart, ClaudeState
 from pulse.services.claude import ClaudeSession, claude_errors
 
 router = APIRouter(prefix="/assistants/{account_id}/claude", tags=["assistants"])
 
 
-def native_session(services: ServicesDep, user_id: int, account_id: int) -> ClaudeSession:
+def native_session(
+    services: ServicesDep, user_id: int, account_id: int, request: Request
+) -> ClaudeSession:
     native = services.assistants.claude.get((user_id, account_id))
     if native is None:
         raise HTTPException(409, "Open Claude on this cluster first.")
+    require_assistant_login(request, native.authorized_logins)
     return native
 
 
 @router.get("/state")
 async def state(
-    account_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
+    account_id: int, request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> ClaudeState:
     await account_for(session, user, account_id, services)
     native = services.assistants.claude.get((user.id, account_id))
-    return native.state if native else ClaudeState(phase="disconnected")
+    return (
+        native.state
+        if native and request.state.login_session_hash in native.authorized_logins
+        else ClaudeState(phase="disconnected")
+    )
 
 
 @router.get("/threads")
@@ -60,7 +74,7 @@ async def login(
             account_id,
             login=True,
         )
-    native.authorized_logins.add(request.state.login_session_id)
+    native.authorized_logins.add(request.state.login_session_hash)
     account.pin_host_keys(keys)
     session.add(
         AssistantAudit(user_id=user.id, session_id=str(account_id), action="claude_login_started")
@@ -88,7 +102,7 @@ async def start(
             work_dir=body.work_dir,
             session_id=body.session_id,
         )
-    native.authorized_logins.add(request.state.login_session_id)
+    native.authorized_logins.add(request.state.login_session_hash)
     account.pin_host_keys(keys)
     session.add(
         AssistantAudit(
@@ -112,7 +126,7 @@ async def setup(
 ) -> None:
     await require_verified(request, session)
     await account_for(session, user, account_id, services)
-    native = native_session(services, user.id, account_id)
+    native = native_session(services, user.id, account_id, request)
     try:
         async with claude_errors():
             await native.input(body.action, body.code)
@@ -122,9 +136,12 @@ async def setup(
 
 @router.post("/stop", status_code=204)
 async def stop(
-    account_id: int, session: SessionDep, user: CurrentUser, services: ServicesDep
+    account_id: int, request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> None:
     await account_for(session, user, account_id, services)
+    native = services.assistants.claude.get((user.id, account_id))
+    if native is not None:
+        require_assistant_login(request, native.authorized_logins)
     await services.assistants.stop_claude(user.id, account_id)
     session.add(
         AssistantAudit(user_id=user.id, session_id=str(account_id), action="claude_remote_stopped")
@@ -140,24 +157,27 @@ async def stream(
         user = await db.get(User, user_id)
         assert user is not None
         await account_for(db, user, account_id, services)
-    native = native_session(services, user_id, account_id)
+    native = native_session(services, user_id, account_id, request)
 
     async def events() -> AsyncIterator[str]:
         async with native.subscribe() as queue:
+            if not await session_is_active(services, user_id, request.state.login_session_hash):
+                return
             yield f"data: {native.state.model_dump_json()}\n\n"
-            last_auth = time.monotonic()
             while not await request.is_disconnected():
-                if time.monotonic() - last_auth >= STREAM_KEEPALIVE_SECONDS:
-                    async with services.sessions() as db:
-                        login = await db.get(LoginSession, request.state.login_session_id)
-                        if login is None or login.expires_at <= utcnow():
-                            return
-                    last_auth = time.monotonic()
                 try:
                     await asyncio.wait_for(queue.get(), STREAM_KEEPALIVE_SECONDS)
                 except TimeoutError:
+                    if not await session_is_active(
+                        services, user_id, request.state.login_session_hash
+                    ):
+                        return
                     yield ": keepalive\n\n"
                 else:
+                    if not await session_is_active(
+                        services, user_id, request.state.login_session_hash
+                    ):
+                        return
                     yield f"data: {native.state.model_dump_json()}\n\n"
                 if not native.connected:
                     return
