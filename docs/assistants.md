@@ -109,8 +109,9 @@ credentials do not enable Remote Control; the CLI needs its native subscription
 sign-in. CLI login or project setup can be completed through the Pulse panel,
 so a laptop is not required. No extra Python packages are installed on the
 cluster; a bounded stdlib-only Python 3 script reads recent transcript metadata,
-not credential files. It scans at most 128 project directories and 512 candidate
-transcripts and returns up to 50 recent conversations. Custom config directories
+not credential files. It considers the 128 most recently changed project
+directories and the 512 newest transcripts in them, and returns up to 50 recent
+conversations. Custom config directories
 reported by the current CLI are respected.
 
 Closing Pulse keeps Claude's Remote Control process running. It does not idle

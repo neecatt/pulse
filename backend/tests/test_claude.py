@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import shlex
 from datetime import timedelta
 from pathlib import Path
@@ -9,6 +10,7 @@ import pytest
 from httpx import AsyncClient
 
 from pulse.api.claude import stream
+from pulse.assistants import claude_history
 from pulse.assistants.claude_history import sessions
 from pulse.models import LoginSession, utcnow
 from pulse.services.claude import provider_url, remote_command
@@ -191,3 +193,21 @@ async def test_claude_state_setup_and_stream_are_bound_to_the_opening_login(
             await asyncio.wait_for(anext(iterator), 1)
     finally:
         await iterator.aclose()
+
+
+def test_history_lists_the_newest_conversations_beyond_the_scan_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(claude_history, "MAX_PROJECTS", 1)
+    monkeypatch.setattr(claude_history, "MAX_FILES", 1)
+    for age, name in enumerate(["new", "old", "older"]):
+        project = tmp_path / "projects" / f"-scratch-{name}"
+        project.mkdir(parents=True)
+        for minutes in (0, 1):
+            transcript = project / f"{age}{minutes}{SESSION[2:]}.jsonl"
+            transcript.write_text(json.dumps({"type": "user", "cwd": f"/scratch/{name}"}))
+            stamp = 1_000_000 - age * 1000 - minutes * 60
+            os.utime(transcript, (stamp, stamp))
+        os.utime(project, (1_000_000 - age * 1000,) * 2)
+    result = sessions(str(tmp_path))
+    assert [item["id"] for item in result] == ["00" + SESSION[2:]]

@@ -3,11 +3,12 @@
 Executed with python3 -c over SSH. Reads transcript JSONL, never credentials.
 """
 
+import heapq
 import json
 import os
 import re
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 UUID_FILE = re.compile(r"^[0-9a-fA-F-]{36}\.jsonl$")
 MAX_PROJECTS = 128
@@ -61,34 +62,40 @@ def read_metadata(path: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def sessions(root: str) -> List[Dict[str, Any]]:
-    projects = os.path.join(root, "projects")
-    candidates = []
+def newest(directory: str, limit: int, keep: Callable[[Any], bool]) -> List[Tuple[float, str]]:
+    """The ``limit`` most recently modified entries of ``directory`` that ``keep`` accepts."""
+    found = []  # type: List[Tuple[float, str]]
     try:
-        with os.scandir(projects) as entries:
-            dirs = []
-            for index, entry in enumerate(entries):
-                if index >= MAX_PROJECTS:
-                    break
-                if entry.is_dir(follow_symlinks=False):
-                    dirs.append((entry.stat().st_mtime, entry.path))
-                if len(dirs) >= MAX_PROJECTS:
-                    break
-        for _, directory in sorted(dirs, reverse=True):
-            with os.scandir(directory) as entries:
-                for index, entry in enumerate(entries):
-                    if index >= MAX_FILES:
-                        break
-                    if UUID_FILE.fullmatch(entry.name) and entry.is_file(follow_symlinks=False):
-                        candidates.append((entry.stat().st_mtime, entry.path))
-                    if len(candidates) >= MAX_FILES:
-                        break
-            if len(candidates) >= MAX_FILES:
-                break
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                try:
+                    if keep(entry):
+                        item = (entry.stat(follow_symlinks=False).st_mtime, entry.path)
+                        if len(found) < limit:
+                            heapq.heappush(found, item)
+                        else:
+                            heapq.heappushpop(found, item)
+                except OSError:
+                    continue
     except OSError:
-        pass
+        return []
+    return sorted(found, reverse=True)
+
+
+def is_transcript(entry: Any) -> bool:
+    return bool(UUID_FILE.fullmatch(entry.name)) and entry.is_file(follow_symlinks=False)
+
+
+def sessions(root: str) -> List[Dict[str, Any]]:
+    directories = newest(
+        os.path.join(root, "projects"), MAX_PROJECTS, lambda e: e.is_dir(follow_symlinks=False)
+    )
+    candidates = heapq.nlargest(
+        MAX_FILES,
+        (item for _, path in directories for item in newest(path, MAX_FILES, is_transcript)),
+    )
     result = []
-    for _, path in sorted(candidates, reverse=True):
+    for _, path in candidates:
         item = read_metadata(path)
         if item:
             result.append(item)
