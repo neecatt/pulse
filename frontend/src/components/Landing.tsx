@@ -1,4 +1,5 @@
-import { ArrowLeft } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useTryDemo } from "@/api/queries";
@@ -8,7 +9,9 @@ import { cn } from "@/lib/utils";
 import { AccountDot } from "./AccountDot";
 import { AuthPanel } from "./AuthScreen";
 import { Button } from "./Button";
+import { CopyButton } from "./CopyButton";
 import { Card } from "./Section";
+import { GitHubLink, SiteHeader } from "./SiteHeader";
 import { Sparkline } from "./Sparkline";
 import { StateBadge } from "./StateBadge";
 
@@ -32,14 +35,11 @@ export function Landing({ status }: { status: AuthStatus }) {
 
   return (
     <div className="min-h-dvh">
-      <header className="pt-safe mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-        <div className="flex items-center gap-2 font-mono text-sm font-medium">
-          <span className="size-2 animate-pulse rounded-full bg-run" /> pulse
-        </div>
+      <SiteHeader>
         <Button variant="ghost" onClick={() => setPanel("login")}>
           Sign in
         </Button>
-      </header>
+      </SiteHeader>
 
       <main className="mx-auto max-w-6xl px-4 pb-16">
         <section className="grid grid-cols-1 items-center gap-10 py-10 md:grid-cols-2 md:py-20">
@@ -104,25 +104,88 @@ export function Landing({ status }: { status: AuthStatus }) {
         </section>
 
         <section className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map(([title, text]) => (
+          {FEATURES.map(([title, text, guide]) => (
             <div key={title} className="bg-surface p-5">
               <h2 className="text-sm font-medium">{title}</h2>
               <p className="mt-1.5 text-sm text-muted-foreground">{text}</p>
+              {guide && (
+                <Link
+                  to="/docs/$slug"
+                  params={{ slug: guide.slug }}
+                  hash={guide.hash}
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium hover:underline"
+                >
+                  {guide.label} <ArrowRight className="size-3" />
+                </Link>
+              )}
             </div>
           ))}
         </section>
 
+        <SelfHost />
+
         <footer className="mt-12 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
           <span>Your accounts and jobs are private to you.</span>
-          <span>
-            Open source. Run your own:{" "}
-            <code className="font-mono whitespace-nowrap text-foreground">
-              docker run neecat/pulse
-            </code>
+          <span className="flex flex-wrap items-center gap-4">
+            <Link
+              to="/docs/$slug"
+              params={{ slug: "self-hosting" }}
+              className="hover:text-foreground"
+            >
+              Self-hosting guide
+            </Link>
+            <GitHubLink label="Source on GitHub" />
           </span>
         </footer>
       </main>
     </div>
+  );
+}
+
+const TRY_LOCALLY = "docker run --rm -p 8000:8000 \\\n  -e PULSE_SLURM_BACKEND=mock neecat/pulse";
+
+/** Open source: how to run your own, with the guide and the code one click away. */
+function SelfHost() {
+  return (
+    <section className="mt-12 grid items-center gap-8 rounded-lg border bg-surface p-6 md:grid-cols-2 md:p-10">
+      <div className="space-y-4">
+        <p className="font-mono text-xs tracking-wider text-muted-foreground uppercase">
+          Open source · MIT
+        </p>
+        <h2 className="text-2xl font-medium tracking-tight text-balance">
+          Run Pulse on your own server.
+        </h2>
+        <p className="max-w-md text-sm text-muted-foreground">
+          One container and one volume, with no database to run. Put it behind Caddy, Tailscale or a
+          platform like Railway, and your SSH keys and job data stay on your machine.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to="/docs/$slug"
+            params={{ slug: "self-hosting" }}
+            className="inline-flex h-10 items-center gap-1.5 rounded-md bg-foreground px-4 text-sm font-medium text-background hover:bg-foreground/90"
+          >
+            Read the self-hosting guide <ArrowRight className="size-4" />
+          </Link>
+          <GitHubLink
+            label="View on GitHub"
+            className="h-10 border px-4 text-sm font-medium text-foreground hover:bg-muted"
+          />
+        </div>
+      </div>
+      <div className="min-w-0 space-y-2">
+        <p className="text-xs text-muted-foreground">Try it locally with a simulated cluster:</p>
+        <div className="flex items-start gap-2 rounded-lg border bg-background p-3">
+          <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-[13px] leading-6">
+            {TRY_LOCALLY}
+          </pre>
+          <CopyButton text={TRY_LOCALLY} />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Then open <span className="font-mono">localhost:8000</span>.
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -132,7 +195,9 @@ function initialPanel(): Panel {
   return start === "signup" || start === "login" ? start : null;
 }
 
-const FEATURES: [string, string][] = [
+type Guide = { label: string; slug: string; hash: string };
+
+const FEATURES: [string, string, Guide?][] = [
   ["Live, not refreshed", "Jobs change on screen the moment Slurm reports them."],
   [
     "Curves without code changes",
@@ -141,6 +206,7 @@ const FEATURES: [string, string][] = [
   [
     "Alerts on your phone",
     "Started, finished, failed, stalled, NaN loss, near the time limit. Add Pulse to your home screen.",
+    { label: "Turning on alerts", slug: "self-hosting", hash: "push-notifications" },
   ],
   [
     "Every cluster in one list",
@@ -149,6 +215,7 @@ const FEATURES: [string, string][] = [
   [
     "Works behind 2FA",
     "Where outside SSH isn't allowed, a small agent on the login node reports in instead.",
+    { label: "Ways to connect", slug: "self-hosting", hash: "connecting-clusters" },
   ],
   ["Share with your lab", "Your team follows the runs you choose, live and read-only."],
 ];

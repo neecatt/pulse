@@ -10,6 +10,8 @@ WORKDIR /web
 COPY frontend/package.json frontend/bun.lockb frontend/bunfig.toml ./
 RUN bun install --frozen-lockfile
 COPY frontend/ ./
+# The public guides under /docs are rendered from these.
+COPY docs/*.md /docs/
 RUN bun run build
 
 # 2. Runtime

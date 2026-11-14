@@ -26,11 +26,15 @@ function RootLayout() {
   const { data: status, isPending } = useAuthStatus();
   // Invite links work signed out: the page offers to create an account.
   const joining = useRouterState({ select: (s) => s.location.pathname.startsWith("/join/") });
+  // Guides are public and have their own layout, signed in or not.
+  const docs = useRouterState({ select: (s) => s.location.pathname.startsWith("/docs") });
   const me = status?.user;
   return (
     <>
       <HeadContent />
-      {isPending || !status ? null : me ? (
+      {docs ? (
+        <Outlet />
+      ) : isPending || !status ? null : me ? (
         <SignedInApp me={me} />
       ) : joining ? (
         <Outlet />

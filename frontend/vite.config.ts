@@ -17,6 +17,8 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5173,
+      // The public docs pages render the repository's docs/*.md.
+      fs: { allow: [".", "../docs"] },
       proxy: { "/api": { target: apiTarget, changeOrigin: true } },
     },
   };

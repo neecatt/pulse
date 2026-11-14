@@ -13,4 +13,5 @@
 **/.mypy_cache
 **/.ruff_cache
 backend/data
-docs
+# The web app publishes docs/*.md as guides; the README images aren't needed.
+docs/assets

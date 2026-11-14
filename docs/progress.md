@@ -3,6 +3,19 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Self-hosting guide on the site (`feat/self-hosting-guide`)
+
+- `docs/deployment.md` is now a full self-hosting guide: requirements, a local
+  try-out, a setup comparison, container platforms (Railway, Render, Fly.io),
+  first sign-in, a configuration reference, upgrades and troubleshooting.
+- The site publishes it at `/docs/self-hosting` (and the assistant guide at
+  `/docs/assistants`), with a sidebar and section links, from the same Markdown.
+  Laid out like openGym's docs: the contents follow the section you're reading,
+  and phones get a floating **Contents** button.
+- The landing page gets a "Run Pulse on your own server" section, feature cards
+  link to the matching guide section, and the header (**Docs**, **GitHub**) and
+  footer link to the guides and the repository.
+
 ## 2026-11-12 — Pre-release 0.3.0-rc.1
 
 - Claude Code and Codex on linked clusters, session security and assistant

@@ -220,8 +220,14 @@ src/
 ├── components/   presentational components; layout/AppShell.tsx (top bar + mobile tab bar)
 ├── hooks/        use-live-updates.ts (SSE), use-push.ts, use-copy.ts
 ├── lib/          pure logic: format, runs, smoothing, ssh-target, ui-settings, push, labels
-└── routes/       / (jobs), /jobs/$jobId, /runs, /compare, /activity, /accounts, /assistants, /settings
+└── routes/       / (jobs), /jobs/$jobId, /runs, /compare, /activity, /accounts, /assistants, /settings, /docs/$slug
 ```
+
+- Public guides: `/docs/$slug` renders the repository's `docs/*.md` (listed in
+  `lib/docs.ts`) for anyone, signed in or not, through the small parser in
+  `lib/markdown.ts`. The Docker build copies `docs/*.md` for it. Links between
+  guides stay on the site, other relative links go to GitHub, and a test fails
+  on any link to a missing section.
 
 - File-based routes live in `src/routes/`; `src/routeTree.gen.ts` is generated
   by the router plugin on `dev`/`build`. Commit it, never hand-edit it.
