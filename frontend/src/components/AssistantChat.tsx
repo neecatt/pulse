@@ -11,6 +11,7 @@ import { Button } from "@/components/Button";
 import { Card } from "@/components/Section";
 import { ASSISTANT_MAX_INPUT } from "@/config/constants";
 import { useAssistantAction, useAssistantHistory } from "@/hooks/use-assistant";
+import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
 import { mergeAssistantMessages, PROVIDER_NAMES } from "@/lib/assistant";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -50,6 +51,9 @@ export function AssistantChat({
   const working = id in live.active;
   const error = history.error ?? resume.error ?? send.error ?? interrupt.error;
   const approvals = live.approvals.filter((item) => item.thread_id === id);
+  // Changes whenever something new appears, including text streaming into a message.
+  const growth = `${messages.length}:${messages.reduce((n, m) => n + m.text.length, 0)}:${working}`;
+  const scroller = useStickToBottom<HTMLDivElement>(growth);
   return (
     <Card className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
@@ -70,7 +74,12 @@ export function AssistantChat({
           </Button>
         )}
       </div>
-      <div className="max-h-[55dvh] space-y-4 overflow-y-auto p-4" aria-label="Conversation">
+      <div
+        ref={scroller.ref}
+        onScroll={scroller.onScroll}
+        className="max-h-[55dvh] space-y-4 overflow-y-auto p-4"
+        aria-label="Conversation"
+      >
         {messages.map((item) =>
           item.role === "tool" ? (
             <details key={item.id} className="rounded-md border text-xs">
@@ -136,7 +145,12 @@ export function AssistantChat({
             onSubmit={(event) => {
               event.preventDefault();
               if (draft.trim() && !working && !send.isPending)
-                send.mutate(draft, { onSuccess: () => setDraft("") });
+                send.mutate(draft, {
+                  onSuccess: () => {
+                    setDraft("");
+                    scroller.follow();
+                  },
+                });
             }}
           >
             <textarea
