@@ -1,4 +1,6 @@
-"""Codex account connection, cluster-local chat history and live conversations."""
+"""Cluster assistants (Codex, Claude Code): connection, saved chats and live conversations.
+
+Every route takes ``?provider=codex|claude`` and works the same for both."""
 
 import asyncio
 import time
@@ -38,17 +40,15 @@ from pulse.schemas import (
     AssistantThreads,
     AssistantTurn,
 )
-from pulse.services.assistants import (
-    PERMISSIONS,
-    TRAINING_INSTRUCTIONS,
-    CodexConnection,
-    thread_info,
-)
+from pulse.services.assistants import CodexConnection, Provider
+from pulse.services.chat import ChatConnection
 from pulse.services.container import Services
 from pulse.slurm.base import SlurmError
 
 router = APIRouter(prefix="/assistants", tags=["assistants"])
 ThreadId = Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+ProviderQuery = Annotated[Provider, Query()]
+NAMES = {"codex": "Codex", "claude": "Claude"}
 
 
 async def account_for(
@@ -68,16 +68,16 @@ async def account_for(
 
 
 def connected(
-    services: Services, user_id: int, account_id: int, request: Request
-) -> CodexConnection:
-    connection = services.assistants.get(user_id, account_id)
+    services: Services, provider: Provider, user_id: int, account_id: int, request: Request
+) -> ChatConnection:
+    connection = services.assistants.get(provider, user_id, account_id)
     if connection is None or not connection.connected:
-        raise HTTPException(409, "Connect Codex on this cluster first.")
+        raise HTTPException(409, f"Connect {NAMES[provider]} on this cluster first.")
     require_assistant_login(request, connection.authorized_logins)
     return connection
 
 
-def opened(connection: CodexConnection, thread_id: str) -> None:
+def opened(connection: ChatConnection, thread_id: str) -> None:
     if thread_id not in connection.allowed_threads:
         raise HTTPException(409, "Open this conversation before sending a prompt or an approval.")
 
@@ -102,10 +102,15 @@ async def audit(session: SessionDep, user: CurrentUser) -> list[AssistantAuditOu
 
 @router.get("/{account_id}/state")
 async def state(
-    account_id: int, request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
+    account_id: int,
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+    services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> AssistantLive:
     await account_for(session, user, account_id, services)
-    connection = services.assistants.get(user.id, account_id)
+    connection = services.assistants.get(provider, user.id, account_id)
     return (
         connection.snapshot()
         if connection and request.state.login_session_hash in connection.authorized_logins
@@ -121,24 +126,31 @@ async def state(
 
 @router.post("/{account_id}/connect")
 async def connect(
-    account_id: int, request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
+    account_id: int,
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+    services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> AssistantConnection:
     await require_verified(request, session)
     account = await account_for(session, user, account_id, services)
     try:
         connection, keys = await services.assistants.connect(
-            account.ref(public_only=not user.is_admin), account.id
+            provider, account.ref(public_only=not user.is_admin), account.id
         )
     except (SlurmError, asyncssh.Error, OSError, TimeoutError) as exc:
         message = (
             str(exc)
             if isinstance(exc, SlurmError)
-            else "Couldn't reach Codex. Check the cluster's SSH connection and retry."
+            else f"Couldn't reach {NAMES[provider]}. Check the cluster's SSH connection and retry."
         )
         raise HTTPException(400, message) from exc
     account.pin_host_keys(keys)
     connection.authorized_logins.add(request.state.login_session_hash)
-    session.add(AssistantAudit(user_id=user.id, session_id=str(account_id), action="connected"))
+    session.add(
+        AssistantAudit(user_id=user.id, session_id=str(account_id), action=f"{provider}_connected")
+    )
     await session.commit()
     return connection.account
 
@@ -149,7 +161,8 @@ async def login(
 ) -> AssistantLogin:
     await require_verified(request, session)
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id, request)
+    connection = connected(services, "codex", user.id, account_id, request)
+    assert isinstance(connection, CodexConnection)
     async with connection.action_lock:
         if connection.login is not None:
             return connection.login
@@ -167,14 +180,23 @@ async def login(
 
 @router.post("/{account_id}/disconnect", status_code=204)
 async def disconnect(
-    account_id: int, request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
+    account_id: int,
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+    services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> None:
     await account_for(session, user, account_id, services)
-    connection = services.assistants.get(user.id, account_id)
+    connection = services.assistants.get(provider, user.id, account_id)
     if connection is not None:
         require_assistant_login(request, connection.authorized_logins)
-    await services.assistants.disconnect(user.id, account_id)
-    session.add(AssistantAudit(user_id=user.id, session_id=str(account_id), action="disconnected"))
+    await services.assistants.disconnect(provider, user.id, account_id)
+    session.add(
+        AssistantAudit(
+            user_id=user.id, session_id=str(account_id), action=f"{provider}_disconnected"
+        )
+    )
     await session.commit()
 
 
@@ -186,9 +208,10 @@ async def threads(
     user: CurrentUser,
     services: ServicesDep,
     cursor: Annotated[str | None, Query(max_length=2048)] = None,
+    provider: ProviderQuery = "codex",
 ) -> AssistantThreads:
     await account_for(session, user, account_id, services)
-    return await connected(services, user.id, account_id, request).threads(cursor)
+    return await connected(services, provider, user.id, account_id, request).threads(cursor)
 
 
 @router.get("/{account_id}/threads/{thread_id}")
@@ -199,9 +222,10 @@ async def history(
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> AssistantConversation:
     await account_for(session, user, account_id, services)
-    return await connected(services, user.id, account_id, request).history(thread_id)
+    return await connected(services, provider, user.id, account_id, request).history(thread_id)
 
 
 @router.post("/{account_id}/threads", status_code=201)
@@ -212,17 +236,13 @@ async def new_thread(
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> AssistantThread:
     await require_verified(request, session)
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id, request)
+    connection = connected(services, provider, user.id, account_id, request)
     async with connection.action_lock:
-        result = await connection.rpc(
-            "thread/start",
-            {"cwd": body.work_dir, **PERMISSIONS, "developerInstructions": TRAINING_INSTRUCTIONS},
-        )
-        thread = thread_info(result["thread"])
-        connection.allow(thread.id)
+        thread = await connection.start_thread(body.work_dir)
     session.add(AssistantAudit(user_id=user.id, session_id=thread.id, action="chat_started"))
     await session.commit()
     return thread
@@ -236,10 +256,11 @@ async def resume(
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> AssistantThread:
     await require_verified(request, session)
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id, request)
+    connection = connected(services, provider, user.id, account_id, request)
     async with connection.action_lock:
         conversation = await connection.history(thread_id)
         # A remote transcript's paths are untrusted too. Never resume with a relative cwd.
@@ -251,19 +272,9 @@ async def resume(
                 "This conversation has no valid project directory. "
                 "Start a new chat with an absolute path.",
             ) from exc
-        if thread_id in connection.active:
-            return conversation.thread
-        result = await connection.rpc(
-            "thread/resume",
-            {
-                "threadId": thread_id,
-                "cwd": validated.work_dir,
-                **PERMISSIONS,
-                "developerInstructions": TRAINING_INSTRUCTIONS,
-            },
+        thread = await connection.resume_thread(
+            conversation.thread.model_copy(update={"work_dir": validated.work_dir})
         )
-        thread = thread_info(result["thread"])
-        connection.allow(thread.id)
     session.add(AssistantAudit(user_id=user.id, session_id=thread.id, action="chat_resumed"))
     await session.commit()
     return thread
@@ -278,38 +289,25 @@ async def turn(
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> None:
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id, request)
+    connection = connected(services, provider, user.id, account_id, request)
     opened(connection, thread_id)
     async with connection.action_lock:
         if thread_id in connection.active:
             raise HTTPException(
-                409, "Codex is still working. Wait or stop this turn before sending another."
+                409,
+                f"{connection.name} is still working. "
+                "Wait or stop this turn before sending another.",
             )
         if not body.prompt.strip():
             raise HTTPException(422, "Write a prompt first.")
         if len(connection.active) >= ASSISTANT_MAX_SESSIONS:
             raise HTTPException(
-                409, "Wait for an active Codex task to finish before starting another."
+                409, f"Wait for an active {connection.name} task to finish before starting another."
             )
-        connection.active[thread_id] = ""
-        try:
-            result = await connection.rpc(
-                "turn/start",
-                {"threadId": thread_id, "input": [{"type": "text", "text": body.prompt}]},
-            )
-        except BaseException:
-            connection.active.pop(thread_id, None)
-            connection.changed()
-            raise
-        # Notifications may already have completed the turn while rpc() was returning.
-        if thread_id in connection.active:
-            if result.get("turn", {}).get("status") == "inProgress":
-                connection.active[thread_id] = str(result["turn"]["id"])
-            else:
-                connection.active.pop(thread_id, None)
-        connection.changed()
+        await connection.send_turn(thread_id, body.prompt)
     session.add(AssistantAudit(user_id=user.id, session_id=thread_id, action="prompt_sent"))
     await session.commit()
 
@@ -322,12 +320,12 @@ async def interrupt(
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> None:
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id, request)
+    connection = connected(services, provider, user.id, account_id, request)
     opened(connection, thread_id)
-    if turn_id := connection.active.get(thread_id):
-        await connection.rpc("turn/interrupt", {"threadId": thread_id, "turnId": turn_id})
+    if await connection.interrupt(thread_id):
         session.add(
             AssistantAudit(user_id=user.id, session_id=thread_id, action="turn_interrupted")
         )
@@ -343,9 +341,10 @@ async def decide(
     session: SessionDep,
     user: CurrentUser,
     services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> None:
     await account_for(session, user, account_id, services)
-    connection = connected(services, user.id, account_id, request)
+    connection = connected(services, provider, user.id, account_id, request)
     async with connection.action_lock:
         pending = connection.approvals.get(approval_id)
         if pending is None:
@@ -353,7 +352,7 @@ async def decide(
         if pending.expires <= time.monotonic():
             await connection.decide(approval_id, False, {})
             raise HTTPException(
-                409, "This approval expired and was declined. Ask Codex to try again."
+                409, f"This approval expired and was declined. Ask {connection.name} to try again."
             )
         opened(connection, pending.item.thread_id)
         session.add(
@@ -369,13 +368,17 @@ async def decide(
 
 @router.get("/{account_id}/stream")
 async def stream(
-    account_id: int, request: Request, user_id: CurrentUserId, services: ServicesDep
+    account_id: int,
+    request: Request,
+    user_id: CurrentUserId,
+    services: ServicesDep,
+    provider: ProviderQuery = "codex",
 ) -> StreamingResponse:
     async with services.sessions() as db:
         user = await db.get(User, user_id)
         assert user is not None
         await account_for(db, user, account_id, services)
-    connection = connected(services, user_id, account_id, request)
+    connection = connected(services, provider, user_id, account_id, request)
 
     async def events() -> AsyncIterator[str]:
         async with connection.subscribe() as queue:

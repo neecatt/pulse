@@ -3,12 +3,14 @@ import { useState } from "react";
 import { api } from "@/api/client";
 import { useAccounts, useAssistantAccess, useAssistantAudit } from "@/api/queries";
 import { AssistantChat } from "@/components/AssistantChat";
-import { ClaudeConnection } from "@/components/ClaudeConnection";
+import { ClaudeSignIn } from "@/components/ClaudeSignIn";
 import { SessionReauth } from "@/components/SessionReauth";
 import { Button } from "@/components/Button";
 import { Card, EmptyState, Section } from "@/components/Section";
 import { useAssistant, useAssistantAction, useAssistantThreads } from "@/hooks/use-assistant";
 import { useConfirm } from "@/hooks/use-confirm";
+import type { AssistantProvider } from "@/api/types";
+import { PROVIDER_NAMES } from "@/lib/assistant";
 import { formatAgo } from "@/lib/format";
 
 export const Route = createFileRoute("/assistants")({
@@ -20,7 +22,7 @@ function AssistantsPage() {
   const access = useAssistantAccess();
   const accounts = useAccounts();
   const [accountId, setAccountId] = useState(0);
-  const [provider, setProvider] = useState<"codex" | "claude">("codex");
+  const [provider, setProvider] = useState<AssistantProvider>("codex");
   const own = accounts.data?.filter((a) => a.owner === null && a.connection === "direct") ?? [];
   const selected = own.find((a) => a.id === accountId) ?? own[0];
   return (
@@ -92,19 +94,12 @@ function AssistantsPage() {
                       Claude Code
                     </Button>
                   </div>
-                  {provider === "claude" ? (
-                    <ClaudeConnection
-                      key={selected.id}
-                      account={selected.id}
-                      verified={access.data.verified}
-                    />
-                  ) : (
-                    <ClusterAssistant
-                      key={selected.id}
-                      account={selected.id}
-                      verified={access.data.verified}
-                    />
-                  )}
+                  <ClusterAssistant
+                    key={`${provider}-${selected.id}`}
+                    account={selected.id}
+                    provider={provider}
+                    verified={access.data.verified}
+                  />
                 </>
               )}
             </div>
@@ -116,17 +111,35 @@ function AssistantsPage() {
   );
 }
 
-function ClusterAssistant({ account, verified }: { account: number; verified: boolean }) {
-  const state = useAssistant(account, true);
-  const signedIn = state.data?.connection.signed_in && state.data.connection.connected;
-  const threads = useAssistantThreads(account, Boolean(signedIn));
+const INTRO: Record<AssistantProvider, string> = {
+  codex: "Use your ChatGPT account. Sign-in stays with Codex on the cluster.",
+  claude: "Uses Claude Code on the cluster with its own sign-in: a Claude account or an API key.",
+};
+
+function ClusterAssistant({
+  account,
+  provider,
+  verified,
+}: {
+  account: number;
+  provider: AssistantProvider;
+  verified: boolean;
+}) {
+  const name = PROVIDER_NAMES[provider];
+  const state = useAssistant(account, provider, true);
+  const connected = state.data?.connection.connected ?? false;
+  const signedIn = connected && Boolean(state.data?.connection.signed_in);
+  const threads = useAssistantThreads(account, provider, signedIn);
   const connect = useAssistantAction(account, async () => {
-    const connection = await api.assistants.connect(account);
-    return connection.signed_in ? null : api.assistants.login(account);
+    const connection = await api.assistants.connect(account, provider);
+    // Codex signs in with a device code; Claude runs its own login on the cluster.
+    return connection.signed_in || provider === "claude" ? null : api.assistants.login(account);
   });
-  const disconnect = useAssistantAction(account, () => api.assistants.disconnect(account));
+  const disconnect = useAssistantAction(account, () =>
+    api.assistants.disconnect(account, provider),
+  );
   const create = useAssistantAction(account, (path: string) =>
-    api.assistants.create(account, path),
+    api.assistants.create(account, provider, path),
   );
   const confirm = useConfirm();
   const [selected, setSelected] = useState<string | null>(null);
@@ -139,20 +152,20 @@ function ClusterAssistant({ account, verified }: { account: number; verified: bo
     <div className="space-y-4">
       <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">Codex</p>
+          <p className="text-sm font-medium">{name}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             {signedIn
-              ? (state.data?.connection.email ?? "Connected using the cluster’s Codex sign-in")
-              : "Use your ChatGPT account. Sign-in stays with Codex on the cluster."}
+              ? (state.data?.connection.email ?? `Connected using the cluster’s ${name} sign-in`)
+              : INTRO[provider]}
           </p>
         </div>
-        {signedIn ? (
+        {connected ? (
           <Button
             variant="ghost"
             disabled={disconnect.isPending}
             onClick={() =>
               confirm.ask({
-                title: "Disconnect Codex?",
+                title: `Disconnect ${name}?`,
                 description:
                   "This stops assistant work on this connection. Submitted Slurm jobs keep running. Your cluster sign-in and saved chats remain available.",
                 action: "Disconnect",
@@ -164,10 +177,13 @@ function ClusterAssistant({ account, verified }: { account: number; verified: bo
           </Button>
         ) : (
           <Button disabled={!verified || connect.isPending} onClick={() => connect.mutate()}>
-            {connect.isPending ? "Connecting…" : "Connect Codex"}
+            {connect.isPending ? "Connecting…" : `Connect ${name}`}
           </Button>
         )}
       </Card>
+      {provider === "claude" && connected && !signedIn && (
+        <ClaudeSignIn account={account} verified={verified} onSignedIn={() => connect.mutate()} />
+      )}
       {login && (
         <Card className="space-y-3 p-4">
           <p className="text-sm">Sign in with ChatGPT and enter this one-time code:</p>
@@ -212,7 +228,7 @@ function ClusterAssistant({ account, verified }: { account: number; verified: bo
                   event.preventDefault();
                   confirm.ask({
                     title: "Start a cluster conversation?",
-                    description: `Codex will work in ${workDir}. It can edit project files and request approval to run commands as your cluster login.`,
+                    description: `${name} will work in ${workDir} as your cluster login. It asks you before running commands or changing files.`,
                     action: "Start chat",
                     onConfirm: () =>
                       create.mutate(workDir, {
@@ -286,6 +302,7 @@ function ClusterAssistant({ account, verified }: { account: number; verified: bo
               <AssistantChat
                 key={selected}
                 account={account}
+                provider={provider}
                 id={selected}
                 live={state.data}
                 verified={verified}

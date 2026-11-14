@@ -400,14 +400,14 @@ export interface AssistantAudit {
   created_at: string;
 }
 
+export type AssistantProvider = "codex" | "claude";
+
+/** Claude Code's native sign-in on the cluster. */
 export interface ClaudeState {
   connection_id: string;
-  phase: "disconnected" | "sign_in" | "authorized" | "starting" | "ready" | "closed" | "error";
+  phase: "disconnected" | "sign_in" | "authorized" | "closed" | "error";
   running: boolean;
-  work_dir: string;
-  session_id: string | null;
   login_url: string | null;
-  remote_url: string | null;
   setup_text: string;
   error: string | null;
 }

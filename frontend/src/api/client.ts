@@ -13,6 +13,7 @@ import type {
   AssistantConnection,
   AssistantLogin,
   AssistantLive,
+  AssistantProvider,
   AssistantThread,
   AssistantThreads,
   AssistantConversation,
@@ -51,7 +52,8 @@ import type {
 const BASE_URL = `${API_URL}/api`;
 export const STREAM_URL = `${BASE_URL}/stream`;
 
-export const assistantStreamUrl = (id: number) => `${BASE_URL}/assistants/${id}/stream`;
+export const assistantStreamUrl = (id: number, provider: AssistantProvider) =>
+  `${BASE_URL}/assistants/${id}/stream${query({ provider })}`;
 export const claudeStreamUrl = (id: number) => `${BASE_URL}/assistants/${id}/claude/stream`;
 
 export class ApiError extends Error {
@@ -101,15 +103,8 @@ export interface JobFilters {
 export const api = {
   claude: {
     state: (account: number) => request<ClaudeState>(`/assistants/${account}/claude/state`),
-    threads: (account: number) =>
-      request<AssistantThreads>(`/assistants/${account}/claude/threads`),
     login: (account: number) =>
       request<ClaudeState>(`/assistants/${account}/claude/login`, { method: "POST" }),
-    start: (account: number, work_dir: string, session_id?: string) =>
-      request<ClaudeState>(`/assistants/${account}/claude/start`, {
-        method: "POST",
-        body: json({ work_dir, session_id, confirmed: true }),
-      }),
     setup: (account: number, action: ClaudeSetupAction, code = "") =>
       request<void>(`/assistants/${account}/claude/setup`, {
         method: "POST",
@@ -121,45 +116,54 @@ export const api = {
   assistants: {
     access: () => request<AssistantAccess>("/assistants/access"),
     audit: () => request<AssistantAudit[]>("/assistants/audit"),
-    state: (account: number) => request<AssistantLive>(`/assistants/${account}/state`),
-    connect: (account: number) =>
-      request<AssistantConnection>(`/assistants/${account}/connect`, { method: "POST" }),
+    state: (account: number, provider: AssistantProvider) =>
+      request<AssistantLive>(`/assistants/${account}/state${query({ provider })}`),
+    connect: (account: number, provider: AssistantProvider) =>
+      request<AssistantConnection>(`/assistants/${account}/connect${query({ provider })}`, {
+        method: "POST",
+      }),
+    /** Codex's device sign-in; Claude signs in with its own CLI (api.claude.login). */
     login: (account: number) =>
       request<AssistantLogin>(`/assistants/${account}/login`, { method: "POST" }),
-    disconnect: (account: number) =>
-      request<void>(`/assistants/${account}/disconnect`, { method: "POST" }),
-    threads: (account: number, cursor?: string) =>
-      request<AssistantThreads>(`/assistants/${account}/threads${query({ cursor })}`),
-    history: (account: number, id: string) =>
-      request<AssistantConversation>(`/assistants/${account}/threads/${encodeURIComponent(id)}`),
-    create: (account: number, work_dir: string) =>
-      request<AssistantThread>(`/assistants/${account}/threads`, {
+    disconnect: (account: number, provider: AssistantProvider) =>
+      request<void>(`/assistants/${account}/disconnect${query({ provider })}`, { method: "POST" }),
+    threads: (account: number, provider: AssistantProvider, cursor?: string) =>
+      request<AssistantThreads>(`/assistants/${account}/threads${query({ provider, cursor })}`),
+    history: (account: number, provider: AssistantProvider, id: string) =>
+      request<AssistantConversation>(
+        `/assistants/${account}/threads/${encodeURIComponent(id)}${query({ provider })}`,
+      ),
+    create: (account: number, provider: AssistantProvider, work_dir: string) =>
+      request<AssistantThread>(`/assistants/${account}/threads${query({ provider })}`, {
         method: "POST",
         body: json({ work_dir, confirmed: true }),
       }),
-    resume: (account: number, id: string) =>
-      request<AssistantThread>(`/assistants/${account}/threads/${encodeURIComponent(id)}/resume`, {
-        method: "POST",
-      }),
-    turn: (account: number, id: string, prompt: string) =>
-      request<void>(`/assistants/${account}/threads/${encodeURIComponent(id)}/turn`, {
-        method: "POST",
-        body: json({ prompt }),
-      }),
-    interrupt: (account: number, id: string) =>
-      request<void>(`/assistants/${account}/threads/${encodeURIComponent(id)}/interrupt`, {
-        method: "POST",
-      }),
+    resume: (account: number, provider: AssistantProvider, id: string) =>
+      request<AssistantThread>(
+        `/assistants/${account}/threads/${encodeURIComponent(id)}/resume${query({ provider })}`,
+        { method: "POST" },
+      ),
+    turn: (account: number, provider: AssistantProvider, id: string, prompt: string) =>
+      request<void>(
+        `/assistants/${account}/threads/${encodeURIComponent(id)}/turn${query({ provider })}`,
+        { method: "POST", body: json({ prompt }) },
+      ),
+    interrupt: (account: number, provider: AssistantProvider, id: string) =>
+      request<void>(
+        `/assistants/${account}/threads/${encodeURIComponent(id)}/interrupt${query({ provider })}`,
+        { method: "POST" },
+      ),
     decide: (
       account: number,
+      provider: AssistantProvider,
       id: string,
       decision: "accept" | "decline",
       answers: Record<string, string[]>,
     ) =>
-      request<void>(`/assistants/${account}/approvals/${encodeURIComponent(id)}`, {
-        method: "POST",
-        body: json({ decision, answers }),
-      }),
+      request<void>(
+        `/assistants/${account}/approvals/${encodeURIComponent(id)}${query({ provider })}`,
+        { method: "POST", body: json({ decision, answers }) },
+      ),
   },
   auth: {
     reauthenticate: (password: string) =>

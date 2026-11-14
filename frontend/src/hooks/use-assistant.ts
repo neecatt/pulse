@@ -3,14 +3,14 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { api, assistantStreamUrl, claudeStreamUrl } from "@/api/client";
 import { queryKeys } from "@/api/queries";
-import type { AssistantLive, ClaudeState } from "@/api/types";
+import type { AssistantLive, AssistantProvider, ClaudeState } from "@/api/types";
 import { applyAssistantLive } from "@/lib/assistant";
 
-export function useAssistant(account: number, enabled: boolean) {
+export function useAssistant(account: number, provider: AssistantProvider, enabled: boolean) {
   const client = useQueryClient();
   const state = useQuery({
-    queryKey: queryKeys.assistantState(account),
-    queryFn: () => api.assistants.state(account),
+    queryKey: queryKeys.assistantState(account, provider),
+    queryFn: () => api.assistants.state(account, provider),
     enabled,
   });
   const connected = state.data?.connection.connected ?? false;
@@ -18,33 +18,37 @@ export function useAssistant(account: number, enabled: boolean) {
     if (!enabled || !connected) return;
     let disposed = false;
     let previous: AssistantLive | undefined;
-    const source = new EventSource(assistantStreamUrl(account));
+    const source = new EventSource(assistantStreamUrl(account, provider));
     source.onmessage = (event: MessageEvent<string>) => {
       const live = applyAssistantLive(
-        client.getQueryData<AssistantLive>(queryKeys.assistantState(account)),
+        client.getQueryData<AssistantLive>(queryKeys.assistantState(account, provider)),
         JSON.parse(event.data) as AssistantLive,
       );
       if (previous) {
         for (const id of Object.keys(previous.active)) {
           if (!(id in live.active)) {
-            void client.invalidateQueries({ queryKey: queryKeys.assistantHistory(account, id) });
-            void client.invalidateQueries({ queryKey: queryKeys.assistantThreads(account) });
+            void client.invalidateQueries({
+              queryKey: queryKeys.assistantHistory(account, provider, id),
+            });
+            void client.invalidateQueries({
+              queryKey: queryKeys.assistantThreads(account, provider),
+            });
           }
         }
       }
       if (live.connection.signed_in && !previous?.connection.signed_in) {
-        void client.invalidateQueries({ queryKey: queryKeys.assistantThreads(account) });
+        void client.invalidateQueries({ queryKey: queryKeys.assistantThreads(account, provider) });
       }
       previous = live;
-      client.setQueryData(queryKeys.assistantState(account), live);
+      client.setQueryData(queryKeys.assistantState(account, provider), live);
       if (!live.connection.connected) source.close();
     };
     source.onerror = () => {
       void api.assistants
-        .state(account)
+        .state(account, provider)
         .then((live) => {
           if (disposed) return;
-          client.setQueryData(queryKeys.assistantState(account), live);
+          client.setQueryData(queryKeys.assistantState(account, provider), live);
           if (!live.connection.connected) source.close();
         })
         .catch(() => {
@@ -55,20 +59,25 @@ export function useAssistant(account: number, enabled: boolean) {
       disposed = true;
       source.close();
     };
-  }, [account, enabled, connected, client]);
+  }, [account, provider, enabled, connected, client]);
   return state;
 }
 
-export function useAssistantThreads(account: number, enabled: boolean) {
+export function useAssistantThreads(
+  account: number,
+  provider: AssistantProvider,
+  enabled: boolean,
+) {
   return useInfiniteQuery({
-    queryKey: queryKeys.assistantThreads(account),
+    queryKey: queryKeys.assistantThreads(account, provider),
     enabled,
     initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam }) => api.assistants.threads(account, pageParam),
+    queryFn: ({ pageParam }) => api.assistants.threads(account, provider, pageParam),
     getNextPageParam: (page) => page.next_cursor ?? undefined,
   });
 }
 
+/** Claude Code's native sign-in running on the cluster. */
 export function useClaude(account: number) {
   const client = useQueryClient();
   const state = useQuery({
@@ -90,10 +99,7 @@ export function useClaude(account: number) {
       )
         return;
       client.setQueryData(queryKeys.claudeState(account), value);
-      if (!value.running) {
-        source.close();
-        void client.invalidateQueries({ queryKey: queryKeys.claudeThreads(account) });
-      }
+      if (!value.running) source.close();
     };
     source.onerror = () => {
       void api.claude
@@ -115,19 +121,15 @@ export function useClaude(account: number) {
   return state;
 }
 
-export function useClaudeThreads(account: number, enabled: boolean) {
+export function useAssistantHistory(
+  account: number,
+  provider: AssistantProvider,
+  id: string,
+  enabled: boolean,
+) {
   return useQuery({
-    queryKey: queryKeys.claudeThreads(account),
-    queryFn: () => api.claude.threads(account),
-    enabled,
-    staleTime: 60000,
-  });
-}
-
-export function useAssistantHistory(account: number, id: string, enabled: boolean) {
-  return useQuery({
-    queryKey: queryKeys.assistantHistory(account, id),
-    queryFn: () => api.assistants.history(account, id),
+    queryKey: queryKeys.assistantHistory(account, provider, id),
+    queryFn: () => api.assistants.history(account, provider, id),
     enabled,
   });
 }

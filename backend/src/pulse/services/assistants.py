@@ -1,20 +1,14 @@
-"""Codex's documented app-server protocol over a user's pinned SSH connection.
-
-The cluster's unmodified CLI owns provider sign-in and local conversation history.
-Pulse never reads auth.json, receives OAuth tokens, or asks for an API key.
-"""
+"""Cluster assistants over a user's pinned SSH connection: Codex's app-server and
+Claude Code's headless mode, plus Claude's native sign-in."""
 
 import asyncio
 import contextlib
 import json
 import logging
 import secrets
-import shlex
 import time
-from collections import OrderedDict
 from collections.abc import AsyncIterator, Iterable
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import asyncssh
 from sqlalchemy import select
@@ -29,7 +23,6 @@ from pulse.constants import (
     ASSISTANT_MAX_PENDING,
     ASSISTANT_MAX_RPC_BYTES,
     ASSISTANT_MAX_SESSIONS,
-    ASSISTANT_MAX_STATE_CHARS,
     ASSISTANT_MAX_TEXT,
 )
 from pulse.models import Account, LoginSession, User, utcnow
@@ -37,34 +30,30 @@ from pulse.schemas import (
     AssistantApproval,
     AssistantConnection,
     AssistantConversation,
-    AssistantLive,
     AssistantLogin,
     AssistantMessage,
     AssistantThread,
     AssistantThreads,
 )
-from pulse.services.claude import HISTORY_SCRIPT, ClaudeSession, remote_command
+from pulse.services.chat import (
+    APPROVAL_SECONDS,
+    TRAINING_INSTRUCTIONS,
+    ChatConnection,
+    PendingApproval,
+    login_command,
+)
+from pulse.services.claude import ClaudeSession
+from pulse.services.claude_chat import ClaudeChat, claude_auth
 from pulse.slurm.base import AccountRef, HostKeys, SlurmError
 from pulse.slurm.ssh import SshSlurmClient
 
 logger = logging.getLogger(__name__)
 
-TRAINING_INSTRUCTIONS = (
-    "You are running on an HPC login node through Pulse. Use Slurm for training "
-    "and heavy computation, never run training directly on the login node. "
-    "Read the project's instructions and inspect available partitions first. "
-    "Show the batch script and resource request and ask the user before submitting, "
-    "cancelling or modifying a job. Report the Slurm job ID after submission."
-)
 PERMISSIONS: dict[str, Any] = {
     "approvalPolicy": "untrusted",
     "approvalsReviewer": "user",
     "sandbox": "workspace-write",
 }
-
-
-def login_command(command: str) -> str:
-    return "bash -lc " + shlex.quote(command)
 
 
 def thread_info(raw: dict[str, Any]) -> AssistantThread:
@@ -108,37 +97,21 @@ def message_info(raw: dict[str, Any]) -> AssistantMessage | None:
     )
 
 
-@dataclass
-class PendingApproval:
-    rpc_id: str | int
-    method: str
-    item: AssistantApproval
-    expires: float
+class CodexConnection(ChatConnection):
+    """Codex's documented app-server protocol. The cluster's unmodified CLI owns
+    provider sign-in and local conversation history; Pulse never reads auth.json,
+    receives OAuth tokens, or asks for an API key."""
 
+    name = "Codex"
 
-class CodexConnection:
     def __init__(self, process: asyncssh.SSHClientProcess[str]) -> None:
+        super().__init__()
         self.process = process
-        self.connected = True
-        self.account = AssistantConnection(connected=True, signed_in=False)
         self.pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
-        self.approvals: dict[str, PendingApproval] = {}
-        # thread -> item -> (revision it last changed in, item), so streams send only changes
-        self.messages: OrderedDict[str, OrderedDict[str, tuple[int, AssistantMessage]]] = (
-            OrderedDict()
-        )
-        self.active: dict[str, str] = {}
-        self.allowed_threads: set[str] = set()  # only explicitly opened conversations can act
-        self.authorized_logins: set[str] = set()
         self.login: AssistantLogin | None = None
         self.login_id: str | None = None
-        self.error: str | None = None
-        self.revision = 0
-        self.last_used = time.monotonic()
         self._next_id = 0
         self._write_lock = asyncio.Lock()
-        self.action_lock = asyncio.Lock()
-        self._subscribers: set[asyncio.Queue[None]] = set()
         self._reader = asyncio.create_task(self._read())
         self._stderr = asyncio.create_task(self._discard_stderr())
 
@@ -149,12 +122,6 @@ class CodexConnection:
         )
         await self.send({"method": "initialized"})
         await self.refresh_account()
-
-    def changed(self) -> None:
-        self.revision += 1
-        for queue in self._subscribers:
-            if queue.empty():
-                queue.put_nowait(None)
 
     async def send(self, value: dict[str, Any]) -> None:
         if not self.connected:
@@ -264,12 +231,7 @@ class CodexConnection:
                     "Codex couldn't finish this turn. "
                     "Check your plan access and cluster setup, then try again."
                 )
-            for key in [
-                key
-                for key, pending in self.approvals.items()
-                if pending.item.thread_id == thread_id
-            ]:
-                del self.approvals[key]
+            self._drop_approvals(thread_id)
         elif method in {"item/started", "item/completed"}:
             item = message_info(params.get("item", {}))
             if item:
@@ -301,37 +263,6 @@ class CodexConnection:
         elif method == "error":
             self.error = "Codex reported a problem. Check your plan access and cluster setup."
         self.changed()
-
-    def _item(self, thread_id: str, item_id: str) -> AssistantMessage | None:
-        stored = self.messages.get(thread_id, OrderedDict()).get(item_id)
-        return stored[1] if stored else None
-
-    def _remember(self, thread_id: str, item: AssistantMessage) -> None:
-        if not thread_id:
-            return
-        items = self.messages.setdefault(thread_id, OrderedDict())
-        items[item.id] = (self.revision + 1, item)  # changed() bumps revision to match
-        while len(items) > ASSISTANT_MAX_ITEMS:
-            items.popitem(last=False)
-        self.messages.move_to_end(thread_id)
-        while len(self.messages) > ASSISTANT_MAX_SESSIONS:
-            self.messages.popitem(last=False)
-        while (
-            sum(len(item.text) for items in self.messages.values() for _, item in items.values())
-            > ASSISTANT_MAX_STATE_CHARS
-        ):
-            oldest_thread = next(iter(self.messages))
-            oldest_items = self.messages[oldest_thread]
-            oldest_items.popitem(last=False)
-            if not oldest_items:
-                del self.messages[oldest_thread]
-
-    def allow(self, thread_id: str) -> None:
-        if len(self.allowed_threads) >= ASSISTANT_MAX_ITEMS:
-            inactive = self.allowed_threads - self.active.keys()
-            if inactive:
-                self.allowed_threads.remove(next(iter(inactive)))
-        self.allowed_threads.add(thread_id)
 
     async def _approval(self, request_id: str | int, method: str, params: dict[str, Any]) -> None:
         supported = {
@@ -374,7 +305,9 @@ class CodexConnection:
             detail=detail[-ASSISTANT_MAX_TEXT:],
             questions=params.get("questions", [])[:10],
         )
-        self.approvals[key] = PendingApproval(request_id, method, item, time.monotonic() + 600)
+        self.approvals[key] = PendingApproval(
+            request_id, method, item, time.monotonic() + APPROVAL_SECONDS
+        )
         self.changed()
 
     async def decide(self, key: str, accept: bool, answers: dict[str, list[str]]) -> str:
@@ -395,40 +328,6 @@ class CodexConnection:
         await self.send({"id": pending.rpc_id, "result": result})
         self.changed()
         return pending.item.thread_id
-
-    async def expire_approvals(self) -> None:
-        for key in [
-            key for key, pending in self.approvals.items() if pending.expires <= time.monotonic()
-        ]:
-            await self.decide(key, False, {})
-
-    def snapshot(self, since: int | None = None) -> AssistantLive:
-        """Everything, or with ``since`` only the items changed after that revision."""
-        messages = {
-            key: [item for revision, item in items.values() if since is None or revision > since]
-            for key, items in self.messages.items()
-        }
-        return AssistantLive(
-            connection=self.account,
-            messages={key: items for key, items in messages.items() if items or since is None},
-            partial=since is not None,
-            active=self.active,
-            opened=list(self.allowed_threads),
-            approvals=[pending.item for pending in self.approvals.values()],
-            error=self.error,
-            revision=self.revision,
-        )
-
-    @contextlib.asynccontextmanager
-    async def subscribe(self) -> AsyncIterator[asyncio.Queue[None]]:
-        if len(self._subscribers) >= 4:
-            raise SlurmError("This cluster already has four assistant screens open.")
-        queue: asyncio.Queue[None] = asyncio.Queue(maxsize=1)
-        self._subscribers.add(queue)
-        try:
-            yield queue
-        finally:
-            self._subscribers.discard(queue)
 
     async def history(self, thread_id: str) -> AssistantConversation:
         raw = (await self.rpc("thread/read", {"threadId": thread_id, "includeTurns": True}))[
@@ -451,6 +350,57 @@ class CodexConnection:
             next_cursor=raw.get("nextCursor"),
         )
 
+    async def start_thread(self, work_dir: str) -> AssistantThread:
+        result = await self.rpc(
+            "thread/start",
+            {"cwd": work_dir, **PERMISSIONS, "developerInstructions": TRAINING_INSTRUCTIONS},
+        )
+        thread = thread_info(result["thread"])
+        self.allow(thread.id)
+        return thread
+
+    async def resume_thread(self, thread: AssistantThread) -> AssistantThread:
+        if thread.id in self.active:
+            return thread
+        result = await self.rpc(
+            "thread/resume",
+            {
+                "threadId": thread.id,
+                "cwd": thread.work_dir,
+                **PERMISSIONS,
+                "developerInstructions": TRAINING_INSTRUCTIONS,
+            },
+        )
+        resumed = thread_info(result["thread"])
+        self.allow(resumed.id)
+        return resumed
+
+    async def send_turn(self, thread_id: str, prompt: str) -> None:
+        self.active[thread_id] = ""
+        try:
+            result = await self.rpc(
+                "turn/start",
+                {"threadId": thread_id, "input": [{"type": "text", "text": prompt}]},
+            )
+        except BaseException:
+            self.active.pop(thread_id, None)
+            self.changed()
+            raise
+        # Notifications may already have completed the turn while rpc() was returning.
+        if thread_id in self.active:
+            if result.get("turn", {}).get("status") == "inProgress":
+                self.active[thread_id] = str(result["turn"]["id"])
+            else:
+                self.active.pop(thread_id, None)
+        self.changed()
+
+    async def interrupt(self, thread_id: str) -> bool:
+        turn_id = self.active.get(thread_id)
+        if not turn_id:
+            return False
+        await self.rpc("turn/interrupt", {"threadId": thread_id, "turnId": turn_id})
+        return True
+
     async def close(self) -> None:
         self.process.close()
         self._reader.cancel()
@@ -463,12 +413,16 @@ class CodexConnection:
         self.changed()
 
 
+Provider = Literal["codex", "claude"]
+
+
 class Assistants:
     def __init__(self, settings: Settings, ssh: SshSlurmClient | None) -> None:
         self.settings = settings
         self.ssh = ssh
-        self._connections: dict[tuple[int, int], CodexConnection] = {}
-        self.claude: dict[tuple[int, int], ClaudeSession] = {}
+        self._connections: dict[tuple[Provider, int, int], ChatConnection] = {}
+        # Claude Code's own `claude auth login`, run on the cluster for the user.
+        self.sign_ins: dict[tuple[int, int], ClaudeSession] = {}
         # Slow SSH work runs under a per-account lock; the shared lock only reserves
         # capacity, so one unreachable cluster never blocks other users.
         self._lock = asyncio.Lock()
@@ -495,173 +449,109 @@ class Assistants:
             finally:
                 self._starting.discard(slot)
 
-    async def claude_transport(
-        self, account: AccountRef
+    async def _transport(
+        self, account: AccountRef, program: str
     ) -> tuple[asyncssh.SSHClientConnection, HostKeys]:
         if self.ssh is None or account.simulated_since is not None:
-            raise SlurmError("Claude needs a real cluster connected directly over SSH.")
+            raise SlurmError("Assistants need a real cluster connected directly over SSH.")
         conn, keys = await self.ssh.connection(account)
         probe = await conn.run(
-            login_command("command -v claude >/dev/null"),
+            login_command(f"command -v {program} >/dev/null"),
             check=False,
             timeout=self.settings.ssh_command_timeout_seconds,
         )
         if probe.exit_status != 0:
             raise SlurmError(
-                "Claude Code isn't in the cluster's login PATH. Install or load it, then retry."
+                {
+                    "codex": "Codex isn't in this cluster's login PATH. "
+                    "Install or load the Codex CLI, then reconnect.",
+                    "claude": "Claude Code isn't in the cluster's login PATH. "
+                    "Install or load it, then retry.",
+                }[program]
             )
         return conn, keys
 
-    async def start_claude(
-        self,
-        account: AccountRef,
-        account_id: int,
-        *,
-        login: bool,
-        work_dir: str = "",
-        session_id: str | None = None,
+    async def start_sign_in(
+        self, account: AccountRef, account_id: int
     ) -> tuple[ClaudeSession, HostKeys]:
         key = (account.owner_id, account_id)
         async with self._reserve(
-            "claude",
+            "claude-login",
             key,
-            self.claude,
-            "Disconnect another Claude session before opening this one.",
+            self.sign_ins,
+            "Finish signing in to Claude on another cluster first.",
         ):
-            conn, keys = await self.claude_transport(account)
-            if not login:
-                status = await conn.run(
-                    login_command("claude auth status"),
-                    check=False,
-                    timeout=self.settings.ssh_command_timeout_seconds,
-                )
-                try:
-                    auth = json.loads(str(status.stdout or "{}"))
-                except ValueError:
-                    auth = {}
-                if not isinstance(auth, dict) or not auth.get("loggedIn"):
-                    raise SlurmError(
-                        "Claude isn't signed in on this cluster. "
-                        "Use Sign in on cluster, then connect again."
-                    )
-                if auth.get("authMethod") != "claude.ai":
-                    raise SlurmError(
-                        "Remote Control needs Claude's native subscription sign-in. "
-                        "Check the cluster's Claude authentication settings, then sign in again."
-                    )
-            if previous := self.claude.pop(key, None):
+            conn, keys = await self._transport(account, "claude")
+            if previous := self.sign_ins.pop(key, None):
                 await previous.close()
-            command = (
-                "exec claude auth login"
-                if login
-                else remote_command(work_dir, session_id, TRAINING_INSTRUCTIONS)
-            )
             process = await conn.create_process(
-                login_command(command),
+                login_command("exec claude auth login"),
                 encoding="utf-8",
                 errors="replace",
                 stderr=asyncssh.STDOUT,
-                **({"term_type": "xterm-256color", "term_size": (180, 40)} if not login else {}),
             )
-            native = ClaudeSession(process, login=login, work_dir=work_dir, session_id=session_id)
-            self.claude[key] = native
+            native = ClaudeSession(process)
+            self.sign_ins[key] = native
             return native, keys
 
-    async def claude_threads(self, account: AccountRef) -> tuple[AssistantThreads, HostKeys]:
-        conn, keys = await self.claude_transport(account)
-        # auth status returns public metadata (including configDirectory), never tokens.
-        status = await conn.run(
-            login_command("claude auth status"),
-            check=False,
-            timeout=self.settings.ssh_command_timeout_seconds,
-        )
-        try:
-            metadata = json.loads(str(status.stdout or "{}"))
-        except ValueError:
-            metadata = {}
-        if not isinstance(metadata, dict):
-            raise SlurmError(
-                "Claude returned unreadable account metadata. Update the CLI and retry."
-            )
-        root = metadata.get("configDirectory")
-        if root is not None and (not isinstance(root, str) or not root.startswith("/")):
-            raise SlurmError(
-                "Claude returned an invalid configuration directory. Check its installation."
-            )
-        result = await conn.run(
-            login_command("python3 -c " + shlex.quote(HISTORY_SCRIPT)),
-            input=json.dumps({"root": root}),
-            check=False,
-            timeout=self.settings.ssh_command_timeout_seconds,
-        )
-        if result.exit_status != 0:
-            raise SlurmError(
-                "Couldn't read Claude conversations. Check Python 3 and Claude Code on the cluster."
-            )
-        try:
-            return AssistantThreads.model_validate_json(str(result.stdout)), keys
-        except ValueError as exc:
-            raise SlurmError(
-                "Couldn't read Claude's conversation list. Check the cluster connection."
-            ) from exc
-
-    async def stop_claude(self, user_id: int, account_id: int) -> None:
-        native = self.claude.pop((user_id, account_id), None)
+    async def stop_sign_in(self, user_id: int, account_id: int) -> None:
+        native = self.sign_ins.pop((user_id, account_id), None)
         if native:
             await native.close()
 
-    def get(self, user_id: int, account_id: int) -> CodexConnection | None:
-        return self._connections.get((user_id, account_id))
+    def get(self, provider: Provider, user_id: int, account_id: int) -> ChatConnection | None:
+        return self._connections.get((provider, user_id, account_id))
 
     async def connect(
-        self, account: AccountRef, account_id: int
-    ) -> tuple[CodexConnection, HostKeys]:
+        self, provider: Provider, account: AccountRef, account_id: int
+    ) -> tuple[ChatConnection, HostKeys]:
         key = (account.owner_id, account_id)
-        if self.ssh is None or account.simulated_since is not None:
-            raise SlurmError("Assistants need a real cluster connected directly over SSH.")
         async with self._reserve(
-            "codex",
+            provider,
             key,
-            (k for k, c in self._connections.items() if c.connected),
+            (
+                (user, acct)
+                for (kind, user, acct), c in self._connections.items()
+                if kind == provider and c.connected
+            ),
             "Disconnect another cluster assistant before connecting this one.",
         ):
-            existing = self.get(*key)
+            existing = self.get(provider, *key)
             if existing is not None and existing.connected:
+                if not existing.account.signed_in:
+                    await existing.refresh_account()  # e.g. after signing in on the cluster
                 return existing, HostKeys()
             if existing is not None:
                 await existing.close()
-                self._connections.pop(key, None)
-            conn, keys = await self.ssh.connection(account)
-            probe = await conn.run(
-                login_command("command -v codex >/dev/null"),
-                check=False,
-                timeout=self.settings.ssh_command_timeout_seconds,
-            )
-            if probe.exit_status != 0:
-                raise SlurmError(
-                    "Codex isn't in this cluster's login PATH. "
-                    "Install or load the Codex CLI, then reconnect."
+                self._connections.pop((provider, *key), None)
+            conn, keys = await self._transport(account, provider)
+            connection: ChatConnection
+            if provider == "claude":
+                timeout = self.settings.ssh_command_timeout_seconds
+                connection = ClaudeChat(
+                    conn, timeout=timeout, auth=await claude_auth(conn, timeout)
                 )
-            process = await conn.create_process(
-                login_command("exec codex app-server --listen stdio://"),
-                encoding="utf-8",
-                errors="replace",
-            )
-            connection = CodexConnection(process)
-            try:
-                await connection.initialize()
-            except BaseException:
-                await connection.close()
-                raise
-            self._connections[key] = connection
+            else:
+                process = await conn.create_process(
+                    login_command("exec codex app-server --listen stdio://"),
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                connection = CodexConnection(process)
+                try:
+                    await connection.initialize()
+                except BaseException:
+                    await connection.close()
+                    raise
+            self._connections[(provider, *key)] = connection
             return connection, keys
 
-    async def disconnect(self, user_id: int, account_id: int) -> None:
-        connection = self._connections.pop((user_id, account_id), None)
+    async def disconnect(self, provider: Provider, user_id: int, account_id: int) -> None:
+        connection = self._connections.pop((provider, user_id, account_id), None)
         if connection:
             await connection.close()
 
-    def keys(self) -> list[tuple[int, int]]:
+    def keys(self) -> list[tuple[Provider, int, int]]:
         return list(self._connections)
 
     async def watch(self, sessions: async_sessionmaker[AsyncSession]) -> None:
@@ -673,76 +563,58 @@ class Assistants:
                 # Keep enforcing revocation and idle limits on the next pass.
                 logger.exception("assistant check failed")
 
+    async def _valid(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        user_id: int,
+        account_id: int,
+        logins: set[str],
+    ) -> bool:
+        """The owner, account and an authorizing Pulse login are all still valid."""
+        async with sessions() as db:
+            account = await db.get(Account, account_id)
+            user = await db.get(User, user_id)
+            login = await db.scalar(
+                select(LoginSession.id)
+                .where(
+                    LoginSession.token_hash.in_(logins),
+                    LoginSession.user_id == user_id,
+                    LoginSession.expires_at > utcnow(),
+                )
+                .limit(1)
+            )
+        return (
+            account is not None
+            and account.user_id == user_id
+            and account.connection == "direct"
+            and not account.simulated
+            and user is not None
+            and not user.is_guest
+            and login is not None
+            and self.settings.assistants_enabled
+        )
+
     async def check(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         """Close connections whose owner, account or login is no longer valid, or idle."""
-        for user_id, account_id in self.keys():
-            connection = self.get(user_id, account_id)
+        idle_after = self.settings.assistant_idle_seconds
+        for provider, user_id, account_id in self.keys():
+            connection = self.get(provider, user_id, account_id)
             if connection is None:
                 continue
-            async with sessions() as db:
-                account = await db.get(Account, account_id)
-                user = await db.get(User, user_id)
-                valid_login = await db.scalar(
-                    select(LoginSession.id)
-                    .where(
-                        LoginSession.token_hash.in_(connection.authorized_logins),
-                        LoginSession.user_id == user_id,
-                        LoginSession.expires_at > utcnow(),
-                    )
-                    .limit(1)
-                )
-            valid = (
-                account is not None
-                and account.user_id == user_id
-                and account.connection == "direct"
-                and not account.simulated
-                and user is not None
-                and not user.is_guest
-                and valid_login is not None
-                and self.settings.assistants_enabled
-            )
-            idle = (
-                not connection.active
-                and time.monotonic() - connection.last_used > self.settings.assistant_idle_seconds
-            )
+            valid = await self._valid(sessions, user_id, account_id, connection.authorized_logins)
+            idle = not connection.active and time.monotonic() - connection.last_used > idle_after
             if not valid or idle or not connection.connected:
-                await self.disconnect(user_id, account_id)
+                await self.disconnect(provider, user_id, account_id)
             else:
                 with contextlib.suppress(SlurmError, asyncssh.Error, OSError):
                     await connection.expire_approvals()
-        for (user_id, account_id), native in list(self.claude.items()):
-            async with sessions() as db:
-                account = await db.get(Account, account_id)
-                user = await db.get(User, user_id)
-                login = await db.scalar(
-                    select(LoginSession.id)
-                    .where(
-                        LoginSession.token_hash.in_(native.authorized_logins),
-                        LoginSession.user_id == user_id,
-                        LoginSession.expires_at > utcnow(),
-                    )
-                    .limit(1)
-                )
-            valid = (
-                account is not None
-                and account.user_id == user_id
-                and account.connection == "direct"
-                and not account.simulated
-                and user is not None
-                and not user.is_guest
-                and login is not None
-                and self.settings.assistants_enabled
-            )
-            # Native Remote Control owns its activity; don't idle out someone
-            # who is working in the Claude app rather than in the Pulse tab.
-            idle = native.state.phase != "ready" and (
-                time.monotonic() - native.last_used > self.settings.assistant_idle_seconds
-            )
-            if not valid or idle:
-                await self.stop_claude(user_id, account_id)
+        for (user_id, account_id), native in list(self.sign_ins.items()):
+            valid = await self._valid(sessions, user_id, account_id, native.authorized_logins)
+            if not valid or time.monotonic() - native.last_used > idle_after:
+                await self.stop_sign_in(user_id, account_id)
 
     async def close(self) -> None:
-        for user_id, account_id in self.keys():
-            await self.disconnect(user_id, account_id)
-        for user_id, account_id in list(self.claude):
-            await self.stop_claude(user_id, account_id)
+        for provider, user_id, account_id in self.keys():
+            await self.disconnect(provider, user_id, account_id)
+        for user_id, account_id in list(self.sign_ins):
+            await self.stop_sign_in(user_id, account_id)

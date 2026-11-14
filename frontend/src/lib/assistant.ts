@@ -1,5 +1,10 @@
-import type { AssistantLive, AssistantMessage } from "@/api/types";
+import type { AssistantLive, AssistantMessage, AssistantProvider } from "@/api/types";
 import { ASSISTANT_MAX_ITEMS } from "@/config/constants";
+
+export const PROVIDER_NAMES: Record<AssistantProvider, string> = {
+  codex: "Codex",
+  claude: "Claude",
+};
 
 export function mergeAssistantMessages(
   history: AssistantMessage[],

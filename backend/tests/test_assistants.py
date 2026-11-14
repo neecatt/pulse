@@ -41,6 +41,9 @@ async def cluster(services: Services) -> AsyncIterator[dict[str, Any]]:
         "completed": asyncio.Event(),
         "claude_inputs": [],
         "native_commands": [],
+        "claude_prompts": [],
+        "claude_decisions": [],
+        "claude_done": asyncio.Event(),
     }
 
     async def handler(process: asyncssh.SSHServerProcess[str]) -> None:
@@ -61,6 +64,12 @@ async def cluster(services: Services) -> AsyncIterator[dict[str, Any]]:
             process.exit(0)
             return
         if "python3 -c" in command and "read_metadata" in command:
+            request = json.loads(await process.stdin.read())
+            assert request["root"] == "/home/alice/.claude"
+            if "session" in request:
+                process.stdout.write(json.dumps(CLAUDE_CONVERSATION))
+                process.exit(0)
+                return
             process.stdout.write(
                 json.dumps(
                     {
@@ -88,13 +97,9 @@ async def cluster(services: Services) -> AsyncIterator[dict[str, Any]]:
             process.stdout.write("Login successful\n")
             process.exit(0)
             return
-        if "claude --remote-control" in command:
+        if "exec claude -p" in command:
             state["native_commands"].append(command)
-            process.stdout.write("Trust this project and enable Remote Control? [y/N]\n")
-            state["claude_inputs"].append(await process.stdin.read(1))
-            process.stdout.write("Open: https://claude.ai/code/session_test\n")
-            await process.stdin.read()
-            process.exit(0)
+            await scripted_claude(process, state)
             return
         assert "exec codex app-server --listen stdio://" in (process.command or "")
 
@@ -233,6 +238,134 @@ async def cluster(services: Services) -> AsyncIterator[dict[str, Any]]:
         await server.wait_closed()
 
 
+CLAUDE_CONVERSATION = {
+    "thread": {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "title": "Claude training chat",
+        "work_dir": "/scratch/project",
+        "updated_at": 42,
+    },
+    "records": [
+        {"type": "user", "uuid": "u-0", "prompt": "Prepare the training script"},
+        {"type": "assistant", "id": "msg_0", "blocks": [{"type": "text", "text": "Prepared."}]},
+    ],
+}
+
+
+async def scripted_claude(process: asyncssh.SSHServerProcess[str], state: dict[str, Any]) -> None:
+    """The messages Claude Code's stream-json mode sends for one approved command."""
+
+    def emit(value: dict[str, Any]) -> None:
+        process.stdout.write(json.dumps(value) + "\n")
+
+    def text(message: str, value: str) -> dict[str, Any]:
+        return {
+            "type": "assistant",
+            "message": {"id": message, "content": [{"type": "text", "text": value}]},
+        }
+
+    async for line in process.stdin:
+        value = json.loads(line)
+        if value["type"] == "control_request":  # initialize, interrupt
+            emit(
+                {
+                    "type": "control_response",
+                    "response": {"subtype": "success", "request_id": value["request_id"]},
+                }
+            )
+        elif value["type"] == "control_response":
+            state["claude_decisions"].append(value["response"])
+            output = "Submitted batch job 4242"
+            emit(
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "toolu_1", "content": output}
+                        ]
+                    },
+                }
+            )
+            emit(text("msg_3", "Job 4242 is queued."))
+            emit({"type": "result", "subtype": "success", "is_error": False})
+            state["claude_done"].set()
+        else:
+            state["claude_prompts"].append(value)
+            emit({"type": "system", "subtype": "init", "session_id": "ignored"})
+            emit(
+                {
+                    "type": "stream_event",
+                    "event": {"type": "message_start", "message": {"id": "msg_1"}},
+                }
+            )
+            emit(
+                {
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_start",
+                        "index": 0,
+                        "content_block": {"type": "thinking"},
+                    },
+                }
+            )
+            emit(
+                {
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_start",
+                        "index": 1,
+                        "content_block": {"type": "text"},
+                    },
+                }
+            )
+            for part in ("Submitting ", "the job."):
+                emit(
+                    {
+                        "type": "stream_event",
+                        "event": {
+                            "type": "content_block_delta",
+                            "index": 1,
+                            "delta": {"type": "text_delta", "text": part},
+                        },
+                    }
+                )
+            emit(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "id": "msg_1",
+                        "content": [{"type": "thinking", "thinking": "hidden"}],
+                    },
+                }
+            )
+            emit(text("msg_1", "Submitting the job."))
+            command = {"command": "sbatch train.sh", "description": "Submit training"}
+            emit(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "id": "msg_2",
+                        "content": [
+                            {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": command}
+                        ],
+                    },
+                }
+            )
+            emit(
+                {
+                    "type": "control_request",
+                    "request_id": "perm-1",
+                    "request": {
+                        "subtype": "can_use_tool",
+                        "tool_name": "Bash",
+                        "input": command,
+                        "description": "Submit training",
+                    },
+                }
+            )
+    process.exit(0)
+
+
 async def linked(client: AsyncClient, port: int) -> int:
     response = await client.post(
         "/api/accounts", json={"username": "alice", "host": "127.0.0.1", "port": port}
@@ -249,7 +382,7 @@ async def test_sign_in_history_resume_approval_and_disconnect(
     assert (await client.post(base + "/connect")).json()["signed_in"] is False
     login = await client.post(base + "/login")
     assert login.json() == {"url": "https://auth.openai.com/codex/device", "code": "ABCD-1234"}
-    conn = services.assistants.get(1, account)
+    conn = services.assistants.get("codex", 1, account)
     assert conn is not None
     await conn._message({"method": "account/login/completed", "params": {"success": True}})
     assert (await client.get(base + "/state")).json()["connection"]["signed_in"]
@@ -293,7 +426,7 @@ async def test_sign_in_history_resume_approval_and_disconnect(
     assert any(item["action"] == "approval_accepted" for item in audit)
     assert "train on 4 GPUs" not in json.dumps(audit)
     assert (await client.post(base + "/disconnect")).status_code == 204
-    assert services.assistants.get(1, account) is None
+    assert services.assistants.get("codex", 1, account) is None
     assert not any(method == "account/logout" for method, _ in cluster["calls"])
 
 
@@ -384,7 +517,7 @@ async def test_unknown_requests_fail_closed_and_text_is_bounded(
 ) -> None:
     account = await linked(client, cluster["port"])
     assert (await client.post(f"/api/assistants/{account}/connect")).status_code == 200
-    conn = services.assistants.get(1, account)
+    conn = services.assistants.get("codex", 1, account)
     assert isinstance(conn, CodexConnection)
     await conn._message(
         {
@@ -425,7 +558,7 @@ async def test_another_login_cannot_use_an_open_assistant_without_connecting(
     assert (
         await client.post(base + "/threads/old-chat/turn", json={"prompt": "Prepare a job"})
     ).status_code == 204
-    conn = services.assistants.get(1, account)
+    conn = services.assistants.get("codex", 1, account)
     assert conn is not None
     for _ in range(100):
         if conn.approvals:
@@ -478,7 +611,7 @@ async def test_assistant_stream_drops_queued_updates_after_logout(
     try:
         assert '"connected":true' in await anext(iterator)
         assert (await client.post("/api/auth/logout")).status_code == 204
-        conn = services.assistants.get(1, account)
+        conn = services.assistants.get("codex", 1, account)
         assert conn is not None
         conn.changed()
         with pytest.raises(StopAsyncIteration):
@@ -507,7 +640,7 @@ async def test_stream_updates_carry_only_changed_messages(
 ) -> None:
     account = await linked(client, cluster["port"])
     assert (await client.post(f"/api/assistants/{account}/connect")).status_code == 200
-    conn = services.assistants.get(1, account)
+    conn = services.assistants.get("codex", 1, account)
     assert conn is not None
 
     async def delta(item: str, text: str) -> None:
