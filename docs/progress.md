@@ -3,6 +3,15 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Assistant chat reads like Claude's (`fix/chat-autoscroll`), pre-release 0.3.0-rc.4
+
+- The chat follows replies as they stream (and stops while you scroll up to read).
+- Replies render as Markdown (lists, code blocks with copy, tables, quotes);
+  links only open web and mail addresses. Your messages sit in a bubble, tool
+  calls are one-line steps with their output on demand, and Enter sends where
+  there's a keyboard.
+- Published as `neecat/pulse:0.3.0-rc.4` and `:staging`; `latest` stays on 0.2.6.
+
 ## 2026-11-14 — Pre-release 0.3.0-rc.3
 
 - The built-in Claude Code chat, clean conversation titles and the `staging`
