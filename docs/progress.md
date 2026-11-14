@@ -3,6 +3,18 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Model and thinking level in the chat (`feat/assistant-model-picker`)
+
+- Under the prompt, pick the model and thinking level for the next message, from
+  the lists the cluster's CLI reports (`model/list` for Codex, Claude's
+  initialize response). The choice is remembered per assistant on the device,
+  and the server only passes on models and levels the CLI offers.
+- Claude restarts the conversation's CLI with `--resume --model --effort` when
+  the choice changes; the conversation keeps its context. Codex gets `model` and
+  `effort` on `turn/start`.
+- CLI processes now end by closing their input first, and are cut off only if
+  they don't exit within three seconds.
+
 ## 2026-11-14 — Assistant chat reads like Claude's (`fix/chat-autoscroll`), pre-release 0.3.0-rc.4
 
 - The chat follows replies as they stream (and stops while you scroll up to read).
