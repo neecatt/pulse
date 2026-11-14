@@ -22,6 +22,26 @@ vi.mock("@/hooks/use-assistant", () => ({
     },
     isPending: false,
   }),
+  useAssistantModels: () => ({
+    data: [
+      {
+        id: "default",
+        name: "Default (recommended)",
+        description: "",
+        efforts: ["low", "high"],
+        default_effort: null,
+        is_default: true,
+      },
+      {
+        id: "sonnet",
+        name: "Sonnet",
+        description: "",
+        efforts: ["low", "high"],
+        default_effort: null,
+        is_default: false,
+      },
+    ],
+  }),
   useAssistantAction: (_account: number, action: (value: unknown) => Promise<unknown>) => ({
     mutate: (value: unknown, options?: { onSuccess?: () => void }) => {
       void action(value).then(() => options?.onSuccess?.());
@@ -90,5 +110,33 @@ describe("cluster conversation UI", () => {
     expect(decide).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Approve once"));
     await waitFor(() => expect(decide).toHaveBeenCalledWith(2, "claude", "request", "accept", {}));
+  });
+
+  it("sends the model and thinking level picked under the prompt", async () => {
+    localStorage.clear();
+    const turn = vi.spyOn(api.assistants, "turn").mockResolvedValue();
+    render(
+      <AssistantChat
+        account={2}
+        provider="claude"
+        id="chat"
+        verified
+        live={{ ...state, opened: ["chat"] }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "sonnet" } });
+    fireEvent.change(screen.getByLabelText("Thinking"), { target: { value: "low" } });
+    fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "train" } });
+    fireEvent.click(screen.getByText("Send"));
+    await waitFor(() =>
+      expect(turn).toHaveBeenCalledWith(2, "claude", "chat", "train", {
+        model: "sonnet",
+        effort: "low",
+      }),
+    );
+    expect(JSON.parse(localStorage.getItem("pulse.assistant-choice.claude") ?? "{}")).toEqual({
+      model: "sonnet",
+      effort: "low",
+    });
   });
 });
