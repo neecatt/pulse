@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Pre-release 0.3.0-rc.3
+
+- The built-in Claude Code chat, clean conversation titles and the `staging`
+  tag. Published as `neecat/pulse:0.3.0-rc.3` and `:staging`; `latest` stays on
+  0.2.6 until the assistants are confirmed on a real cluster.
+
 ## 2026-11-14 — Claude Code chat inside Pulse (`feat/claude-chat`)
 
 - Claude Code now uses the same in-app chat as Codex: prompts, streamed replies,
