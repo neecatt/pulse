@@ -1,5 +1,6 @@
 """SshSlurmClient against an in-process SSH server that fakes the Slurm CLI."""
 
+import asyncio
 import base64
 import re
 import shlex
@@ -14,10 +15,10 @@ import asyncssh
 import pytest
 
 from pulse.config import Settings
-from pulse.constants import FIRST_USER_ID
+from pulse.constants import FIRST_USER_ID, TELEMETRY_CONCURRENCY
 from pulse.domain import JobState
 from pulse.net import is_public_ip
-from pulse.slurm.base import AccountRef, Hop, SlurmError
+from pulse.slurm.base import AccountRef, Hop, JobTelemetry, SlurmError
 from pulse.slurm.ssh import CHUNK_MARKER, SshSlurmClient, select_files
 
 WORK_DIR = Path(tempfile.mkdtemp(prefix="pulse-ssh-workdir-"))
@@ -389,3 +390,25 @@ async def test_telemetry_caches_are_kept_per_account(
     await client.snapshot(cluster.account(), {})
     keys = set(client._stats_cache) | set(client._discovery_cache)
     assert keys and all(k.startswith(f"{OWNER}:alice@127.0.0.1:{cluster.port}/") for k in keys)
+
+
+async def test_reads_a_few_jobs_at_a_time(
+    client: SshSlurmClient, cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Many running jobs share one connection, which sshd caps at 10 commands."""
+    many = "".join(SACCT_OUTPUT.replace("4242", str(4242 + i), 1) for i in range(12))
+    monkeypatch.setattr("tests.test_ssh.SACCT_OUTPUT", many)
+    active = peak = 0
+
+    async def telemetry(*_: object) -> JobTelemetry:
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return JobTelemetry()
+
+    monkeypatch.setattr(client, "_telemetry", telemetry)
+    snapshot = await client.snapshot(cluster.account(), {})
+    assert len(snapshot.telemetry) == 12
+    assert peak == TELEMETRY_CONCURRENCY

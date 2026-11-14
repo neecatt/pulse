@@ -3,6 +3,19 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Cluster edge cases (`fix/cluster-edge-cases`)
+
+- Running jobs' logs and metrics are read three at a time
+  (`TELEMETRY_CONCURRENCY`). Before, every running job ran its commands at once
+  on one connection, so with more than about ten, sshd's `MaxSessions` refused
+  the rest and their logs, metrics and GPU numbers went blank.
+- Assistants ignore whatever a cluster's login script prints before the CLI's
+  JSON (quota banners, module messages), which used to break sign-in checks,
+  saved conversations and chats with misleading errors.
+- `REQUEUE_HOLD`, `STOPPED`, `STAGE_OUT`, `SIGNALING` and other Slurm states
+  map to pending, running or cancelled instead of failed, so they no longer
+  send false failure alerts.
+
 ## 2026-11-14 — Fewer confirmations for assistants (`fix/assistant-reauth`)
 
 - Connecting an assistant accepts a sign-in or confirmation from the last eight

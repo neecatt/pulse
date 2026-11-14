@@ -22,6 +22,9 @@ from pulse.slurm.parsing import (
         ("CANCELLED by 1234", (JobState.CANCELLED, None)),
         ("OUT_OF_MEMORY", (JobState.FAILED, "OUT_OF_MEMORY")),
         ("REQUEUED", (JobState.PENDING, "REQUEUED")),
+        ("REQUEUE_HOLD", (JobState.PENDING, "REQUEUE_HOLD")),
+        ("STAGE_OUT", (JobState.RUNNING, "STAGE_OUT")),
+        ("REVOKED", (JobState.CANCELLED, "REVOKED")),
         ("SOMETHING_NEW", (JobState.FAILED, "SOMETHING_NEW")),
     ],
 )

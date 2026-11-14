@@ -25,6 +25,7 @@ from pulse.constants import (
     MAX_METRIC_FILES,
     PRUNE_DIRS,
     SEARCH_DEPTH,
+    TELEMETRY_CONCURRENCY,
     USER_KEYS_DIR,
 )
 from pulse.domain import JobState
@@ -116,9 +117,13 @@ class SshSlurmClient:
         running = [j for j in jobs if j.state is JobState.RUNNING]
         scope = f"{account.owner_id}:{account.username}@{account.host}:{account.port}"
         self._prune_caches()
-        results = await asyncio.gather(
-            *(self._telemetry(conn, scope, j, cursors.get(j.slurm_id, {})) for j in running)
-        )
+        limit = asyncio.Semaphore(TELEMETRY_CONCURRENCY)
+
+        async def telemetry(job: SlurmJob) -> JobTelemetry:
+            async with limit:
+                return await self._telemetry(conn, scope, job, cursors.get(job.slurm_id, {}))
+
+        results = await asyncio.gather(*(telemetry(j) for j in running))
         return AccountSnapshot(
             jobs=jobs,
             telemetry={j.slurm_id: t for j, t in zip(running, results, strict=True)},
