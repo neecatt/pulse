@@ -42,6 +42,7 @@ from pulse.services.chat import (
     ChatConnection,
     PendingApproval,
     login_command,
+    protocol_line,
 )
 from pulse.services.claude import ClaudeSession
 from pulse.services.claude_chat import ClaudeChat, claude_auth
@@ -175,7 +176,7 @@ class CodexConnection(ChatConnection):
                     line, buffer = buffer.split("\n", 1)
                     if len(line.encode()) > ASSISTANT_MAX_RPC_BYTES:
                         raise ValueError
-                    if line.strip():
+                    if protocol_line(line):
                         await self._message(json.loads(line))
                 if len(buffer.encode()) > ASSISTANT_MAX_RPC_BYTES:
                     raise ValueError

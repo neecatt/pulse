@@ -6,6 +6,7 @@ protocol into these normalized messages, so the API and the UI stay provider-neu
 
 import asyncio
 import contextlib
+import json
 import shlex
 import time
 from collections import OrderedDict
@@ -42,6 +43,25 @@ APPROVAL_SECONDS = 600
 
 def login_command(command: str) -> str:
     return "bash -lc " + shlex.quote(command)
+
+
+def json_output(text: str) -> Any:
+    """A command's JSON output, skipping anything the login shell printed first
+    (quota banners, module messages)."""
+    start = 0
+    while True:
+        try:
+            return json.loads(text[start:])
+        except ValueError:
+            start = text.find("\n{", start) + 1
+            if start == 0:
+                raise
+
+
+def protocol_line(line: str) -> bool:
+    """Whether a CLI's stdout line is a protocol message rather than login-shell
+    output; every message is one JSON object per line."""
+    return line.lstrip().startswith("{")
 
 
 @dataclass

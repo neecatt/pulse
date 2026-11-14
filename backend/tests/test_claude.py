@@ -13,6 +13,7 @@ from pulse.api.claude import stream
 from pulse.assistants import claude_history
 from pulse.assistants.claude_history import sessions
 from pulse.models import LoginSession, utcnow
+from pulse.services.chat import json_output, protocol_line
 from pulse.services.claude import provider_url
 from pulse.services.claude_chat import Transcript, chat_command, tool_summary
 from pulse.services.container import Services
@@ -430,3 +431,14 @@ def test_history_reads_one_conversation_without_thinking_or_subagents(tmp_path: 
         },
     ]
     assert claude_history.conversation(str(tmp_path), "../../etc/passwd")["thread"] is None
+
+
+def test_login_shell_output_before_json_is_skipped() -> None:
+    assert json_output('Quota: 42%\n{"loggedIn": true}') == {"loggedIn": True}
+    assert json_output('Welcome {user}\n{\n  "a": [1]\n}\n') == {"a": [1]}
+    with pytest.raises(ValueError):
+        json_output("Quota: 42%\n")
+    with pytest.raises(ValueError):
+        json_output('Quota\n{"broken": ')
+    assert protocol_line('  {"type": "result"}')
+    assert not protocol_line("Loading module cuda/12.4")

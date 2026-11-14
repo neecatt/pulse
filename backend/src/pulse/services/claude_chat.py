@@ -42,7 +42,9 @@ from pulse.services.chat import (
     TRAINING_INSTRUCTIONS,
     ChatConnection,
     PendingApproval,
+    json_output,
     login_command,
+    protocol_line,
 )
 from pulse.services.claude import HISTORY_SCRIPT
 from pulse.slurm.base import SlurmError
@@ -283,7 +285,7 @@ class ClaudeChat(ChatConnection):
             )
             if result.exit_status != 0:
                 raise ValueError
-            value = json.loads(str(result.stdout))
+            value = json_output(str(result.stdout))
             if not isinstance(value, dict):
                 raise ValueError
             return value
@@ -475,7 +477,7 @@ class ClaudeChat(ChatConnection):
                     line, buffer = buffer.split("\n", 1)
                     if len(line.encode()) > ASSISTANT_MAX_RPC_BYTES:
                         raise ValueError
-                    if line.strip():
+                    if protocol_line(line):
                         value = json.loads(line)
                         if isinstance(value, dict):
                             await self._message(thread_id, run, value)
@@ -683,7 +685,7 @@ async def claude_auth(conn: asyncssh.SSHClientConnection, seconds: float) -> dic
     """``claude auth status``: public metadata (sign-in method, config directory), never tokens."""
     status = await conn.run(login_command("claude auth status"), check=False, timeout=seconds)
     try:
-        value = json.loads(str(status.stdout or "{}"))
+        value = json_output(str(status.stdout or "{}"))
     except ValueError:
         value = None
     if not isinstance(value, dict):

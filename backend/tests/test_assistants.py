@@ -49,6 +49,9 @@ async def cluster(services: Services) -> AsyncIterator[dict[str, Any]]:
 
     async def handler(process: asyncssh.SSHServerProcess[str]) -> None:
         command = process.command or ""
+        if command.startswith("bash -lc "):
+            # Like a cluster's ~/.bash_profile printing a quota notice.
+            process.stdout.write("Disk quota: 42% of /home used\n\n")
         if "command -v codex" in command or "command -v claude" in command:
             process.exit(0)
             return
@@ -59,7 +62,8 @@ async def cluster(services: Services) -> AsyncIterator[dict[str, Any]]:
                         "loggedIn": True,
                         "authMethod": "claude.ai",
                         "configDirectory": "/home/alice/.claude",
-                    }
+                    },
+                    indent=2,
                 )
             )
             process.exit(0)
