@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Pre-release 0.3.0-rc.2
+
+- Adds the guides on the site (`/docs`) and the GitHub links to rc.1. Published
+  only as `neecat/pulse:0.3.0-rc.2`; `latest` stays on 0.2.6 until the
+  assistants are confirmed on a real cluster.
+
 ## 2026-11-14 — Self-hosting guide on the site (`feat/self-hosting-guide`)
 
 - `docs/deployment.md` is now a full self-hosting guide: requirements, a local
