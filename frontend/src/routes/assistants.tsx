@@ -51,7 +51,6 @@ function AssistantsPage() {
         ) : (
           access.data?.enabled && (
             <div className="space-y-4">
-              {!access.data.verified && <SessionReauth />}
               {!accounts.isPending && !selected && (
                 <EmptyState title="Connect a cluster over SSH">
                   <p>
@@ -181,6 +180,9 @@ function ClusterAssistant({
           </Button>
         )}
       </Card>
+      {!verified && (!connected || (provider === "claude" && !signedIn)) && (
+        <SessionReauth message={`Confirm it’s you to connect ${name}.`} />
+      )}
       {provider === "claude" && connected && !signedIn && (
         <ClaudeSignIn account={account} verified={verified} onSignedIn={() => connect.mutate()} />
       )}
@@ -256,7 +258,7 @@ function ClusterAssistant({
                     className="block w-full rounded-md border bg-background px-3 py-2 font-mono text-sm"
                   />
                 </label>
-                <Button type="submit" disabled={!verified || create.isPending}>
+                <Button type="submit" disabled={create.isPending}>
                   Start chat
                 </Button>
               </form>
@@ -305,7 +307,6 @@ function ClusterAssistant({
                 provider={provider}
                 id={selected}
                 live={state.data}
-                verified={verified}
               />
             ) : (
               <EmptyState title="Pick a conversation">

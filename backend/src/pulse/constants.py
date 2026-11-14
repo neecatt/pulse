@@ -151,6 +151,9 @@ NEW_ACCOUNTS_PER_WINDOW = 300
 # Setting a first password on a passkey-only account needs a sign-in this recent,
 # so a stolen session can't be turned into a lasting password.
 FRESH_SIGN_IN_SECONDS = 10 * 60
+# Connecting a cluster assistant needs a sign-in or confirmation this recent.
+# Once connected, the browser's grant covers its chats until the connection ends.
+ASSISTANT_VERIFIED_SECONDS = 8 * 60 * 60
 # Site stats: days shown, and distinct visitors remembered per day (in memory,
 # as salted hashes) before new ones are counted as views only.
 SITE_STATS_DAYS = 30

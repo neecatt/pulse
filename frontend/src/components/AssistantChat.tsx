@@ -33,13 +33,11 @@ export function AssistantChat({
   provider,
   id,
   live,
-  verified,
 }: {
   account: number;
   provider: AssistantProvider;
   id: string;
   live: AssistantLive;
-  verified: boolean;
 }) {
   const name = PROVIDER_NAMES[provider];
   const history = useAssistantHistory(account, provider, id, true);
@@ -136,7 +134,7 @@ export function AssistantChat({
               Continue this cluster conversation here. {name} asks you before running commands or
               changing files, and acts as your cluster login.
             </p>
-            <Button disabled={!verified || resume.isPending} onClick={() => resume.mutate()}>
+            <Button disabled={resume.isPending} onClick={() => resume.mutate()}>
               {resume.isPending ? "Opening…" : "Continue this conversation"}
             </Button>
           </div>

@@ -11,6 +11,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from pulse.constants import ASSISTANT_VERIFIED_SECONDS
 from pulse.models import LoginSession, utcnow
 from pulse.services import assistants as assistants_module
 from pulse.services.assistants import Assistants, CodexConnection
@@ -520,7 +521,7 @@ async def test_reauthentication_and_absolute_paths(
     async with services.sessions() as db:
         login = await db.scalar(select(LoginSession))
         assert login
-        login.created_at = utcnow() - timedelta(hours=1)
+        login.created_at = utcnow() - timedelta(seconds=ASSISTANT_VERIFIED_SECONDS + 60)
         await db.commit()
     assert not (await client.get("/api/assistants/access")).json()["verified"]
     assert (await client.post(f"/api/assistants/{account}/connect")).status_code == 403
@@ -529,6 +530,12 @@ async def test_reauthentication_and_absolute_paths(
         await client.post("/api/auth/reauth", json={"password": ADMIN["password"]})
     ).status_code == 204
     assert (await client.post(f"/api/assistants/{account}/connect")).status_code == 200
+    # This browser's connection grant covers its chats; they don't ask again.
+    async with services.sessions() as db:
+        login = await db.scalar(select(LoginSession))
+        assert login
+        login.reauthenticated_at = utcnow() - timedelta(seconds=ASSISTANT_VERIFIED_SECONDS + 60)
+        await db.commit()
     for path in ("relative/path", "-delete", "/scratch/a\ncommand"):
         assert (
             await client.post(
