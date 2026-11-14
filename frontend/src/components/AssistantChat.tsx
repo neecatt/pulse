@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
 import { api } from "@/api/client";
 import type {
   AssistantApproval,
@@ -8,20 +9,14 @@ import type {
   AssistantProvider,
 } from "@/api/types";
 import { Button } from "@/components/Button";
+import { Markdown } from "@/components/Markdown";
 import { Card } from "@/components/Section";
 import { ASSISTANT_MAX_INPUT } from "@/config/constants";
 import { useAssistantAction, useAssistantHistory } from "@/hooks/use-assistant";
-import { mergeAssistantMessages, PROVIDER_NAMES } from "@/lib/assistant";
-
-const TOOL_LABELS: Record<string, string> = {
-  commandExecution: "Command",
-  fileChange: "File changes",
-};
-
-/** A tool item's summary line: its kind, or for other tools the tool's name. */
-function toolLabel(item: AssistantMessage): string {
-  return TOOL_LABELS[item.kind] ?? item.text.split("\n", 1)[0] ?? "Tool";
-}
+import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
+import { mergeAssistantMessages, PROVIDER_NAMES, toolSummary } from "@/lib/assistant";
+import { parseMarkdown } from "@/lib/markdown";
+import { cn } from "@/lib/utils";
 
 export function AssistantChat({
   account,
@@ -50,6 +45,10 @@ export function AssistantChat({
   const working = id in live.active;
   const error = history.error ?? resume.error ?? send.error ?? interrupt.error;
   const approvals = live.approvals.filter((item) => item.thread_id === id);
+  // Changes whenever something new appears, including text streaming into a message.
+  const growth = `${messages.length}:${messages.reduce((n, m) => n + m.text.length, 0)}:${working}`;
+  const scroller = useStickToBottom<HTMLDivElement>(growth);
+  const form = useRef<HTMLFormElement>(null);
   return (
     <Card className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
@@ -70,29 +69,26 @@ export function AssistantChat({
           </Button>
         )}
       </div>
-      <div className="max-h-[55dvh] space-y-4 overflow-y-auto p-4" aria-label="Conversation">
+      <div
+        ref={scroller.ref}
+        onScroll={scroller.onScroll}
+        className="max-h-[60dvh] space-y-3 overflow-y-auto p-4"
+        aria-label="Conversation"
+      >
         {messages.map((item) =>
           item.role === "tool" ? (
-            <details key={item.id} className="rounded-md border text-xs">
-              <summary className="cursor-pointer px-3 py-2 text-muted-foreground">
-                {toolLabel(item)}
-                {item.status ? ` · ${item.status}` : ""}
-              </summary>
-              <pre className="max-h-64 overflow-auto border-t p-3 font-mono whitespace-pre-wrap break-words">
-                {item.text}
-              </pre>
-            </details>
-          ) : (
-            <div
-              key={item.id}
-              className={item.role === "user" ? "ml-6 rounded-md bg-muted p-3" : "mr-3"}
-            >
-              <p className="mb-1 text-[11px] text-muted-foreground">
-                {item.role === "user" ? "You" : name}
-              </p>
-              <div className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+            <ToolStep key={item.id} item={item} />
+          ) : item.role === "user" ? (
+            <div key={item.id} className="flex justify-end">
+              <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                <span className="sr-only">You: </span>
                 {item.text}
               </div>
+            </div>
+          ) : (
+            <div key={item.id}>
+              <span className="sr-only">{name}</span>
+              <AssistantText text={item.text} />
             </div>
           ),
         )}
@@ -104,7 +100,8 @@ export function AssistantChat({
           </p>
         )}
         {working && (
-          <p role="status" className="text-xs text-muted-foreground">
+          <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="size-2 animate-pulse rounded-full bg-run" />
             {approvals.length
               ? "Waiting for your response"
               : `${name} is working… You can close Pulse and return here.`}
@@ -132,22 +129,40 @@ export function AssistantChat({
           </div>
         ) : (
           <form
+            ref={form}
             className="flex items-end gap-2"
             onSubmit={(event) => {
               event.preventDefault();
               if (draft.trim() && !working && !send.isPending)
-                send.mutate(draft, { onSuccess: () => setDraft("") });
+                send.mutate(draft, {
+                  onSuccess: () => {
+                    setDraft("");
+                    scroller.follow();
+                  },
+                });
             }}
           >
             <textarea
               aria-label="Prompt"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                // Enter sends and Shift+Enter adds a line, where there's a keyboard to do it.
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing &&
+                  window.matchMedia("(pointer: fine)").matches
+                ) {
+                  event.preventDefault();
+                  form.current?.requestSubmit();
+                }
+              }}
               placeholder="Train this model on 4 GPUs for 12 hours…"
-              rows={3}
+              rows={2}
               maxLength={ASSISTANT_MAX_INPUT}
               disabled={working}
-              className="min-w-0 flex-1 resize-y rounded-md border bg-background px-3 py-2 text-sm"
+              className="max-h-48 min-w-0 flex-1 resize-none rounded-xl border bg-background px-3 py-2 text-sm field-sizing-content"
             />
             <Button type="submit" disabled={working || send.isPending || !draft.trim()}>
               Send
@@ -156,6 +171,48 @@ export function AssistantChat({
         )}
       </div>
     </Card>
+  );
+}
+
+/** Claude's reply, formatted. Memoized: replies re-render on every streamed word. */
+const AssistantText = memo(function AssistantText({ text }: { text: string }) {
+  const blocks = useMemo(() => parseMarkdown(text), [text]);
+  return (
+    <div className="text-sm break-words [overflow-wrap:anywhere]">
+      <Markdown blocks={blocks} variant="chat" />
+    </div>
+  );
+});
+
+const STATUS_DOT: Record<string, string> = {
+  inProgress: "animate-pulse bg-run",
+  failed: "bg-fail",
+  declined: "bg-fail",
+};
+
+/** A command, edit or other tool step: one line, with its output on demand. */
+function ToolStep({ item }: { item: AssistantMessage }) {
+  const { label, preview } = toolSummary(item);
+  return (
+    <details className="group text-xs">
+      <summary className="flex cursor-pointer list-none items-center gap-2 py-0.5 text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            STATUS_DOT[item.status ?? ""] ?? "bg-muted-foreground/50",
+          )}
+        />
+        <span className="font-medium text-foreground">{label}</span>
+        <span className="min-w-0 truncate font-mono">{preview}</span>
+        {item.status && item.status !== "completed" && (
+          <span className="shrink-0">{item.status === "inProgress" ? "running" : item.status}</span>
+        )}
+        <ChevronRight className="ml-auto size-3.5 shrink-0 transition-transform group-open:rotate-90" />
+      </summary>
+      <pre className="mt-1 max-h-64 overflow-auto rounded-md border bg-surface p-3 font-mono whitespace-pre-wrap break-words">
+        {item.text}
+      </pre>
+    </details>
   );
 }
 
@@ -175,10 +232,16 @@ function ApprovalCard({
   return (
     <div className="space-y-3 rounded-md border p-3">
       <h4 className="text-sm font-medium">{approval.title}</h4>
-      {approval.kind !== "question" && (
-        <pre className="max-h-72 overflow-auto rounded bg-muted p-3 font-mono text-xs whitespace-pre-wrap break-words">
-          {approval.detail}
-        </pre>
+      {approval.kind === "plan" ? (
+        <div className="max-h-96 overflow-auto rounded bg-muted p-3">
+          <AssistantText text={approval.detail} />
+        </div>
+      ) : (
+        approval.kind !== "question" && (
+          <pre className="max-h-72 overflow-auto rounded bg-muted p-3 font-mono text-xs whitespace-pre-wrap break-words">
+            {approval.detail}
+          </pre>
+        )
       )}
       {approval.questions.map((question) => (
         <label key={question.id} className="block space-y-2 text-sm">

@@ -1,13 +1,14 @@
 /**
- * The small part of Markdown the docs in /docs use: headings, paragraphs, lists,
- * fenced code, pipe tables and inline code, bold, italics and links. It parses to
- * plain data that components/Markdown.tsx renders, so no HTML is ever injected.
+ * The part of Markdown the docs in /docs and assistant replies use: headings,
+ * paragraphs, lists, quotes, rules, fenced code, pipe tables and inline code, bold,
+ * italics, strikethrough and links. It parses to plain data that
+ * components/Markdown.tsx renders, so no HTML is ever injected.
  */
 
 export type Inline =
   | { kind: "text"; text: string }
   | { kind: "code"; text: string }
-  | { kind: "strong" | "em"; children: Inline[] }
+  | { kind: "strong" | "em" | "del"; children: Inline[] }
   | { kind: "link"; href: string; children: Inline[] };
 
 export type Block =
@@ -15,12 +16,16 @@ export type Block =
   | { kind: "paragraph"; text: Inline[] }
   | { kind: "list"; ordered: boolean; items: Block[][] }
   | { kind: "code"; text: string }
+  | { kind: "quote"; blocks: Block[] }
+  | { kind: "rule" }
   | { kind: "table"; header: Inline[][]; rows: Inline[][][] };
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const FENCE = /^```/;
 const LIST_ITEM = /^([-*]|\d+\.)\s+/;
 const TABLE_RULE = /^\|?\s*:?-+/;
+const QUOTE = /^ {0,3}> ?/;
+const RULE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
 
 export function parseMarkdown(source: string): Block[] {
   const slugs = new Map<string, number>();
@@ -38,6 +43,14 @@ function parseBlocks(lines: string[], slugs: Map<string, number>): Block[] {
       const end = findIndex(lines, i + 1, (l) => FENCE.test(l));
       blocks.push({ kind: "code", text: lines.slice(i + 1, end).join("\n") });
       i = end + 1;
+    } else if (RULE.test(line)) {
+      blocks.push({ kind: "rule" });
+      i++;
+    } else if (QUOTE.test(line)) {
+      const end = findIndex(lines, i + 1, (l) => !QUOTE.test(l));
+      const inner = lines.slice(i, end).map((l) => l.replace(QUOTE, ""));
+      blocks.push({ kind: "quote", blocks: parseBlocks(inner, slugs) });
+      i = end;
     } else if (HEADING.test(line)) {
       const [, hashes = "", title = ""] = HEADING.exec(line) ?? [];
       const text = parseInline(title.trim());
@@ -102,7 +115,14 @@ function parseList(
 }
 
 function startsBlock(line: string): boolean {
-  return FENCE.test(line) || HEADING.test(line) || LIST_ITEM.test(line) || line.startsWith("|");
+  return (
+    FENCE.test(line) ||
+    HEADING.test(line) ||
+    LIST_ITEM.test(line) ||
+    QUOTE.test(line) ||
+    RULE.test(line) ||
+    line.startsWith("|")
+  );
 }
 
 function findIndex(lines: string[], from: number, test: (line: string) => boolean): number {
@@ -137,22 +157,27 @@ export function parseInline(text: string): Inline[] {
   while (i < text.length) {
     const rest = text.slice(i);
     const code = /^`([^`]+)`/.exec(rest);
-    const strong = /^\*\*(.+?)\*\*/.exec(rest);
-    const em = /^_(\S(?:.*?\S)?)_(?![\p{L}\p{N}])/u.exec(rest);
+    const strong = /^(\*\*|__)(\S(?:.*?\S)?)\1/.exec(rest);
+    const em = /^([_*])(\S(?:.*?\S)?)\1(?![\p{L}\p{N}])/u.exec(rest);
+    const del = /^~~(\S(?:.*?\S)?)~~/.exec(rest);
     const link = /^\[([^\]]+)\]\(([^)\s]+)\)/.exec(rest);
     const wordStart = !/[\p{L}\p{N}]/u.test(text.charAt(i - 1));
     if (code) {
       flush();
       out.push({ kind: "code", text: code[1] ?? "" });
       i += code[0].length;
-    } else if (strong) {
+    } else if (strong && wordStart) {
       flush();
-      out.push({ kind: "strong", children: parseInline(strong[1] ?? "") });
+      out.push({ kind: "strong", children: parseInline(strong[2] ?? "") });
       i += strong[0].length;
     } else if (em && wordStart) {
       flush();
-      out.push({ kind: "em", children: parseInline(em[1] ?? "") });
+      out.push({ kind: "em", children: parseInline(em[2] ?? "") });
       i += em[0].length;
+    } else if (del) {
+      flush();
+      out.push({ kind: "del", children: parseInline(del[1] ?? "") });
+      i += del[0].length;
     } else if (link) {
       flush();
       out.push({ kind: "link", href: link[2] ?? "", children: parseInline(link[1] ?? "") });

@@ -11,7 +11,14 @@ vi.mock("@/hooks/use-assistant", () => ({
   useAssistantHistory: () => ({
     data: {
       thread: { title: "Existing training", work_dir: "/scratch/project" },
-      messages: [{ id: "one", role: "assistant", kind: "agentMessage", text: "Saved answer" }],
+      messages: [
+        {
+          id: "one",
+          role: "assistant",
+          kind: "agentMessage",
+          text: "Saved answer with **bold**, [a guide](https://example.org) and [x](javascript:alert(1))",
+        },
+      ],
     },
     isPending: false,
   }),
@@ -43,7 +50,12 @@ describe("cluster conversation UI", () => {
       updated_at: 0,
     });
     render(<AssistantChat account={2} provider="codex" id="chat" live={state} verified />);
-    expect(screen.getByText("Saved answer")).toBeInTheDocument();
+    expect(screen.getByText("bold").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "a guide" })).toHaveAttribute(
+      "href",
+      "https://example.org",
+    );
+    expect(screen.queryByRole("link", { name: "x" })).toBeNull(); // never a javascript: link
     expect(resume).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Continue this conversation"));
     await waitFor(() => expect(resume).toHaveBeenCalledWith(2, "codex", "chat"));

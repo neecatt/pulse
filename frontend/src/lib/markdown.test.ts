@@ -58,4 +58,27 @@ describe("markdown for the docs pages", () => {
       { kind: "text", text: " or snake_case_name" },
     ]);
   });
+
+  it("parses what assistant replies use: quotes, rules, star italics and strikethrough", () => {
+    expect(parseMarkdown("> Note\n> more\n\n---\n\nText").map((b) => b.kind)).toEqual([
+      "quote",
+      "rule",
+      "paragraph",
+    ]);
+    expect(parseInline("*one* and ~~two~~ and __three__")).toEqual([
+      { kind: "em", children: [{ kind: "text", text: "one" }] },
+      { kind: "text", text: " and " },
+      { kind: "del", children: [{ kind: "text", text: "two" }] },
+      { kind: "text", text: " and " },
+      { kind: "strong", children: [{ kind: "text", text: "three" }] },
+    ]);
+    expect(parseInline("2*3*4 and a * b")).toEqual([{ kind: "text", text: "2*3*4 and a * b" }]);
+  });
+
+  it("ends a paragraph at a list or rule that follows without a blank line", () => {
+    expect(parseMarkdown("Steps:\n1. One\n2. Two").map((b) => b.kind)).toEqual([
+      "paragraph",
+      "list",
+    ]);
+  });
 });

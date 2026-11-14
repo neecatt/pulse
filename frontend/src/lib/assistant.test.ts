@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantLive, AssistantMessage } from "@/api/types";
-import { applyAssistantLive, mergeAssistantMessages } from "./assistant";
+import { applyAssistantLive, mergeAssistantMessages, toolSummary } from "./assistant";
 
 const message = (id: string, text: string): AssistantMessage => ({
   id,
@@ -48,5 +48,29 @@ describe("assistant stream updates", () => {
   it("replaces everything with a full update", () => {
     const next = applyAssistantLive(live({ a: [message("1", "Old")] }, false), live({}, false));
     expect(next.messages).toEqual({});
+  });
+});
+
+describe("tool step summaries", () => {
+  const tool = (kind: string, text: string): AssistantMessage => ({
+    id: "t",
+    role: "tool",
+    kind,
+    text,
+    status: "completed",
+  });
+  it("shows the command or file, and for other tools their main input", () => {
+    expect(toolSummary(tool("commandExecution", "sbatch train.sh\n\nSubmitted 42"))).toEqual({
+      label: "Command",
+      preview: "sbatch train.sh",
+    });
+    expect(toolSummary(tool("fileChange", "/p/a.py\n- x\n+ y")).preview).toBe("/p/a.py");
+    expect(
+      toolSummary(tool("toolCall", 'Read\n{\n  "file_path": "/p/a.py",\n  "limit": 5\n}\n\nok')),
+    ).toEqual({ label: "Read", preview: "/p/a.py" });
+    expect(toolSummary(tool("toolCall", "WebFetch\n{cut"))).toEqual({
+      label: "WebFetch",
+      preview: "",
+    });
   });
 });
