@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AssistantLive, AssistantMessage } from "@/api/types";
-import { applyAssistantLive, mergeAssistantMessages, toolSummary } from "./assistant";
+import type { AssistantLive, AssistantMessage, AssistantModel } from "@/api/types";
+import { applyAssistantLive, choiceToSend, mergeAssistantMessages, toolSummary } from "./assistant";
 
 const message = (id: string, text: string): AssistantMessage => ({
   id,
@@ -72,5 +72,36 @@ describe("tool step summaries", () => {
       label: "WebFetch",
       preview: "",
     });
+  });
+});
+
+describe("model and thinking sent with a prompt", () => {
+  const model = (id: string, efforts: string[], extra: Partial<AssistantModel> = {}) => ({
+    id,
+    name: id,
+    description: "",
+    efforts,
+    default_effort: null,
+    is_default: false,
+    ...extra,
+  });
+  const models = [
+    model("default", ["low", "high"], { is_default: true }),
+    model("gpt", ["low", "high"], { default_effort: "low" }),
+    model("haiku", []),
+  ];
+  it("sends what the pickers show, limited to what the CLI offers", () => {
+    expect(choiceToSend({}, models)).toEqual({ model: "default" });
+    expect(choiceToSend({ model: "gpt" }, models)).toEqual({ model: "gpt", effort: "low" });
+    expect(choiceToSend({ model: "gpt", effort: "high" }, models)).toEqual({
+      model: "gpt",
+      effort: "high",
+    });
+    expect(choiceToSend({ model: "haiku", effort: "high" }, models)).toEqual({ model: "haiku" });
+    expect(choiceToSend({ model: "gone", effort: "high" }, models)).toEqual({
+      model: "default",
+      effort: "high",
+    });
+    expect(choiceToSend({ model: "gpt" }, undefined)).toEqual({});
   });
 });

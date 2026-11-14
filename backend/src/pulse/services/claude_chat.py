@@ -33,6 +33,7 @@ from pulse.schemas import (
     AssistantConnection,
     AssistantConversation,
     AssistantMessage,
+    AssistantModel,
     AssistantThread,
     AssistantThreads,
 )
@@ -52,15 +53,32 @@ DECLINED = "The user declined this in Pulse."
 STDERR_CHARS = 2000
 
 
-def chat_command(work_dir: str, session_id: str, *, resume: bool) -> str:
+HEADLESS = [
+    "claude",
+    "-p",
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+]
+INITIALIZE = {
+    "type": "control_request",
+    "request_id": "pulse-init",
+    "request": {"subtype": "initialize", "hooks": None},
+}
+
+
+def chat_command(
+    work_dir: str,
+    session_id: str,
+    *,
+    resume: bool,
+    model: str | None = None,
+    effort: str | None = None,
+) -> str:
     argv = [
-        "claude",
-        "-p",
-        "--input-format",
-        "stream-json",
-        "--output-format",
-        "stream-json",
-        "--verbose",
+        *HEADLESS,
         "--include-partial-messages",
         # Pulse answers every permission prompt; the user's own allow rules still apply.
         "--permission-prompt-tool",
@@ -72,7 +90,30 @@ def chat_command(work_dir: str, session_id: str, *, resume: bool) -> str:
         "--append-system-prompt",
         TRAINING_INSTRUCTIONS,
     ]
+    if model:
+        argv += ["--model", model]
+    if effort:
+        argv += ["--effort", effort]
     return "cd -- " + shlex.quote(work_dir) + " && exec " + shlex.join(argv)
+
+
+def listed_models(value: Any) -> list[AssistantModel] | None:
+    """The models in Claude's initialize response, with their thinking levels."""
+    if not isinstance(value, list):
+        return None
+    return [
+        AssistantModel(
+            id=str(m["value"]),
+            name=str(m.get("displayName") or m["value"]),
+            description=str(m.get("description") or ""),
+            efforts=[str(e) for e in m.get("supportedEffortLevels") or []]
+            if m.get("supportsEffort")
+            else [],
+            is_default=m["value"] == "default",
+        )
+        for m in value[:50]
+        if isinstance(m, dict) and isinstance(m.get("value"), str)
+    ]
 
 
 def tool_summary(name: str, value: dict[str, Any]) -> tuple[str, str]:
@@ -182,6 +223,9 @@ class _Run:
     """One conversation's CLI process."""
 
     process: asyncssh.SSHClientProcess[str]
+    model: str | None = None
+    effort: str | None = None
+    resumed: bool = False  # started with --resume; or a prompt was sent, so it can be
     transcript: Transcript = field(default_factory=Transcript)
     message_id: str = ""
     blocks: dict[int, str] = field(default_factory=dict)  # content index -> streamed item id
@@ -212,6 +256,7 @@ class ClaudeChat(ChatConnection):
         self.root: str | None = None
         self._runs: dict[str, _Run] = {}
         self._threads: dict[str, AssistantThread] = {}
+        self._models: list[AssistantModel] | None = None
         self._apply_auth(auth)
 
     def _apply_auth(self, auth: dict[str, Any]) -> None:
@@ -292,7 +337,47 @@ class ClaudeChat(ChatConnection):
         await self._open(thread, resume=True)
         return thread
 
-    async def _open(self, thread: AssistantThread, *, resume: bool) -> None:
+    async def models(self) -> list[AssistantModel]:
+        """Claude lists its models when it starts; ask a short-lived CLI if no chat
+        is open yet. Starting without a prompt makes no request and saves nothing."""
+        if self._models is not None:
+            return self._models
+        try:
+            process = await self.conn.create_process(
+                login_command("exec " + shlex.join(HEADLESS)), encoding="utf-8", errors="replace"
+            )
+        except (asyncssh.Error, OSError) as exc:
+            raise SlurmError("Couldn't start Claude on the cluster. Check the connection.") from exc
+        try:
+            process.stdin.write(json.dumps(INITIALIZE) + "\n")
+            async with asyncio.timeout(self.timeout):
+                while line := await process.stdout.readline():
+                    with contextlib.suppress(ValueError):
+                        self._remember_models(json.loads(line))
+                    if self._models is not None:
+                        return self._models
+        except (TimeoutError, asyncssh.Error, OSError):
+            pass
+        finally:
+            await finish(process)
+        raise SlurmError("Claude didn't list its models. Update Claude Code on the cluster.")
+
+    def _remember_models(self, value: Any) -> None:
+        if isinstance(value, dict) and value.get("type") == "control_response":
+            response = value.get("response") or {}
+            if response.get("request_id") == "pulse-init":
+                models = listed_models((response.get("response") or {}).get("models"))
+                if models is not None:
+                    self._models = models
+
+    async def _open(
+        self,
+        thread: AssistantThread,
+        *,
+        resume: bool,
+        model: str | None = None,
+        effort: str | None = None,
+    ) -> None:
         if thread.id in self._runs:
             self.allow(thread.id)
             return
@@ -302,35 +387,41 @@ class ClaudeChat(ChatConnection):
                 raise SlurmError("Stop one of your running Claude chats before opening another.")
             await self._stop(idle)
         try:
+            command = chat_command(
+                thread.work_dir, thread.id, resume=resume, model=model, effort=effort
+            )
             process = await self.conn.create_process(
-                login_command(chat_command(thread.work_dir, thread.id, resume=resume)),
-                encoding="utf-8",
-                errors="replace",
+                login_command(command), encoding="utf-8", errors="replace"
             )
         except (asyncssh.Error, OSError) as exc:
             raise SlurmError("Couldn't start Claude on the cluster. Check the connection.") from exc
-        run = _Run(process)
+        run = _Run(process, model=model, effort=effort, resumed=resume)
         self._runs[thread.id] = run
         self._threads[thread.id] = thread
         run.tasks = [
             asyncio.create_task(self._read(thread.id, run)),
             asyncio.create_task(self._read_stderr(run)),
         ]
-        await run.send(
-            {
-                "type": "control_request",
-                "request_id": "pulse-init",
-                "request": {"subtype": "initialize", "hooks": None},
-            }
-        )
+        await run.send(INITIALIZE)
         self.error = None
         self.allow(thread.id)
         self.changed()
 
-    async def send_turn(self, thread_id: str, prompt: str) -> None:
+    async def send_turn(
+        self, thread_id: str, prompt: str, model: str | None = None, effort: str | None = None
+    ) -> None:
         run = self._runs.get(thread_id)
         if run is None:
             raise SlurmError("This chat closed. Open it again to continue.")
+        model = None if model == "default" else model  # Claude's default is no flag
+        if (model, effort) != (run.model, run.effort):
+            # The thinking level is fixed when Claude starts, so restart this chat's
+            # CLI with the new choice; --resume keeps the whole conversation.
+            await self._stop(thread_id)
+            thread = self._threads[thread_id]
+            await self._open(thread, resume=run.resumed, model=model, effort=effort)
+            run = self._runs[thread_id]
+        run.resumed = True
         item_id = str(uuid.uuid4())  # Claude keeps it, so saved history matches this item
         self._remember(
             thread_id,
@@ -432,6 +523,9 @@ class ClaudeChat(ChatConnection):
             self.error = result_error(value) if failed and not run.interrupted else None
         elif kind == "control_request":
             await self._control(thread_id, run, value)
+        elif kind == "control_response":
+            self._remember_models(value)
+            return
         elif kind == "control_cancel_request":
             for key in [
                 key
@@ -563,12 +657,10 @@ class ClaudeChat(ChatConnection):
         if run is None:
             return
         run.closing = True
-        run.process.close()
+        await finish(run.process)
         for task in run.tasks:
             task.cancel()
         await asyncio.gather(*run.tasks, return_exceptions=True)
-        with contextlib.suppress(TimeoutError, asyncssh.Error, OSError):
-            await asyncio.wait_for(run.process.wait_closed(), 5)
 
     async def close(self) -> None:
         for thread_id in list(self._runs):
@@ -576,6 +668,15 @@ class ClaudeChat(ChatConnection):
         self.connected = False
         self.account.connected = False
         self.changed()
+
+
+async def finish(process: asyncssh.SSHClientProcess[str]) -> None:
+    """End a CLI the way a terminal would: close its input so it exits on its own,
+    and only cut the channel if it doesn't within a few seconds."""
+    with contextlib.suppress(TimeoutError, asyncssh.Error, OSError):
+        process.stdin.write_eof()
+        await asyncio.wait_for(process.wait_closed(), 3)
+    process.close()
 
 
 async def claude_auth(conn: asyncssh.SSHClientConnection, seconds: float) -> dict[str, Any]:

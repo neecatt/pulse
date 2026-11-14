@@ -4,17 +4,27 @@ import { ChevronRight } from "lucide-react";
 import { api } from "@/api/client";
 import type {
   AssistantApproval,
+  AssistantChoice,
   AssistantLive,
   AssistantMessage,
+  AssistantModel,
   AssistantProvider,
 } from "@/api/types";
 import { Button } from "@/components/Button";
 import { Markdown } from "@/components/Markdown";
 import { Card } from "@/components/Section";
 import { ASSISTANT_MAX_INPUT } from "@/config/constants";
-import { useAssistantAction, useAssistantHistory } from "@/hooks/use-assistant";
+import { useAssistantAction, useAssistantHistory, useAssistantModels } from "@/hooks/use-assistant";
 import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
-import { mergeAssistantMessages, PROVIDER_NAMES, toolSummary } from "@/lib/assistant";
+import {
+  choiceToSend,
+  EFFORT_LABELS,
+  loadChoice,
+  mergeAssistantMessages,
+  PROVIDER_NAMES,
+  saveChoice,
+  toolSummary,
+} from "@/lib/assistant";
 import { parseMarkdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 
@@ -34,8 +44,11 @@ export function AssistantChat({
   const name = PROVIDER_NAMES[provider];
   const history = useAssistantHistory(account, provider, id, true);
   const resume = useAssistantAction(account, () => api.assistants.resume(account, provider, id));
+  const opened = live.opened.includes(id);
+  const models = useAssistantModels(account, provider, opened);
+  const [choice, setChoice] = useState<AssistantChoice>(() => loadChoice(provider));
   const send = useAssistantAction(account, (prompt: string) =>
-    api.assistants.turn(account, provider, id, prompt),
+    api.assistants.turn(account, provider, id, prompt, choiceToSend(choice, models.data)),
   );
   const interrupt = useAssistantAction(account, () =>
     api.assistants.interrupt(account, provider, id),
@@ -117,7 +130,7 @@ export function AssistantChat({
             {error instanceof Error ? error.message : "Couldn't complete that request."}
           </p>
         )}
-        {!live.opened.includes(id) ? (
+        {!opened ? (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
               Continue this cluster conversation here. {name} asks you before running commands or
@@ -130,7 +143,7 @@ export function AssistantChat({
         ) : (
           <form
             ref={form}
-            className="flex items-end gap-2"
+            className="space-y-2"
             onSubmit={(event) => {
               event.preventDefault();
               if (draft.trim() && !working && !send.isPending)
@@ -162,15 +175,104 @@ export function AssistantChat({
               rows={2}
               maxLength={ASSISTANT_MAX_INPUT}
               disabled={working}
-              className="max-h-48 min-w-0 flex-1 resize-none rounded-xl border bg-background px-3 py-2 text-sm field-sizing-content"
+              className="block max-h-48 w-full resize-none rounded-xl border bg-background px-3 py-2 text-sm field-sizing-content"
             />
-            <Button type="submit" disabled={working || send.isPending || !draft.trim()}>
-              Send
-            </Button>
+            <div className="flex items-center gap-2">
+              {models.data && (
+                <ChoicePicker
+                  models={models.data}
+                  choice={choice}
+                  disabled={working}
+                  onChange={(next) => {
+                    setChoice(next);
+                    saveChoice(provider, next);
+                  }}
+                />
+              )}
+              <Button
+                type="submit"
+                className="ml-auto"
+                disabled={working || send.isPending || !draft.trim()}
+              >
+                Send
+              </Button>
+            </div>
           </form>
         )}
       </div>
     </Card>
+  );
+}
+
+const PICKER =
+  "h-8 min-w-0 max-w-44 truncate rounded-md bg-transparent px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50";
+
+/** Model and thinking level for the next prompt, like Claude's own picker. */
+function ChoicePicker({
+  models,
+  choice,
+  disabled,
+  onChange,
+}: {
+  models: AssistantModel[];
+  choice: AssistantChoice;
+  disabled: boolean;
+  onChange: (choice: AssistantChoice) => void;
+}) {
+  const model =
+    models.find((m) => m.id === choice.model) ?? models.find((m) => m.is_default) ?? models[0];
+  if (!model) return null;
+  const effort = choice.effort && model.efforts.includes(choice.effort) ? choice.effort : "";
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <select
+        aria-label="Model"
+        title={model.description}
+        className={PICKER}
+        value={model.id}
+        disabled={disabled}
+        onChange={(event) => {
+          const next = models.find((m) => m.id === event.target.value);
+          // Keep the thinking level when the new model supports it.
+          onChange({
+            model: event.target.value,
+            ...(effort && next?.efforts.includes(effort) ? { effort } : {}),
+          });
+        }}
+      >
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.name}
+          </option>
+        ))}
+      </select>
+      {model.efforts.length > 0 && (
+        <select
+          aria-label="Thinking"
+          className={PICKER}
+          value={effort}
+          disabled={disabled}
+          onChange={(event) =>
+            onChange({
+              model: model.id,
+              ...(event.target.value ? { effort: event.target.value } : {}),
+            })
+          }
+        >
+          <option value="">
+            Thinking:{" "}
+            {model.default_effort
+              ? `default (${EFFORT_LABELS[model.default_effort] ?? model.default_effort})`
+              : "default"}
+          </option>
+          {model.efforts.map((level) => (
+            <option key={level} value={level}>
+              Thinking: {EFFORT_LABELS[level] ?? level}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
   );
 }
 

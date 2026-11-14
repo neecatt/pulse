@@ -402,6 +402,22 @@ export interface AssistantAudit {
 
 export type AssistantProvider = "codex" | "claude";
 
+/** A model the cluster's CLI offers, and the thinking levels it supports. */
+export interface AssistantModel {
+  id: string;
+  name: string;
+  description: string;
+  efforts: string[];
+  default_effort: string | null;
+  is_default: boolean;
+}
+
+/** Model and thinking level for a prompt; unset keeps the conversation's last choice. */
+export interface AssistantChoice {
+  model?: string;
+  effort?: string;
+}
+
 /** Claude Code's native sign-in on the cluster. */
 export interface ClaudeState {
   connection_id: string;

@@ -35,6 +35,14 @@ file-change approval requests appear as cards with **Approve once** and
 **Decline**; questions can be answered in place. Unsupported request types fail
 closed. Approval requests expire after ten minutes and are declined.
 
+Under the prompt, pick the **model** and **thinking level** for the next message.
+The lists come from the cluster's CLI, so they show exactly what your plan offers
+there, and only the thinking levels the chosen model supports. Pulse remembers
+your choice per assistant on that device. Codex applies it from the next turn.
+Claude fixes the thinking level when it starts, so changing either restarts
+that conversation's CLI with `--resume` and the new `--model`/`--effort`; the
+conversation and its context carry on.
+
 Pulse resumes threads with `untrusted` command approvals, a `workspace-write`
 sandbox and the user as reviewer. Normal safe reads and permitted workspace
 edits follow Codex's rules; this is not a separate per-command policy engine.

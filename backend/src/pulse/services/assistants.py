@@ -32,6 +32,7 @@ from pulse.schemas import (
     AssistantConversation,
     AssistantLogin,
     AssistantMessage,
+    AssistantModel,
     AssistantThread,
     AssistantThreads,
 )
@@ -112,6 +113,7 @@ class CodexConnection(ChatConnection):
         self.login_id: str | None = None
         self._next_id = 0
         self._write_lock = asyncio.Lock()
+        self._models: list[AssistantModel] | None = None
         self._reader = asyncio.create_task(self._read())
         self._stderr = asyncio.create_task(self._discard_stderr())
 
@@ -375,12 +377,40 @@ class CodexConnection(ChatConnection):
         self.allow(resumed.id)
         return resumed
 
-    async def send_turn(self, thread_id: str, prompt: str) -> None:
+    async def models(self) -> list[AssistantModel]:
+        if self._models is None:
+            raw = await self.rpc("model/list", {"includeHidden": False})
+            self._models = [
+                AssistantModel(
+                    id=str(m.get("model") or m["id"]),
+                    name=str(m.get("displayName") or m.get("model") or m["id"]),
+                    description=str(m.get("description") or ""),
+                    efforts=[
+                        str(o["reasoningEffort"])
+                        for o in m.get("supportedReasoningEfforts") or []
+                        if isinstance(o, dict) and o.get("reasoningEffort")
+                    ],
+                    default_effort=m.get("defaultReasoningEffort"),
+                    is_default=bool(m.get("isDefault")),
+                )
+                for m in raw.get("data", [])[:50]
+                if isinstance(m, dict) and not m.get("hidden")
+            ]
+        return self._models
+
+    async def send_turn(
+        self, thread_id: str, prompt: str, model: str | None = None, effort: str | None = None
+    ) -> None:
         self.active[thread_id] = ""
+        options = {"model": model, "effort": effort}
         try:
             result = await self.rpc(
                 "turn/start",
-                {"threadId": thread_id, "input": [{"type": "text", "text": prompt}]},
+                {
+                    "threadId": thread_id,
+                    "input": [{"type": "text", "text": prompt}],
+                    **{key: value for key, value in options.items() if value is not None},
+                },
             )
         except BaseException:
             self.active.pop(thread_id, None)

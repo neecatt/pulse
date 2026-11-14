@@ -164,6 +164,26 @@ async def cluster(services: Services) -> AsyncIterator[dict[str, Any]]:
                     "userCode": "ABCD-1234",
                     "loginId": "login-1",
                 }
+            elif method == "model/list":
+                result = {
+                    "data": [
+                        {
+                            "id": "gpt-test",
+                            "model": "gpt-test",
+                            "displayName": "GPT Test",
+                            "description": "For tests",
+                            "hidden": False,
+                            "supportedReasoningEfforts": [
+                                {"reasoningEffort": "low", "description": "Fast"},
+                                {"reasoningEffort": "high", "description": "Deep"},
+                            ],
+                            "defaultReasoningEffort": "low",
+                            "isDefault": True,
+                        },
+                        {"id": "secret", "model": "secret", "hidden": True},
+                    ],
+                    "nextCursor": None,
+                }
             elif method == "thread/list":
                 result = {"data": [THREAD], "nextCursor": None}
             elif method == "thread/read":
@@ -238,6 +258,23 @@ async def cluster(services: Services) -> AsyncIterator[dict[str, Any]]:
         await server.wait_closed()
 
 
+CLAUDE_MODELS = [
+    {
+        "value": "default",
+        "displayName": "Default (recommended)",
+        "supportsEffort": True,
+        "supportedEffortLevels": ["low", "medium", "high"],
+    },
+    {
+        "value": "sonnet",
+        "displayName": "Sonnet",
+        "description": "Most efficient",
+        "supportsEffort": True,
+        "supportedEffortLevels": ["low", "high"],
+    },
+    {"value": "haiku", "displayName": "Haiku", "supportsEffort": False},
+]
+
 CLAUDE_CONVERSATION = {
     "thread": {
         "id": "11111111-1111-4111-8111-111111111111",
@@ -265,14 +302,14 @@ async def scripted_claude(process: asyncssh.SSHServerProcess[str], state: dict[s
         }
 
     async for line in process.stdin:
+        if not line.strip():
+            continue
         value = json.loads(line)
         if value["type"] == "control_request":  # initialize, interrupt
-            emit(
-                {
-                    "type": "control_response",
-                    "response": {"subtype": "success", "request_id": value["request_id"]},
-                }
-            )
+            response: dict[str, Any] = {"subtype": "success", "request_id": value["request_id"]}
+            if value["request"]["subtype"] == "initialize":
+                response["response"] = {"models": CLAUDE_MODELS}
+            emit({"type": "control_response", "response": response})
         elif value["type"] == "control_response":
             state["claude_decisions"].append(value["response"])
             output = "Submitted batch job 4242"
@@ -399,10 +436,22 @@ async def test_sign_in_history_resume_approval_and_disconnect(
     resume = next(params for method, params in cluster["calls"] if method == "thread/resume")
     assert resume["approvalPolicy"] == "untrusted" and resume["sandbox"] == "workspace-write"
     assert resume["approvalsReviewer"] == "user"
+    models = (await client.get(base + "/models")).json()
+    assert [(m["id"], m["efforts"], m["is_default"]) for m in models] == [
+        ("gpt-test", ["low", "high"], True)
+    ]
+    for wrong in ({"model": "secret"}, {"model": "gpt-test", "effort": "max"}):
+        refused = await client.post(
+            base + "/threads/old-chat/turn", json={"prompt": "train", **wrong}
+        )
+        assert refused.status_code == 400, refused.text
     response = await client.post(
-        base + "/threads/old-chat/turn", json={"prompt": "train on 4 GPUs"}
+        base + "/threads/old-chat/turn",
+        json={"prompt": "train on 4 GPUs", "model": "gpt-test", "effort": "high"},
     )
     assert response.status_code == 204, response.text
+    turn = next(params for method, params in cluster["calls"] if method == "turn/start")
+    assert turn["model"] == "gpt-test" and turn["effort"] == "high"
     # Wait for the remote server request, without needing a browser to stay open.
     for _ in range(50):
         if conn.approvals:

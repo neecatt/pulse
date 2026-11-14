@@ -36,6 +36,7 @@ from pulse.schemas import (
     AssistantDecision,
     AssistantLive,
     AssistantLogin,
+    AssistantModel,
     AssistantThread,
     AssistantThreads,
     AssistantTurn,
@@ -214,6 +215,19 @@ async def threads(
     return await connected(services, provider, user.id, account_id, request).threads(cursor)
 
 
+@router.get("/{account_id}/models")
+async def models(
+    account_id: int,
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+    services: ServicesDep,
+    provider: ProviderQuery = "codex",
+) -> list[AssistantModel]:
+    await account_for(session, user, account_id, services)
+    return await connected(services, provider, user.id, account_id, request).models()
+
+
 @router.get("/{account_id}/threads/{thread_id}")
 async def history(
     account_id: int,
@@ -307,7 +321,8 @@ async def turn(
             raise HTTPException(
                 409, f"Wait for an active {connection.name} task to finish before starting another."
             )
-        await connection.send_turn(thread_id, body.prompt)
+        await connection.check_choice(body.model, body.effort)
+        await connection.send_turn(thread_id, body.prompt, body.model, body.effort)
     session.add(AssistantAudit(user_id=user.id, session_id=thread_id, action="prompt_sent"))
     await session.commit()
 

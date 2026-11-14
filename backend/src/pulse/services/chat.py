@@ -24,6 +24,7 @@ from pulse.schemas import (
     AssistantConversation,
     AssistantLive,
     AssistantMessage,
+    AssistantModel,
     AssistantThread,
     AssistantThreads,
 )
@@ -165,7 +166,25 @@ class ChatConnection:
     async def resume_thread(self, thread: AssistantThread) -> AssistantThread:
         raise NotImplementedError
 
-    async def send_turn(self, thread_id: str, prompt: str) -> None:
+    async def models(self) -> list[AssistantModel]:
+        """The models this cluster's CLI offers, with their thinking levels."""
+        raise NotImplementedError
+
+    async def check_choice(self, model: str | None, effort: str | None) -> None:
+        """Only models and thinking levels the CLI itself offers reach it."""
+        if model is None and effort is None:
+            return
+        models = await self.models()
+        chosen = next((m for m in models if m.id == model), None)
+        if model is not None and chosen is None:
+            raise SlurmError(f"{self.name} doesn't offer that model on this cluster.")
+        levels = chosen.efforts if chosen else {e for m in models for e in m.efforts}
+        if effort is not None and effort not in levels:
+            raise SlurmError("That thinking level isn't available for this model.")
+
+    async def send_turn(
+        self, thread_id: str, prompt: str, model: str | None = None, effort: str | None = None
+    ) -> None:
         raise NotImplementedError
 
     async def interrupt(self, thread_id: str) -> bool:

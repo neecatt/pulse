@@ -121,6 +121,16 @@ export function useClaude(account: number) {
   return state;
 }
 
+/** The models the cluster's CLI offers. They change only when the CLI is updated. */
+export function useAssistantModels(account: number, provider: AssistantProvider, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.assistantModels(account, provider),
+    queryFn: () => api.assistants.models(account, provider),
+    enabled,
+    staleTime: 30 * 60_000,
+  });
+}
+
 export function useAssistantHistory(
   account: number,
   provider: AssistantProvider,

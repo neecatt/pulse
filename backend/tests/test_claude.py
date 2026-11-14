@@ -130,6 +130,57 @@ async def test_claude_chat_history_prompt_and_approval(
     assert services.assistants.get("claude", 1, account) is None
 
 
+async def test_claude_models_and_thinking_level_restart_the_same_conversation(
+    client: AsyncClient, services: Services, cluster: dict[str, Any]
+) -> None:
+    account = await linked(client, cluster["port"])
+    base = f"/api/assistants/{account}"
+    claude = "?provider=claude"
+    assert (await client.post(base + "/connect" + claude)).status_code == 200
+    models = (await client.get(base + "/models" + claude)).json()
+    assert [(m["id"], m["efforts"], m["is_default"]) for m in models] == [
+        ("default", ["low", "medium", "high"], True),
+        ("sonnet", ["low", "high"], False),
+        ("haiku", [], False),
+    ]
+    probe = cluster["native_commands"][-1]
+    assert "--session-id" not in probe and "--resume" not in probe  # starts nothing
+    resumed = await client.post(base + f"/threads/{SESSION}/resume" + claude)
+    assert resumed.status_code == 200, resumed.text
+    assert "--model" not in cluster["native_commands"][-1]
+    refused = await client.post(
+        base + f"/threads/{SESSION}/turn" + claude,
+        json={"prompt": "go", "model": "haiku", "effort": "low"},
+    )
+    assert refused.status_code == 400  # Haiku has no thinking levels here
+    sent = await client.post(
+        base + f"/threads/{SESSION}/turn" + claude,
+        json={"prompt": "go", "model": "sonnet", "effort": "low"},
+    )
+    assert sent.status_code == 204, sent.text
+    command = cluster["native_commands"][-1]
+    assert f"--resume {SESSION}" in command and "--model sonnet --effort low" in command
+    assert cluster["claude_prompts"][-1]["message"]["content"] == "go"
+    # Back to the defaults: the next prompt restarts the CLI without the flags.
+    conn = services.assistants.get("claude", 1, account)
+    assert conn is not None
+    for _ in range(100):
+        if conn.approvals:
+            break
+        await asyncio.sleep(0.01)
+    approval = next(iter(conn.approvals))
+    await client.post(base + f"/approvals/{approval}" + claude, json={"decision": "decline"})
+    await asyncio.wait_for(cluster["claude_done"].wait(), 2)
+    await asyncio.sleep(0.05)
+    again = await client.post(
+        base + f"/threads/{SESSION}/turn" + claude, json={"prompt": "again", "model": "default"}
+    )
+    assert again.status_code == 204, again.text
+    command = cluster["native_commands"][-1]
+    assert f"--resume {SESSION}" in command and "--model" not in command
+    assert "--effort" not in command
+
+
 async def test_claude_owner_only_and_requires_confirmation(
     client: AsyncClient, anon: AsyncClient, services: Services, cluster: dict[str, Any]
 ) -> None:

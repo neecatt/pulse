@@ -55,6 +55,8 @@ export const queryKeys = {
     ["assistants", account, provider, "state"] as const,
   assistantThreads: (account: number, provider: AssistantProvider) =>
     ["assistants", account, provider, "threads"] as const,
+  assistantModels: (account: number, provider: AssistantProvider) =>
+    ["assistants", account, provider, "models"] as const,
   assistantHistory: (account: number, provider: AssistantProvider, id: string) =>
     ["assistants", account, provider, "history", id] as const,
   assistantAccess: ["assistant-access"] as const,
