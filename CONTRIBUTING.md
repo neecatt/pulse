@@ -41,11 +41,24 @@ make dev        # runs against a simulated cluster, no HPC access needed
    DRY_RUN=1 make release VERSION=0.2.0        # print the steps without doing them
    ```
 
-   It runs the checks, builds and pushes `neecat/pulse:0.2.0`, `:0.2` and
-   `:latest` for amd64 and arm64, and only then pushes the `v0.2.0` tag and
+   It runs the checks, builds and pushes `neecat/pulse:0.2.0`, `:0.2`, `:latest`
+   and `:staging` for amd64 and arm64, and only then pushes the `v0.2.0` tag and
    creates the GitHub release, so a release never exists without its image. A
-   version with a suffix (`0.2.0-rc.1`) publishes only its own tag and is marked
-   as a pre-release.
+   version with a suffix (`0.2.0-rc.1`) publishes only its own tag and
+   `:staging`, and is marked as a pre-release.
+
+3. **Deployments follow the tags.** Run production from `:latest` and a staging
+   instance from `:staging` (always the newest build, release candidates
+   included), with the platform's image auto-updates on. To redeploy at once
+   instead of waiting for the platform to poll the registry, set
+   `PULSE_RELEASE_HOOK` in your shell; it runs once per channel the release moved
+   (`staging`, then `production`) with `PULSE_RELEASE_CHANNEL` and
+   `PULSE_RELEASE_VERSION` set. For two Railway services named `pulse-staging` and
+   `pulse-production`:
+
+   ```sh
+   export PULSE_RELEASE_HOOK='railway redeploy --service "pulse-$PULSE_RELEASE_CHANNEL" --yes'
+   ```
 
 ## Reporting bugs
 
