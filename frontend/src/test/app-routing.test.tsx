@@ -16,6 +16,8 @@ describe("App routing", () => {
     "/compare",
     "/runs",
     "/assistants",
+    "/docs/self-hosting",
+    "/docs/assistants",
   ])("matches a page for %s", (path) => {
     expect(router.matchRoutes(path).at(-1)?.routeId).not.toBe(rootRouteId);
   });

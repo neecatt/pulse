@@ -57,3 +57,6 @@ export const COPIED_FEEDBACK_MS = 1500;
 export const ASSISTANT_MAX_INPUT = 16 * 1024;
 // Live items kept per conversation; matches ASSISTANT_MAX_ITEMS in the backend.
 export const ASSISTANT_MAX_ITEMS = 100;
+
+// The project's source, linked from the public site and the docs.
+export const REPO_URL = "https://github.com/neecatt/pulse";

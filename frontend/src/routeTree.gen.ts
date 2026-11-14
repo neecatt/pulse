@@ -16,6 +16,8 @@ import { Route as AssistantsRouteImport } from './routes/assistants'
 import { Route as CompareRouteImport } from './routes/compare'
 import { Route as RunsRouteImport } from './routes/runs'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as DocsIndexRouteImport } from './routes/docs.index'
+import { Route as DocsSlugRouteImport } from './routes/docs.$slug'
 import { Route as JobsJobIdRouteImport } from './routes/jobs.$jobId'
 import { Route as JoinTokenRouteImport } from './routes/join.$token'
 
@@ -54,6 +56,16 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsIndexRoute = DocsIndexRouteImport.update({
+  id: '/docs/',
+  path: '/docs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsSlugRoute = DocsSlugRouteImport.update({
+  id: '/docs/$slug',
+  path: '/docs/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const JobsJobIdRoute = JobsJobIdRouteImport.update({
   id: '/jobs/$jobId',
   path: '/jobs/$jobId',
@@ -73,8 +85,10 @@ export interface FileRoutesByFullPath {
   '/compare': typeof CompareRoute
   '/runs': typeof RunsRoute
   '/settings': typeof SettingsRoute
+  '/docs/$slug': typeof DocsSlugRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
   '/join/$token': typeof JoinTokenRoute
+  '/docs/': typeof DocsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -84,8 +98,10 @@ export interface FileRoutesByTo {
   '/compare': typeof CompareRoute
   '/runs': typeof RunsRoute
   '/settings': typeof SettingsRoute
+  '/docs/$slug': typeof DocsSlugRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
   '/join/$token': typeof JoinTokenRoute
+  '/docs': typeof DocsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -96,8 +112,10 @@ export interface FileRoutesById {
   '/compare': typeof CompareRoute
   '/runs': typeof RunsRoute
   '/settings': typeof SettingsRoute
+  '/docs/$slug': typeof DocsSlugRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
   '/join/$token': typeof JoinTokenRoute
+  '/docs/': typeof DocsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -109,8 +127,10 @@ export interface FileRouteTypes {
     | '/compare'
     | '/runs'
     | '/settings'
+    | '/docs/$slug'
     | '/jobs/$jobId'
     | '/join/$token'
+    | '/docs/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -120,8 +140,10 @@ export interface FileRouteTypes {
     | '/compare'
     | '/runs'
     | '/settings'
+    | '/docs/$slug'
     | '/jobs/$jobId'
     | '/join/$token'
+    | '/docs'
   id:
     | '__root__'
     | '/'
@@ -131,8 +153,10 @@ export interface FileRouteTypes {
     | '/compare'
     | '/runs'
     | '/settings'
+    | '/docs/$slug'
     | '/jobs/$jobId'
     | '/join/$token'
+    | '/docs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -143,8 +167,10 @@ export interface RootRouteChildren {
   CompareRoute: typeof CompareRoute
   RunsRoute: typeof RunsRoute
   SettingsRoute: typeof SettingsRoute
+  DocsSlugRoute: typeof DocsSlugRoute
   JobsJobIdRoute: typeof JobsJobIdRoute
   JoinTokenRoute: typeof JoinTokenRoute
+  DocsIndexRoute: typeof DocsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -198,6 +224,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/docs/': {
+      id: '/docs/'
+      path: '/docs'
+      fullPath: '/docs/'
+      preLoaderRoute: typeof DocsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs/$slug': {
+      id: '/docs/$slug'
+      path: '/docs/$slug'
+      fullPath: '/docs/$slug'
+      preLoaderRoute: typeof DocsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/jobs/$jobId': {
       id: '/jobs/$jobId'
       path: '/jobs/$jobId'
@@ -223,8 +263,10 @@ const rootRouteChildren: RootRouteChildren = {
   CompareRoute: CompareRoute,
   RunsRoute: RunsRoute,
   SettingsRoute: SettingsRoute,
+  DocsSlugRoute: DocsSlugRoute,
   JobsJobIdRoute: JobsJobIdRoute,
   JoinTokenRoute: JoinTokenRoute,
+  DocsIndexRoute: DocsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
