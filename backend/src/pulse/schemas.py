@@ -62,6 +62,19 @@ class AssistantCreate(BaseModel):
 
 class AssistantTurn(BaseModel):
     prompt: str = Field(min_length=1, max_length=ASSISTANT_MAX_INPUT)
+    # One of the provider's listed models and one of its thinking levels, as the
+    # chat's pickers show them; unset leaves the choice to the CLI.
+    model: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._:\[\]/-]{1,128}$")
+    effort: str | None = Field(default=None, pattern=r"^[a-z]{1,16}$")
+
+
+class AssistantModel(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    efforts: list[str] = Field(default_factory=list)
+    default_effort: str | None = None
+    is_default: bool = False
 
 
 class AssistantDecision(BaseModel):

@@ -12,7 +12,9 @@ import type {
   AssistantAccess,
   AssistantConnection,
   AssistantLogin,
+  AssistantChoice,
   AssistantLive,
+  AssistantModel,
   AssistantProvider,
   AssistantThread,
   AssistantThreads,
@@ -143,10 +145,18 @@ export const api = {
         `/assistants/${account}/threads/${encodeURIComponent(id)}/resume${query({ provider })}`,
         { method: "POST" },
       ),
-    turn: (account: number, provider: AssistantProvider, id: string, prompt: string) =>
+    models: (account: number, provider: AssistantProvider) =>
+      request<AssistantModel[]>(`/assistants/${account}/models${query({ provider })}`),
+    turn: (
+      account: number,
+      provider: AssistantProvider,
+      id: string,
+      prompt: string,
+      choice: AssistantChoice = {},
+    ) =>
       request<void>(
         `/assistants/${account}/threads/${encodeURIComponent(id)}/turn${query({ provider })}`,
-        { method: "POST", body: json({ prompt }) },
+        { method: "POST", body: json({ prompt, ...choice }) },
       ),
     interrupt: (account: number, provider: AssistantProvider, id: string) =>
       request<void>(
