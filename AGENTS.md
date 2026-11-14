@@ -62,7 +62,7 @@ they talk only over the HTTP API under `/api`. Don't import across them.
 | Task       | Backend (`cd backend`)                                       | Frontend (`cd frontend`)               |
 | ---------- | ------------------------------------------------------------ | -------------------------------------- |
 | Install    | `python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"` | `bun install`                          |
-| Dev server | `.venv/bin/uvicorn pulse.main:app --reload`                  | `bun run dev` (proxies `/api` → :8000) |
+| Dev server | `.venv/bin/pulse serve --reload`                             | `bun run dev` (proxies `/api` → :8000) |
 | Tests      | `.venv/bin/pytest`                                           | `bun run test`                         |
 | Lint       | `.venv/bin/ruff check . && .venv/bin/ruff format --check .`  | `bun run lint`                         |
 | Types      | `.venv/bin/mypy src`                                         | `bun run typecheck`                    |
@@ -196,13 +196,16 @@ Run lint, types, and tests for every package you touched before committing.
   cookies or third-party analytics.
 
 - Assistants (`services/assistants.py`, `api/assistants.py`, `api/claude.py`):
-  optional Codex app-server and native Claude Code Remote Control over direct
-  SSH, sharing `SshSlurmClient.connection`. Provider auth
-  and transcripts stay on the cluster; only normalized chat data and official
-  device-login links reach the UI. Owner-only, no guests or reporting agents.
+  optional Codex (app-server) and Claude Code (headless `claude -p` stream-json)
+  over direct SSH, sharing `SshSlurmClient.connection`. Both translate into the
+  provider-neutral chat in `services/chat.py` (`ChatConnection`); every
+  `/api/assistants` route takes `?provider=codex|claude`. Provider auth and
+  transcripts stay on the cluster; only normalized chat data and official
+  sign-in links reach the UI. Owner-only, no guests or reporting agents.
   Keep request types allowlisted and approvals user-driven, with bounded memory.
-  `services/claude.py` forwards native setup and allowlisted provider links;
-  prompts/approvals for Claude stay in its first-party UI.
+  `services/claude_chat.py` runs one unmodified CLI per open conversation with
+  Pulse as its permission prompt; `services/claude.py` relays Claude's native
+  `claude auth login` only.
   Assistant grants and passkey registration/confirmation challenges are bound to
   the login's token hash, never just its SQLite id (deleted ids may be reused).
   All streams revalidate the original credential before updates and keepalives.

@@ -70,7 +70,7 @@ falls short.
   before they reach a command. The agent runs no shell, reads only files it
   found itself (no symlinks), and sends raw output for the server to parse.
 - **Optional assistants** are off by default. Only an owned, real direct SSH
-  account can run Codex's app-server or native Claude Code Remote Control; demo
+  account can run Codex's app-server or Claude Code's headless mode; demo
   guests, shared accounts and reporting agents cannot. A fresh password or
   passkey confirmation is required to open connections or resume chats. Each
   browser must explicitly connect before reading assistant state/history or
@@ -78,9 +78,10 @@ falls short.
   Codex's official device-login links/codes are shown in Pulse; its OAuth tokens
   and transcripts stay with the cluster CLI. Claude uses its own CLI login;
   an optional one-time authorization code is passed to that CLI without storage,
-  and provider/session links are allowlisted. Claude prompts and approvals open
-  in its first-party UI. Pulse's Codex command/file approval cards require a user
-  response and unsupported request types fail closed. Normal reads and permitted
+  and sign-in links are allowlisted. Both run with Pulse as their permission
+  prompt (Codex `untrusted`, Claude `default` mode): command, file-change and tool
+  approval cards require a user response, and unsupported request types fail
+  closed. Normal reads and permitted
   edits still follow the native workspace/permission rules. Assistants have the
   SSH user's permissions when actions are approved. This opt-in feature changes
   Pulse's default read-only cluster model; see `docs/assistants.md`.

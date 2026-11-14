@@ -1,10 +1,10 @@
 # Claude Code and Codex on your cluster
 
-Pulse can connect Claude Code or Codex to a linked cluster from your phone.
-Codex has an embedded chat interface; Claude uses its official Remote Control
-interface in the Claude app or browser. Your laptop does not need to stay on. This uses the cluster's
-Codex CLI and its existing local conversation history, including chats started
-from an SSH terminal.
+Pulse can connect Claude Code or Codex to a linked cluster from your phone and
+chat with it inside Pulse: send prompts, watch replies stream in, and approve
+commands and file changes. Your laptop does not need to stay on. Pulse uses the
+cluster's own CLI and its existing local conversation history, including chats
+started from an SSH terminal.
 
 ## Enable
 
@@ -77,57 +77,55 @@ active connections are checked every 15 seconds. Streams also check their origin
 session credential before sending updates or keepalives, so deleting and recreating
 a session cannot restore a revoked stream or inherit assistant access.
 
-## Claude Code: native sign-in and Remote Control
+## Claude Code
 
-Select **Claude Code** beside Codex. Pulse lists recent saved Claude conversations
-from the cluster. **Continue in Claude** resumes a selected local conversation;
-for a new one, enter its project directory and press **Connect Claude**. Pulse
-starts the unmodified CLI with `--remote-control`, `--resume` when appropriate,
-and manual permissions. It appends HPC guidance to use Slurm, show resource
-requests and ask before submitting jobs; Claude's existing project instructions
-and native permission rules still apply.
+Select **Claude Code** beside Codex and press **Connect Claude**. Pulse lists the
+cluster's recent Claude conversations by their titles; open one to read it, then
+**Continue this conversation**, or start a **New chat** in a project directory.
+The chat, approvals and audit log work as described above for Codex.
 
-If the CLI is not signed in, press **Sign in on cluster**. Pulse runs the native
-`claude auth login` command and displays its official authorization link. Complete
-that page in your phone browser. If Claude shows a one-time authorization code,
-enter it in Pulse's **One-time code from Claude** field; Pulse forwards it to the
-CLI's standard input and discards it. The CLI owns the OAuth exchange and token
-storage. Pulse does not offer a separate Claude OAuth client or SDK subscription
-login, and never reads or copies provider tokens.
+Each open conversation runs the unmodified CLI on the cluster in headless mode
+(`claude -p` with stream-json input and output), resumed with `--resume` or
+started with a new session id, in the conversation's project directory. Pulse is
+its permission prompt (`--permission-prompt-tool stdio`, `--permission-mode
+default`): every tool use that your own Claude permission rules don't already
+allow becomes an approval card. Commands and file edits show what will run or
+change; Claude's multiple-choice questions and plans can be answered in place.
+Declining tells Claude you declined. Pulse appends the same HPC guidance as for
+Codex; Claude's project instructions and settings still apply. Claude's private
+reasoning is never shown or stored by Pulse.
 
-Claude may ask you to trust the project or enable Remote Control. The setup
-panel relays those native prompts with Yes/Enter/arrow controls. Pulse never
-answers them automatically. Once ready, **Open in Claude** opens the official
-`claude.ai/code/...` session on your phone. Sign in there with the same Claude
-account. Prompts, history, file diffs and command approvals are handled by
-Claude's own UI, while execution and files stay on the HPC. Pulse continues
-monitoring submitted Slurm jobs in the usual way.
+**Sign-in.** If Claude Code isn't signed in on the cluster, press **Sign in on
+cluster**. Pulse runs the native `claude auth login` and shows its official
+authorization link; if Claude shows a one-time code, enter it in Pulse and it is
+passed to the CLI's standard input and discarded. The CLI owns the OAuth
+exchange and token storage; Pulse never reads or copies credentials. An
+`ANTHROPIC_API_KEY` (or Bedrock/Vertex settings) in the cluster's login
+environment works too.
 
-Requirements: a current Claude Code CLI, an eligible Claude subscription and
-Remote Control enabled for your account/organization. API keys and setup-token
-credentials do not enable Remote Control; the CLI needs its native subscription
-sign-in. CLI login or project setup can be completed through the Pulse panel,
-so a laptop is not required. No extra Python packages are installed on the
-cluster; a bounded stdlib-only Python 3 script reads recent transcript metadata,
-not credential files. It considers the 128 most recently changed project
-directories and the 512 newest transcripts in them, and returns up to 50 recent
-conversations. Custom config directories
-reported by the current CLI are respected.
+**Which login to use.** Anthropic's terms allow you to sign in to the unmodified
+Claude Code with your own subscription, including where a platform runs it for
+you, but say products built on Claude Code should use API keys and must not route
+requests through subscription credentials on users' behalf
+([legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)).
+On a server only you use, signing in with your own subscription is ordinary use
+of your own CLI. On a shared or public Pulse server, have each person use their
+own API key on their own cluster account.
 
-Closing Pulse keeps Claude's Remote Control process running. It does not idle
-out while you work in Claude's own UI. Disconnecting, restarting Pulse, losing
-SSH or revoking the owning Pulse sign-in stops the process; saved transcripts
-and submitted Slurm jobs remain. Reconnect to resume. Inactive sign-in/setup
-processes expire after the configured assistant idle timeout. Pulse's audit log
-records native sign-in and remote-session starts/stops; Claude owns the detailed
-conversation/tool history and approval UI. Pulse retains setup output only until
-the remote link is ready, then drains it without retaining a second transcript.
-Only HTTPS links to the provider's allowed hosts are displayed; Claude session
-links must be on `claude.ai/code/`. No third-party page is embedded in Pulse.
+Conversations stay in Claude's own storage on the cluster, so they also appear in
+`claude --resume` over SSH. Up to eight conversations can be open at once per
+cluster; the oldest idle one closes when you open another. Disconnecting,
+restarting Pulse, idling for `PULSE_ASSISTANT_IDLE_SECONDS` or losing SSH stops
+the CLI processes; saved transcripts and submitted Slurm jobs remain. A bounded,
+stdlib-only Python 3 script lists conversations and reads one conversation's
+recent messages; it never reads credential files. It considers the 128 most
+recently changed project directories and the 512 newest transcripts in them, and
+returns up to 50 recent conversations. Custom config directories reported by the
+current CLI are respected.
 
 Provider references:
 
 - [Codex app-server](https://learn.chatgpt.com/docs/app-server)
-- [Claude Remote Control](https://code.claude.com/docs/en/remote-control)
+- [Claude Code headless mode](https://code.claude.com/docs/en/headless)
 - [Claude authentication](https://code.claude.com/docs/en/authentication)
 - [Claude Code integration conditions](https://code.claude.com/docs/en/legal-and-compliance)
