@@ -134,23 +134,18 @@ class AssistantAuditOut(ORMModel):
     created_at: datetime
 
 
-class ClaudeStart(AssistantCreate):
-    session_id: str | None = Field(default=None, pattern=r"^[0-9a-fA-F-]{36}$")
-
-
 class ClaudeInput(BaseModel):
     action: Literal["enter", "yes", "up", "down", "cancel", "code"]
     code: str = Field(default="", max_length=2048, pattern=r"^[A-Za-z0-9_.~#:/+=-]*$")
 
 
 class ClaudeState(BaseModel):
+    """Claude Code's native sign-in on the cluster."""
+
     connection_id: str = ""
-    phase: Literal["disconnected", "sign_in", "authorized", "starting", "ready", "closed", "error"]
+    phase: Literal["disconnected", "sign_in", "authorized", "closed", "error"]
     running: bool = False
-    work_dir: str = ""
-    session_id: str | None = None
     login_url: str | None = None
-    remote_url: str | None = None
     setup_text: str = ""
     error: str | None = None
 

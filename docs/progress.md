@@ -3,6 +3,23 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Claude Code chat inside Pulse (`feat/claude-chat`)
+
+- Claude Code now uses the same in-app chat as Codex: prompts, streamed replies,
+  and approval cards for commands, file edits, questions and plans. Each open
+  conversation runs the cluster's unmodified CLI headlessly (`claude -p`,
+  stream-json) with Pulse as its permission prompt. This replaces the Remote
+  Control hand-off; Claude's native `claude auth login` stays for sign-in, and an
+  API key on the cluster works too.
+- Codex and Claude share one chat model (`services/chat.py`) and one set of
+  routes (`/api/assistants/{account}/…?provider=codex|claude`).
+- Saved Claude conversations show Claude's own titles (or the first thing you
+  typed, without injected IDE or command text), and conversations that were
+  continued in a newer one aren't listed twice. Live and saved messages share ids,
+  so reopening a chat never duplicates what streamed.
+- Checked end to end against the real Claude CLI over SSH: an approved command
+  runs, a declined one doesn't, and a resumed chat keeps its context.
+
 ## 2026-11-14 — A staging channel (`feat/staging-channel`)
 
 - Every release now also moves `neecat/pulse:staging`, so a staging deployment

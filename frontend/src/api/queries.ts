@@ -13,6 +13,7 @@ import type {
   Account,
   AccountCreate,
   AccountUpdate,
+  AssistantProvider,
   AuthStatus,
   Credentials,
   JobMetrics,
@@ -50,13 +51,14 @@ export const queryKeys = {
   health: ["health"] as const,
   siteStats: ["site-stats"] as const,
   assistants: ["assistants"] as const,
-  assistantState: (account: number) => ["assistants", account, "state"] as const,
-  assistantThreads: (account: number) => ["assistants", account, "threads"] as const,
-  assistantHistory: (account: number, id: string) =>
-    ["assistants", account, "history", id] as const,
+  assistantState: (account: number, provider: AssistantProvider) =>
+    ["assistants", account, provider, "state"] as const,
+  assistantThreads: (account: number, provider: AssistantProvider) =>
+    ["assistants", account, provider, "threads"] as const,
+  assistantHistory: (account: number, provider: AssistantProvider, id: string) =>
+    ["assistants", account, provider, "history", id] as const,
   assistantAccess: ["assistant-access"] as const,
   claudeState: (account: number) => ["assistants", account, "claude-state"] as const,
-  claudeThreads: (account: number) => ["assistants", account, "claude-threads"] as const,
   assistantAudit: ["assistant-audit"] as const,
 };
 

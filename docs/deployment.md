@@ -266,8 +266,8 @@ the two: cookies and passkeys are tied to the exact domain.
 Set `PULSE_ASSISTANTS_ENABLED=true` and restart Pulse to enable the Assistants tab's
 Claude/Codex connections. The cluster must use direct SSH and have the chosen CLI
 in its login PATH. Users authorize through the provider's native sign-in from
-the app, or reuse the cluster's existing sign-in; no API key is required. Keep `/api/assistants/*/stream` unbuffered
-at your proxy, like `/api/stream` (the bundled Caddyfile handles both).
+the app, or reuse the cluster's existing sign-in. Keep `/api/assistants/*/stream`
+unbuffered at your proxy, like `/api/stream` (the bundled Caddyfile handles both).
 See [the assistant guide](assistants.md) for setup, access controls and limitations.
 
 ## Backups and upgrades

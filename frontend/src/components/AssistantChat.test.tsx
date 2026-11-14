@@ -42,17 +42,18 @@ describe("cluster conversation UI", () => {
       work_dir: "/scratch/project",
       updated_at: 0,
     });
-    render(<AssistantChat account={2} id="chat" live={state} verified />);
+    render(<AssistantChat account={2} provider="codex" id="chat" live={state} verified />);
     expect(screen.getByText("Saved answer")).toBeInTheDocument();
     expect(resume).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Continue this conversation"));
-    await waitFor(() => expect(resume).toHaveBeenCalledWith(2, "chat"));
+    await waitFor(() => expect(resume).toHaveBeenCalledWith(2, "codex", "chat"));
   });
   it("shows a pending command and never approves it without a click", async () => {
     const decide = vi.spyOn(api.assistants, "decide").mockResolvedValue();
     render(
       <AssistantChat
         account={2}
+        provider="claude"
         id="chat"
         verified
         live={{
@@ -73,8 +74,9 @@ describe("cluster conversation UI", () => {
       />,
     );
     expect(screen.getByText("sbatch train.sh")).toBeInTheDocument();
+    expect(screen.getByText("Claude")).toBeInTheDocument(); // the saved answer's author
     expect(decide).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Approve once"));
-    await waitFor(() => expect(decide).toHaveBeenCalledWith(2, "request", "accept", {}));
+    await waitFor(() => expect(decide).toHaveBeenCalledWith(2, "claude", "request", "accept", {}));
   });
 });

@@ -1,30 +1,50 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { api } from "@/api/client";
-import type { AssistantApproval, AssistantLive } from "@/api/types";
+import type {
+  AssistantApproval,
+  AssistantLive,
+  AssistantMessage,
+  AssistantProvider,
+} from "@/api/types";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Section";
 import { ASSISTANT_MAX_INPUT } from "@/config/constants";
 import { useAssistantAction, useAssistantHistory } from "@/hooks/use-assistant";
-import { mergeAssistantMessages } from "@/lib/assistant";
+import { mergeAssistantMessages, PROVIDER_NAMES } from "@/lib/assistant";
+
+const TOOL_LABELS: Record<string, string> = {
+  commandExecution: "Command",
+  fileChange: "File changes",
+};
+
+/** A tool item's summary line: its kind, or for other tools the tool's name. */
+function toolLabel(item: AssistantMessage): string {
+  return TOOL_LABELS[item.kind] ?? item.text.split("\n", 1)[0] ?? "Tool";
+}
 
 export function AssistantChat({
   account,
+  provider,
   id,
   live,
   verified,
 }: {
   account: number;
+  provider: AssistantProvider;
   id: string;
   live: AssistantLive;
   verified: boolean;
 }) {
-  const history = useAssistantHistory(account, id, true);
-  const resume = useAssistantAction(account, () => api.assistants.resume(account, id));
+  const name = PROVIDER_NAMES[provider];
+  const history = useAssistantHistory(account, provider, id, true);
+  const resume = useAssistantAction(account, () => api.assistants.resume(account, provider, id));
   const send = useAssistantAction(account, (prompt: string) =>
-    api.assistants.turn(account, id, prompt),
+    api.assistants.turn(account, provider, id, prompt),
   );
-  const interrupt = useAssistantAction(account, () => api.assistants.interrupt(account, id));
+  const interrupt = useAssistantAction(account, () =>
+    api.assistants.interrupt(account, provider, id),
+  );
   const [draft, setDraft] = useState("");
   const messages = mergeAssistantMessages(history.data?.messages ?? [], live.messages[id] ?? []);
   const working = id in live.active;
@@ -55,7 +75,7 @@ export function AssistantChat({
           item.role === "tool" ? (
             <details key={item.id} className="rounded-md border text-xs">
               <summary className="cursor-pointer px-3 py-2 text-muted-foreground">
-                {item.kind === "fileChange" ? "File changes" : "Command"}
+                {toolLabel(item)}
                 {item.status ? ` · ${item.status}` : ""}
               </summary>
               <pre className="max-h-64 overflow-auto border-t p-3 font-mono whitespace-pre-wrap break-words">
@@ -68,7 +88,7 @@ export function AssistantChat({
               className={item.role === "user" ? "ml-6 rounded-md bg-muted p-3" : "mr-3"}
             >
               <p className="mb-1 text-[11px] text-muted-foreground">
-                {item.role === "user" ? "You" : "Codex"}
+                {item.role === "user" ? "You" : name}
               </p>
               <div className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                 {item.text}
@@ -87,13 +107,13 @@ export function AssistantChat({
           <p role="status" className="text-xs text-muted-foreground">
             {approvals.length
               ? "Waiting for your response"
-              : "Codex is working… You can close Pulse and return here."}
+              : `${name} is working… You can close Pulse and return here.`}
           </p>
         )}
       </div>
       <div className="space-y-3 border-t p-4">
         {approvals.map((item) => (
-          <ApprovalCard key={item.id} account={account} approval={item} />
+          <ApprovalCard key={item.id} account={account} provider={provider} approval={item} />
         ))}
         {error && (
           <p role="alert" className="text-sm text-fail">
@@ -103,8 +123,8 @@ export function AssistantChat({
         {!live.opened.includes(id) ? (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Continue this cluster conversation with Pulse’s approval controls. Codex can change
-              files and submit jobs as your cluster login.
+              Continue this cluster conversation here. {name} asks you before running commands or
+              changing files, and acts as your cluster login.
             </p>
             <Button disabled={!verified || resume.isPending} onClick={() => resume.mutate()}>
               {resume.isPending ? "Opening…" : "Continue this conversation"}
@@ -139,10 +159,18 @@ export function AssistantChat({
   );
 }
 
-function ApprovalCard({ account, approval }: { account: number; approval: AssistantApproval }) {
+function ApprovalCard({
+  account,
+  provider,
+  approval,
+}: {
+  account: number;
+  provider: AssistantProvider;
+  approval: AssistantApproval;
+}) {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const decide = useAssistantAction(account, (decision: "accept" | "decline") =>
-    api.assistants.decide(account, approval.id, decision, answers),
+    api.assistants.decide(account, provider, approval.id, decision, answers),
   );
   return (
     <div className="space-y-3 rounded-md border p-3">
@@ -190,7 +218,11 @@ function ApprovalCard({ account, approval }: { account: number; approval: Assist
           }
           onClick={() => decide.mutate("accept")}
         >
-          {approval.kind === "question" ? "Answer" : "Approve once"}
+          {approval.kind === "question"
+            ? "Answer"
+            : approval.kind === "plan"
+              ? "Approve plan"
+              : "Approve once"}
         </Button>
         <Button
           variant="ghost"
