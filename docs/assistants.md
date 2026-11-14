@@ -61,8 +61,9 @@ Already submitted Slurm jobs continue independently.
 **Stop turn** interrupts Codex. **Disconnect** closes the assistant connection
 without signing Codex out of the cluster or deleting its saved chats. Idle
 connections close after `PULSE_ASSISTANT_IDLE_SECONDS` (default 900), except while
-a turn is active. A fresh Pulse password or passkey confirmation is required to
-open a connection or resume a chat after ten minutes without authentication.
+a turn is active. Opening a connection needs a Pulse sign-in, password or passkey
+confirmation from the last eight hours; once connected, that browser's chats
+don't ask again until the connection ends.
 Each browser must explicitly connect with its own confirmed Pulse session before
 it can read Codex history, see live state or respond to approvals. Confirmation
 alone does not inherit another browser's open connection. Claude setup and handoff

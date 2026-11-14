@@ -86,7 +86,7 @@ export function ClaudeSignIn({
                   className="block w-full rounded-md border bg-background px-3 py-2 text-sm"
                 />
               </label>
-              <Button type="submit" disabled={!verified || setup.isPending || !code.trim()}>
+              <Button type="submit" disabled={setup.isPending || !code.trim()}>
                 Finish sign-in
               </Button>
             </form>
@@ -104,7 +104,7 @@ export function ClaudeSignIn({
                 <Button
                   key={action}
                   variant="ghost"
-                  disabled={!verified || setup.isPending}
+                  disabled={setup.isPending}
                   onClick={() => setup.mutate({ action })}
                 >
                   {label}
