@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Pre-release 0.3.0-rc.5
+
+- Model and thinking-level pickers in the chat (#75), fewer assistant
+  confirmations (#76) and the cluster edge-case fixes (#77).
+- Published as `neecat/pulse:0.3.0-rc.5` and `:staging`; `latest` stays on 0.2.6.
+
 ## 2026-11-14 — Cluster edge cases (`fix/cluster-edge-cases`)
 
 - Running jobs' logs and metrics are read three at a time
