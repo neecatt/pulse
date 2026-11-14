@@ -3,6 +3,14 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Fewer confirmations for assistants (`fix/assistant-reauth`)
+
+- Connecting an assistant accepts a sign-in or confirmation from the last eight
+  hours (`ASSISTANT_VERIFIED_SECONDS`) instead of ten minutes. Once a browser is
+  connected, starting, resuming and signing in reuse its connection grant.
+- The confirmation box only appears next to Connect, not above an open chat.
+  Passkey and password changes keep the ten-minute rule.
+
 ## 2026-11-14 — Model and thinking level in the chat (`feat/assistant-model-picker`)
 
 - Under the prompt, pick the model and thinking level for the next message, from

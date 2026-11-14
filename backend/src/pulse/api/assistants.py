@@ -25,7 +25,11 @@ from pulse.api.deps import (
     require_verified,
     session_is_active,
 )
-from pulse.constants import ASSISTANT_MAX_SESSIONS, STREAM_KEEPALIVE_SECONDS
+from pulse.constants import (
+    ASSISTANT_MAX_SESSIONS,
+    ASSISTANT_VERIFIED_SECONDS,
+    STREAM_KEEPALIVE_SECONDS,
+)
 from pulse.models import Account, AssistantAudit, LoginSession, User
 from pulse.schemas import (
     AssistantAccess,
@@ -89,7 +93,10 @@ async def access(
 ) -> AssistantAccess:
     return AssistantAccess(
         enabled=services.settings.assistants_enabled and not user.is_guest,
-        verified=recently_verified(await session.get(LoginSession, request.state.login_session_id)),
+        verified=recently_verified(
+            await session.get(LoginSession, request.state.login_session_id),
+            ASSISTANT_VERIFIED_SECONDS,
+        ),
     )
 
 
@@ -134,7 +141,7 @@ async def connect(
     services: ServicesDep,
     provider: ProviderQuery = "codex",
 ) -> AssistantConnection:
-    await require_verified(request, session)
+    await require_verified(request, session, ASSISTANT_VERIFIED_SECONDS)
     account = await account_for(session, user, account_id, services)
     try:
         connection, keys = await services.assistants.connect(
@@ -160,7 +167,6 @@ async def connect(
 async def login(
     account_id: int, request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> AssistantLogin:
-    await require_verified(request, session)
     await account_for(session, user, account_id, services)
     connection = connected(services, "codex", user.id, account_id, request)
     assert isinstance(connection, CodexConnection)
@@ -252,7 +258,6 @@ async def new_thread(
     services: ServicesDep,
     provider: ProviderQuery = "codex",
 ) -> AssistantThread:
-    await require_verified(request, session)
     await account_for(session, user, account_id, services)
     connection = connected(services, provider, user.id, account_id, request)
     async with connection.action_lock:
@@ -272,7 +277,6 @@ async def resume(
     services: ServicesDep,
     provider: ProviderQuery = "codex",
 ) -> AssistantThread:
-    await require_verified(request, session)
     await account_for(session, user, account_id, services)
     connection = connected(services, provider, user.id, account_id, request)
     async with connection.action_lock:

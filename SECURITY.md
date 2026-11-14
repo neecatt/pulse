@@ -71,8 +71,9 @@ falls short.
   found itself (no symlinks), and sends raw output for the server to parse.
 - **Optional assistants** are off by default. Only an owned, real direct SSH
   account can run Codex's app-server or Claude Code's headless mode; demo
-  guests, shared accounts and reporting agents cannot. A fresh password or
-  passkey confirmation is required to open connections or resume chats. Each
+  guests, shared accounts and reporting agents cannot. Opening a connection
+  needs a password or passkey confirmation (or sign-in) from the last eight
+  hours; the connection's grant then covers starting and resuming chats. Each
   browser must explicitly connect before reading assistant state/history or
   sending prompts and approvals; another browser's connection grants no access.
   Codex's official device-login links/codes are shown in Pulse; its OAuth tokens

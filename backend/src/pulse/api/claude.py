@@ -16,7 +16,7 @@ from pulse.api.deps import (
     require_verified,
     session_is_active,
 )
-from pulse.constants import STREAM_KEEPALIVE_SECONDS
+from pulse.constants import ASSISTANT_VERIFIED_SECONDS, STREAM_KEEPALIVE_SECONDS
 from pulse.models import AssistantAudit, User
 from pulse.schemas import ClaudeInput, ClaudeState
 from pulse.services.claude import ClaudeSession, claude_errors
@@ -51,7 +51,7 @@ async def state(
 async def login(
     account_id: int, request: Request, session: SessionDep, user: CurrentUser, services: ServicesDep
 ) -> ClaudeState:
-    await require_verified(request, session)
+    await require_verified(request, session, ASSISTANT_VERIFIED_SECONDS)
     account = await account_for(session, user, account_id, services)
     async with claude_errors():
         native, keys = await services.assistants.start_sign_in(
@@ -75,7 +75,6 @@ async def setup(
     user: CurrentUser,
     services: ServicesDep,
 ) -> None:
-    await require_verified(request, session)
     await account_for(session, user, account_id, services)
     native = native_session(services, user.id, account_id, request)
     try:

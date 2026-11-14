@@ -52,17 +52,19 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentUserId = Annotated[int, Depends(get_current_user_id)]
 
 
-def recently_verified(login: LoginSession | None) -> bool:
+def recently_verified(login: LoginSession | None, seconds: int = FRESH_SIGN_IN_SECONDS) -> bool:
     return (
         login is not None
         and login.expires_at > utcnow()
-        and (utcnow() - (login.reauthenticated_at or login.created_at)).total_seconds()
-        < FRESH_SIGN_IN_SECONDS
+        and (utcnow() - (login.reauthenticated_at or login.created_at)).total_seconds() < seconds
     )
 
 
-async def require_verified(request: Request, session: AsyncSession) -> None:
-    if not recently_verified(await session.get(LoginSession, request.state.login_session_id)):
+async def require_verified(
+    request: Request, session: AsyncSession, seconds: int = FRESH_SIGN_IN_SECONDS
+) -> None:
+    login = await session.get(LoginSession, request.state.login_session_id)
+    if not recently_verified(login, seconds):
         raise HTTPException(403, "Confirm your password or passkey to continue.")
 
 

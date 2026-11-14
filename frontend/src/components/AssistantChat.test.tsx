@@ -69,7 +69,7 @@ describe("cluster conversation UI", () => {
       work_dir: "/scratch/project",
       updated_at: 0,
     });
-    render(<AssistantChat account={2} provider="codex" id="chat" live={state} verified />);
+    render(<AssistantChat account={2} provider="codex" id="chat" live={state} />);
     expect(screen.getByText("bold").tagName).toBe("STRONG");
     expect(screen.getByRole("link", { name: "a guide" })).toHaveAttribute(
       "href",
@@ -87,7 +87,6 @@ describe("cluster conversation UI", () => {
         account={2}
         provider="claude"
         id="chat"
-        verified
         live={{
           ...state,
           opened: ["chat"],
@@ -120,7 +119,6 @@ describe("cluster conversation UI", () => {
         account={2}
         provider="claude"
         id="chat"
-        verified
         live={{ ...state, opened: ["chat"] }}
       />,
     );
