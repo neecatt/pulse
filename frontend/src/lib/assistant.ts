@@ -27,3 +27,22 @@ export function applyAssistantLive(
   }
   return { ...live, messages };
 }
+
+/** A tool step's one-line summary: what kind of step, and its command, file or input. */
+export function toolSummary(item: AssistantMessage): { label: string; preview: string } {
+  const [first = "", ...rest] = item.text.split("\n");
+  if (item.kind === "commandExecution") return { label: "Command", preview: first };
+  if (item.kind === "fileChange") return { label: "Edit", preview: first };
+  // Other tools arrive as their name, then their input as JSON, then any output.
+  let preview = "";
+  try {
+    const input: unknown = JSON.parse(rest.join("\n").split("\n\n")[0] ?? "");
+    if (input && typeof input === "object") {
+      const value = Object.values(input).find((v) => typeof v === "string");
+      preview = typeof value === "string" ? (value.split("\n")[0] ?? "") : "";
+    }
+  } catch {
+    // Cut off or not JSON: the name alone is enough.
+  }
+  return { label: first || "Tool", preview };
+}
