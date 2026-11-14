@@ -15,7 +15,7 @@ COPY docs/*.md /docs/
 RUN bun run build
 
 # 2. Runtime
-FROM python:3.12-slim
+FROM python:3.15-slim
 LABEL org.opencontainers.image.title="Pulse" \
       org.opencontainers.image.description="Self-hosted monitor for Slurm jobs and training runs, with push alerts." \
       org.opencontainers.image.licenses="MIT" \
