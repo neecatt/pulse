@@ -5,6 +5,12 @@
 #
 #   make release VERSION=0.2.0 [NOTES=notes.md]   # DRY_RUN=1 prints the steps only
 #
+# Tags: every release moves :staging; a stable one also moves :latest and :X.Y.
+# PULSE_RELEASE_HOOK, if set, runs once per channel the release moved (staging,
+# then production) with PULSE_RELEASE_CHANNEL and PULSE_RELEASE_VERSION set, to
+# redeploy right away instead of waiting for the platform to notice, e.g.
+#   export PULSE_RELEASE_HOOK='railway redeploy --service "pulse-$PULSE_RELEASE_CHANNEL" --yes'
+#
 # Needs: docker (signed in to Docker Hub), gh (signed in), and the version bump
 # merged to main.
 set -eu
@@ -50,10 +56,11 @@ echo "→ Checking"
 run make check
 
 # 3. The image, for amd64 and arm64. Pre-releases (x.y.z-rc.1) never become latest.
-set -- -t "$image:$version"
+set -- -t "$image:$version" -t "$image:staging"
 case $version in
-  *-*) prerelease=1 ;;
-  *) prerelease=0; set -- "$@" -t "$image:${version%.*}" -t "$image:latest" ;;
+  *-*) prerelease=1; channels=staging ;;
+  *) prerelease=0; channels="staging production"
+    set -- "$@" -t "$image:${version%.*}" -t "$image:latest" ;;
 esac
 echo "→ Building and pushing $image:$version"
 docker buildx inspect "$builder" >/dev/null 2>&1 ||
@@ -73,5 +80,16 @@ set -- --title "Pulse $version" --verify-tag
 if [ -n "$notes" ]; then set -- "$@" --notes-file "$notes"; else set -- "$@" --generate-notes; fi
 if [ "$prerelease" = 1 ]; then set -- "$@" --prerelease --latest=false; else set -- "$@" --latest; fi
 run gh release create "$tag" "$@"
+
+# 5. Optionally tell the deployments that follow these tags. The release is already
+#    out, so a failing hook only warns.
+if [ -n "${PULSE_RELEASE_HOOK:-}" ]; then
+  export PULSE_RELEASE_VERSION="$version"
+  for PULSE_RELEASE_CHANNEL in $channels; do
+    export PULSE_RELEASE_CHANNEL
+    echo "→ Redeploying $PULSE_RELEASE_CHANNEL"
+    run sh -c "$PULSE_RELEASE_HOOK" || echo "! The $PULSE_RELEASE_CHANNEL redeploy failed; redeploy it by hand." >&2
+  done
+fi
 
 echo "✓ Released $version: docker pull $image:$version"

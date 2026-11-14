@@ -20,6 +20,15 @@ it landed on.
 - Checked end to end against the real Claude CLI over SSH: an approved command
   runs, a declined one doesn't, and a resumed chat keeps its context.
 
+## 2026-11-14 — A staging channel (`feat/staging-channel`)
+
+- Every release now also moves `neecat/pulse:staging`, so a staging deployment
+  follows the newest build (release candidates included) while production
+  follows `:latest`, with no version to change by hand.
+- `PULSE_RELEASE_HOOK` (optional, in the maintainer's shell) redeploys those
+  deployments right after a release, e.g. `railway redeploy`, instead of waiting
+  for the platform to poll the registry. A failing hook only warns.
+
 ## 2026-11-14 — Pre-release 0.3.0-rc.2
 
 - Adds the guides on the site (`/docs`) and the GitHub links to rc.1. Published

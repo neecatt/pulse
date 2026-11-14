@@ -100,7 +100,9 @@ Platforms that run a Docker image give you HTTPS and a domain without a server
 to maintain. Pulse listens on the `PORT` the platform sets.
 
 1. Create a service from the image `neecat/pulse:latest`, or pin a version
-   such as `neecat/pulse:0.2.6`.
+   such as `neecat/pulse:0.2.6`. To upgrade without touching the service, turn
+   on the platform's image auto-updates (on Railway: the service's image
+   settings), and it redeploys whenever `latest` moves.
 2. Attach a persistent **volume** mounted at `/data`. Without it, every
    redeploy loses your accounts, SSH keys and pinned host keys.
 3. Set the variables:
@@ -282,7 +284,8 @@ docker compose start pulse
 Upgrade with `docker compose pull && docker compose up -d`. Tags: `latest` is
 the newest release, `0.2` follows its patch releases and `0.2.6` never changes;
 pin one of the last two for predictable upgrades. Versions with a suffix
-(`0.3.0-rc.1`) are pre-releases for testing. While Pulse is below 1.0 the
+(`0.3.0-rc.1`) are pre-releases for testing, and `staging` always points at the
+newest build of either kind. While Pulse is below 1.0 the
 database schema may change between versions without automatic migration;
 release notes say when a fresh database is needed.
 
