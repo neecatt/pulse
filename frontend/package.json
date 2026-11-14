@@ -1,7 +1,7 @@
 {
   "name": "pulse-frontend",
   "private": true,
-  "version": "0.3.0-rc.5",
+  "version": "0.3.0",
   "license": "MIT",
   "type": "module",
   "scripts": {

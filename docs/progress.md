@@ -3,6 +3,13 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Release 0.3.0
+
+- Claude Code and Codex in a built-in chat (model and thinking level, approvals,
+  saved conversations), fewer assistant confirmations, the cluster edge-case
+  fixes, staging auto-updates and the assistants on the landing page.
+- Published as `neecat/pulse:0.3.0`, `:0.3`, `:latest` and `:staging`.
+
 ## 2026-11-14 — Assistants on the landing page (`feat/landing-assistants`)
 
 - The public front page has a "New" link at the top and a Cluster assistants
