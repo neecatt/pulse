@@ -3,6 +3,14 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-14 — Assistants on the landing page (`feat/landing-assistants`)
+
+- The public front page has a "New" link at the top and a Cluster assistants
+  section: what Claude Code and Codex do in Pulse, and a still of a chat asking
+  to submit a job, drawn like the real chat. The section and the footer link
+  to the assistants guide.
+- The README describes the built-in Claude chat instead of Remote Control.
+
 ## 2026-11-14 — Pre-release 0.3.0-rc.5
 
 - Model and thinking-level pickers in the chat (#75), fewer assistant

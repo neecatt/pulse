@@ -138,9 +138,9 @@ It's built to be easy to run and kind to clusters:
   API-key setup.
 - Pick and continue existing Claude or Codex conversations saved on a directly connected
   cluster, or start a new chat in a project directory.
-- Codex streams chat and approvals inside Pulse. Claude opens its official Remote
-  Control interface, running on your cluster. Submitted Slurm jobs appear in the
-  usual monitoring views.
+- Chat with either one inside Pulse: replies stream in, and you approve or decline
+  the commands and file changes it asks for. Pick the model and thinking level
+  per message. Submitted Slurm jobs appear in the usual monitoring views.
 - Off until the server admin enables `PULSE_ASSISTANTS_ENABLED`. See the
   [assistant guide](docs/assistants.md) for setup, permissions and current limits.
 
