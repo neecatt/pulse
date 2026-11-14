@@ -69,6 +69,10 @@ STREAM_QUEUE_SIZE = 32  # per connected client; a slow client skips updates
 
 # Scheduling
 POLL_TICK_SECONDS = 5  # how often the poller checks which accounts are due
+# Running jobs whose logs and metrics are read at once over an account's SSH
+# connection. sshd allows 10 commands per connection by default (MaxSessions),
+# shared with assistants, and each extra one is load on the login node.
+TELEMETRY_CONCURRENCY = 3
 
 # Teams
 TEAM_INVITE_TTL_SECONDS = 7 * 24 * 3600
