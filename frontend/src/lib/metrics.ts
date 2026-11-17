@@ -106,3 +106,19 @@ export function groupBySection(panels: MetricPanel[]): [string, MetricPanel[]][]
   }
   return [...sections];
 }
+
+/** The furthest training step any metric has reached, for jobs that don't log epochs. */
+export function latestStep(metrics: Record<string, StepPoint[]>): number | null {
+  let latest: number | null = null;
+  for (const points of Object.values(metrics)) {
+    for (const p of points) if (p.s !== null && (latest === null || p.s > latest)) latest = p.s;
+  }
+  return latest;
+}
+
+/** Average and peak of a usage series (GPU util, memory) over a whole job. */
+export function usageSummary(points: { v: number }[]): { avg: number; peak: number } | null {
+  if (points.length === 0) return null;
+  const values = points.map((p) => p.v);
+  return { avg: values.reduce((a, b) => a + b, 0) / values.length, peak: Math.max(...values) };
+}

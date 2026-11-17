@@ -196,6 +196,8 @@ async def test_serves_built_frontend_with_spa_fallback(tmp_path: Path) -> None:
     web.mkdir()
     (web / "index.html").write_text("<!doctype html><title>Pulse</title>")
     (web / "sw.js").write_text("// sw")
+    (web / "assets").mkdir()
+    (web / "assets" / "index-abc.js").write_text("// app")
     settings = Settings(
         data_dir=tmp_path,
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'web.db'}",
@@ -212,3 +214,9 @@ async def test_serves_built_frontend_with_spa_fallback(tmp_path: Path) -> None:
         assert "Pulse" in (await http.get("/jobs/12")).text  # client-side route
         assert (await http.get("/sw.js")).text == "// sw"
         assert (await http.get("/api/nope")).status_code == 404
+
+        # A new release must reach browsers: only hashed assets are cached for good.
+        for path in ("/", "/jobs/12", "/sw.js", "/assets/gone.js"):
+            assert (await http.get(path)).headers["cache-control"] == "no-cache"
+        asset = await http.get("/assets/index-abc.js")
+        assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"

@@ -150,12 +150,23 @@ def create_app(
 
 
 class SpaStaticFiles(StaticFiles):
-    """Static files with a fallback to index.html for client-side routes."""
+    """Static files with a fallback to index.html for client-side routes.
+
+    Built assets have content hashes in their names, so browsers keep them for
+    good; everything else (index.html, sw.js) is revalidated on every load, or
+    a browser keeps running the previous release after an update.
+    """
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
+            immutable = path.startswith("assets/") and response.status_code in (200, 304)
         except HTTPException as exc:
             if exc.status_code != 404 or path.startswith("api/"):
                 raise
-            return await super().get_response("index.html", scope)
+            response = await super().get_response("index.html", scope)
+            immutable = False
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable" if immutable else "no-cache"
+        )
+        return response

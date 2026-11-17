@@ -3,6 +3,19 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-17 — New releases reach browsers, job stats, tidy hyperparameters (`fix/job-stats-and-hparams`)
+
+- The server sends `Cache-Control`: `no-cache` for `index.html`, client routes
+  and `sw.js`, and a year-long `immutable` cache for hashed `assets/`. Without
+  it browsers cached `index.html` by heuristic and kept running the previous
+  release after an update (0.3.2 was live, but open browsers still loaded
+  0.3.0's bundle).
+- Job stats: jobs that count iterations instead of logging `epoch a/b` show
+  the latest training step; finished jobs show average GPU utilisation and
+  peak GPU memory over the run instead of "—".
+- Hyperparameters: short values sit two to a row on wide screens, long ones
+  (paths, sentences) get full-width rows below.
+
 ## 2026-11-17 — Release 0.3.2
 
 - Charts grouped by section with seeds drawn in one chart, same-named jobs
