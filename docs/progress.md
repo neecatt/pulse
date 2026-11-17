@@ -3,6 +3,21 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-17 — Grouped charts, job batches, stacked activity (`feat/grouped-charts-and-batches`)
+
+- Job charts are grouped like W&B: collapsible sections by the first two path
+  segments ("train/rl"), and a metric repeated over seeds or ranks
+  (`…_s0/loss`, `…_s1/loss`) is one chart with a line per seed. A real job's
+  144 training curves became 48 charts in four sections.
+- Same-named jobs on one account submitted within 5 minutes of each other (a
+  loop of `sbatch` calls, e.g. one job per GPU) collapse into one row in the
+  jobs list, like job arrays already did, and get their own chip on the Runs
+  page. Before, only Slurm job arrays were grouped, so this never happened
+  with real submissions.
+- Activity and the home page's recent activity stack repeated events (one
+  kind, same job name, each within 30 minutes of the next) into one row that
+  expands to the single events.
+
 ## 2026-11-17 — Release 0.3.1
 
 - The compact job page: single-value metrics in a table, collapsible metric

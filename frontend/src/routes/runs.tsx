@@ -19,7 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/runs")({
-  // Array ids are numeric; a number keeps the URL clean (?sweep=123, not ?sweep=%22123%22).
+  // Array ids and Slurm job ids are numeric; a number keeps the URL clean (?sweep=123, not ?sweep=%22123%22).
   validateSearch: (search: Record<string, unknown>): { sweep?: number } => {
     const sweep = Number(search["sweep"]);
     return Number.isInteger(sweep) && sweep > 0 ? { sweep } : {};
@@ -36,9 +36,15 @@ interface CustomColumns {
 function RunsPage() {
   const { sweep: sweepId } = Route.useSearch();
   const sweep = sweepId === undefined ? undefined : String(sweepId);
-  const { data: runs = [], error, isPending } = useRuns(sweep);
   const { data: jobs = [] } = useJobs();
   const sweeps = groupSweeps(jobs);
+  // A job array is filtered by the server; a batch by its jobs' ids.
+  const batch = sweeps.find((s) => s.id === sweep && !s.array);
+  const { data: allRuns = [], error, isPending } = useRuns(batch ? undefined : sweep);
+  const runs = useMemo(() => {
+    const ids = new Set(batch?.tasks.map((t) => t.id));
+    return batch ? allRuns.filter((r) => ids.has(r.id)) : allRuns;
+  }, [allRuns, batch]);
 
   const [withMetrics, setWithMetrics] = useState(true);
   const [custom, setCustom] = useState<CustomColumns | null>(null);
@@ -101,11 +107,11 @@ function RunsPage() {
           </SweepChip>
           {sweeps.map((s) => (
             <SweepChip
-              key={`${s.tasks[0]?.account_id}-${s.arrayId}`}
-              active={sweep === s.arrayId}
-              search={{ sweep: Number(s.arrayId) }}
+              key={`${s.tasks[0]?.account_id}-${s.id}`}
+              active={sweep === s.id}
+              search={{ sweep: Number(s.id) }}
             >
-              {s.name} <span className="font-mono opacity-70">[{s.arrayId}]</span>
+              {s.name} {s.array && <span className="font-mono opacity-70">[{s.id}]</span>}
               <span className="opacity-70">· {s.tasks.length}</span>
             </SweepChip>
           ))}
