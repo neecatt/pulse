@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   groupByPrefix,
   hparamList,
+  latestStep,
   metricPanels,
   sectionOf,
   shortName,
   splitMetrics,
+  usageSummary,
 } from "./metrics";
 
 const point = (s: number) => ({ s, t: "2026-01-01T00:00:00Z", v: s });
@@ -86,5 +88,19 @@ describe("hparamList", () => {
     expect(hparamList("results/qe")).toBeNull();
     expect(hparamList("[not json")).toBeNull();
     expect(hparamList(3)).toBeNull();
+  });
+});
+
+describe("latestStep", () => {
+  it("finds the furthest step, ignoring points without one", () => {
+    expect(latestStep({ a: [point(5), point(800)], b: [{ ...point(0), s: null }] })).toBe(800);
+    expect(latestStep({ a: [{ ...point(0), s: null }] })).toBeNull();
+  });
+});
+
+describe("usageSummary", () => {
+  it("averages and peaks a series", () => {
+    expect(usageSummary([{ v: 0 }, { v: 30 }, { v: 90 }])).toEqual({ avg: 40, peak: 90 });
+    expect(usageSummary([])).toBeNull();
   });
 });

@@ -7,6 +7,9 @@ import { cn } from "@/lib/utils";
 import { Card, EmptyState } from "./Section";
 import { Toggle } from "./Toggle";
 
+// Values longer than this (paths, sentences) get a full-width row.
+const LONG_VALUE = 40;
+
 export interface RunHparams {
   id: number;
   label: string;
@@ -32,12 +35,21 @@ export function HparamsTable({ runs }: { runs: RunHparams[] }) {
 
   if (!comparing) {
     const hparams = runs[0]?.hparams ?? {};
+    // Short values sit two to a row; paths and lists get the full width below.
+    const long = (key: string) => String(hparams[key]).length > LONG_VALUE;
+    const ordered = [...keys.filter((k) => !long(k)), ...keys.filter(long)];
+    const shortCount = keys.length - keys.filter(long).length;
     return (
-      <Card className="divide-y">
-        {keys.map((key) => (
+      <Card className="grid gap-px overflow-hidden bg-border font-mono text-xs lg:grid-cols-2">
+        {ordered.map((key, i) => (
           <div
             key={key}
-            className="grid grid-cols-[minmax(0,7rem)_1fr] gap-x-3 px-3 py-2 font-mono text-xs sm:grid-cols-[minmax(0,13rem)_1fr] sm:gap-x-4"
+            className={cn(
+              "grid grid-cols-[minmax(0,7rem)_1fr] gap-x-3 bg-surface px-3 py-2 sm:grid-cols-[minmax(0,10rem)_1fr] sm:gap-x-4",
+              // Full width: long values, and the last short one when they're odd.
+              (i >= shortCount || (i === shortCount - 1 && shortCount % 2 === 1)) &&
+                "lg:col-span-2",
+            )}
           >
             <div className="text-muted-foreground wrap-anywhere">{key}</div>
             <Value value={hparams[key]} />

@@ -11,6 +11,7 @@ import { ShareSwitches } from "@/components/ShareSwitches";
 import { Meter } from "@/components/Meter";
 import { ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { accountLabel } from "@/lib/accounts";
+import { latestStep, usageSummary } from "@/lib/metrics";
 import { StateBadge } from "@/components/StateBadge";
 import {
   formatAgo,
@@ -45,7 +46,23 @@ function JobPage() {
 
 function JobDetailView({ job }: { job: JobDetail }) {
   const account = useAccountMap().get(job.account_id);
+  const { data: metrics } = useJobMetrics(job.id);
   const running = job.state === "RUNNING";
+  // Jobs that count iterations instead of epochs show how far training got.
+  const step = job.epoch ? null : latestStep(metrics?.metrics ?? {});
+  // A finished job shows how it used its GPUs over the whole run.
+  const util = usageSummary(job.series["gpu_util"] ?? []);
+  const memory = usageSummary(job.series["gpu_mem"] ?? []);
+  const stats: [string, string][] = [
+    step === null ? ["Epoch", job.epoch ?? "—"] : ["Step", step.toLocaleString()],
+    [job.primary_metric ?? "Loss", formatNumber(job.last_loss, 4)],
+    running || !util
+      ? ["GPU util", formatPercent(running ? job.gpu_util : null)]
+      : ["GPU util · avg", formatPercent(util.avg)],
+    running || !memory
+      ? ["GPU memory", formatPercent(running ? job.gpu_mem : null)]
+      : ["GPU memory · peak", formatPercent(memory.peak)],
+  ];
 
   const details: [string, string | number][] = [
     ["Account", account ? accountLabel(account) : "—"],
@@ -88,14 +105,11 @@ function JobDetailView({ job }: { job: JobDetail }) {
       )}
 
       <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-4">
-        {[
-          ["Epoch", job.epoch ?? "—"],
-          [job.primary_metric ?? "Loss", formatNumber(job.last_loss, 4)],
-          ["GPU util", running ? formatPercent(job.gpu_util) : "—"],
-          ["GPU memory", running ? formatPercent(job.gpu_mem) : "—"],
-        ].map(([label, value]) => (
-          <div key={label} className="bg-surface p-4">
-            <div className="text-xs text-muted-foreground">{label}</div>
+        {stats.map(([label, value]) => (
+          <div key={label} className="min-w-0 bg-surface p-4">
+            <div className="truncate text-xs text-muted-foreground" title={label}>
+              {label}
+            </div>
             <div className="mt-1 font-mono text-xl">{value}</div>
           </div>
         ))}
