@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-17 — Release 0.3.1
+
+- The compact job page: single-value metrics in a table, collapsible metric
+  groups, readable hyperparameters and a usable phone layout (#81).
+- Published as `neecat/pulse:0.3.1`, `:0.3`, `:latest` and `:staging`.
+
 ## 2026-11-17 — Compact job page (`fix/job-page-density`)
 
 - Metrics logged once (final eval and benchmark scores) are listed in a
