@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-17 — Release 0.3.3
+
+- Cache headers so browsers pick up new releases, job stats for jobs without
+  epochs and for finished jobs, and a tidier hyperparameter grid (#85).
+- Published as `neecat/pulse:0.3.3`, `:0.3`, `:latest` and `:staging`.
+
 ## 2026-11-17 — New releases reach browsers, job stats, tidy hyperparameters (`fix/job-stats-and-hparams`)
 
 - The server sends `Cache-Control`: `no-cache` for `index.html`, client routes
