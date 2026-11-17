@@ -65,18 +65,38 @@ describe("axis scales", () => {
 });
 
 describe("groupSweeps", () => {
-  const job = (id: number, array_id: string | null, account_id = 1) =>
-    ({ id, name: "lr-sweep", array_id, account_id }) as Job;
+  const job = (
+    id: number,
+    array_id: string | null,
+    account_id = 1,
+    submit = "2026-01-01T10:00:00Z",
+  ) =>
+    ({
+      id,
+      slurm_id: String(100 + id),
+      name: "lr-sweep",
+      array_id,
+      account_id,
+      submit_time: submit,
+    }) as Job;
 
   it("groups array tasks per account and skips lone tasks", () => {
+    const sweeps = groupSweeps([job(1, "7"), job(2, "7"), job(4, "8"), job(5, "7", 2)]);
+    expect(sweeps).toHaveLength(1);
+    expect(sweeps[0]).toMatchObject({ id: "7", array: true });
+    expect(sweeps[0]?.tasks.map((t) => t.id)).toEqual([1, 2]);
+  });
+
+  it("batches same-named jobs submitted together", () => {
     const sweeps = groupSweeps([
-      job(1, "7"),
-      job(2, "7"),
-      job(3, null),
-      job(4, "8"),
-      job(5, "7", 2),
+      job(3, null, 1, "2026-01-01T10:00:02Z"),
+      job(2, null, 1, "2026-01-01T10:00:01Z"),
+      job(1, null, 1, "2026-01-01T09:00:00Z"), // an hour earlier: on its own
+      job(6, null, 2, "2026-01-01T10:00:01Z"), // another account
+      { ...job(7, null), name: "eval" }, // another name
     ]);
     expect(sweeps).toHaveLength(1);
-    expect(sweeps[0]?.tasks.map((t) => t.id)).toEqual([1, 2]);
+    expect(sweeps[0]).toMatchObject({ id: "102", array: false, name: "lr-sweep" });
+    expect(sweeps[0]?.tasks.map((t) => t.id)).toEqual([3, 2]);
   });
 });

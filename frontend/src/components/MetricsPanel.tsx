@@ -3,7 +3,15 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import type { StepPoint } from "@/api/types";
 import { formatNumber } from "@/lib/format";
-import { groupByPrefix, shortName, splitMetrics } from "@/lib/metrics";
+import { RUN_COLORS } from "@/config/constants";
+import {
+  groupByPrefix,
+  groupBySection,
+  metricPanels,
+  shortName,
+  splitMetrics,
+  type MetricPanel,
+} from "@/lib/metrics";
 import { updateUiSettings, useUiSettings, type UiSettings } from "@/lib/ui-settings";
 import { cn } from "@/lib/utils";
 
@@ -22,13 +30,14 @@ export interface RunMetrics {
 // Below these totals every group starts open; above, only the first does.
 const OPEN_CHARTS = 12;
 const OPEN_VALUES = 40;
-// Charts shown per group before "Show all".
-const CHARTS_PER_GROUP = 6;
+// Charts shown per section before "Show all".
+const CHARTS_PER_GROUP = 12;
 
 /**
  * Every training metric of one or more runs. Metrics with a history get a
- * chart, grouped by prefix ("train/loss" under "train") like TensorBoard and
- * W&B; metrics logged once (final scores) are listed in a compact table.
+ * chart in collapsible sections ("train/rl/…" under "train/rl") like W&B, with
+ * a metric repeated over seeds drawn as one chart; metrics logged once (final
+ * scores) are listed in a compact table.
  */
 export function MetricsPanel({ runs, primary }: { runs: RunMetrics[]; primary?: string | null }) {
   const ui = useUiSettings();
@@ -41,7 +50,12 @@ export function MetricsPanel({ runs, primary }: { runs: RunMetrics[]; primary?: 
   const query = filter.trim().toLowerCase();
   const shown = names.filter((n) => n.toLowerCase().includes(query));
   const { curves, values } = splitMetrics(shown, runs);
-  const curveGroups = groupByPrefix(curves);
+  // Comparing runs already draws a line per run, so only one run merges seeds.
+  const panels =
+    runs.length === 1
+      ? metricPanels(curves)
+      : curves.map((name) => ({ key: name, lines: [{ name, label: null }] }));
+  const sections = groupBySection(panels);
   const valueGroups = groupByPrefix(values);
   const filtering = query !== "";
 
@@ -118,15 +132,15 @@ export function MetricsPanel({ runs, primary }: { runs: RunMetrics[]; primary?: 
         <p className="text-sm text-muted-foreground">No metric matches “{filter.trim()}”.</p>
       )}
 
-      {curveGroups.map(([group, metricNames], i) => (
+      {sections.map(([section, sectionPanels], i) => (
         <MetricGroup
           // Remount when filtering starts or stops so groups reopen to match.
-          key={`${group}-${filtering}`}
-          title={curveGroups.length > 1 || valueGroups.length > 0 ? group : null}
-          count={metricNames.length}
-          defaultOpen={filtering || i === 0 || curves.length <= OPEN_CHARTS}
+          key={`${section}-${filtering}`}
+          title={sections.length > 1 || valueGroups.length > 0 ? section : null}
+          count={sectionPanels.length}
+          defaultOpen={filtering || i === 0 || panels.length <= OPEN_CHARTS}
         >
-          <ChartGrid names={metricNames} group={group} runs={runs} ui={ui} />
+          <ChartGrid panels={sectionPanels} section={section} runs={runs} ui={ui} />
         </MetricGroup>
       ))}
 
@@ -183,32 +197,38 @@ function MetricGroup({
 }
 
 function ChartGrid({
-  names,
-  group,
+  panels,
+  section,
   runs,
   ui,
 }: {
-  names: string[];
-  group: string;
+  panels: MetricPanel[];
+  section: string;
   runs: RunMetrics[];
   ui: UiSettings;
 }) {
   const [all, setAll] = useState(false);
-  const visible = all ? names : names.slice(0, CHARTS_PER_GROUP);
+  const visible = all ? panels : panels.slice(0, CHARTS_PER_GROUP);
   return (
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {visible.map((name) => (
-          <MetricCard key={name} name={name} title={shortName(name, group)} runs={runs} ui={ui} />
+        {visible.map((panel) => (
+          <MetricCard
+            key={panel.key}
+            panel={panel}
+            title={shortName(panel.key, section)}
+            runs={runs}
+            ui={ui}
+          />
         ))}
       </div>
-      {names.length > visible.length && (
+      {panels.length > visible.length && (
         <button
           type="button"
           onClick={() => setAll(true)}
           className="h-8 w-full rounded-md border text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          Show all {names.length} charts
+          Show all {panels.length} charts
         </button>
       )}
     </div>
@@ -216,34 +236,48 @@ function ChartGrid({
 }
 
 function MetricCard({
-  name,
+  panel,
   title,
   runs,
   ui,
 }: {
-  name: string;
+  panel: MetricPanel;
   title: string;
   runs: RunMetrics[];
   ui: UiSettings;
 }) {
-  const series: ChartSeries[] = runs
-    .filter((r) => r.metrics[name]?.length)
-    .map((r) => ({
-      key: String(r.id),
-      label: r.label,
-      color: r.color,
-      points: toXY(r.metrics[name] ?? [], ui.chartXAxis),
-    }));
-  const latest = runs.length === 1 ? runs[0]?.metrics[name]?.at(-1) : undefined;
+  const merged = panel.lines.length > 1;
+  const series: ChartSeries[] = runs.flatMap((r) =>
+    panel.lines
+      .filter((line) => r.metrics[line.name]?.length)
+      .map((line, i) => ({
+        key: `${r.id}:${line.name}`,
+        label: merged ? (line.label ?? line.name) : r.label,
+        color: merged ? (RUN_COLORS[i % RUN_COLORS.length] ?? r.color) : r.color,
+        points: toXY(r.metrics[line.name] ?? [], ui.chartXAxis),
+      })),
+  );
+  const only = panel.lines[0]?.name ?? "";
+  const latest = runs.length === 1 && !merged ? runs[0]?.metrics[only]?.at(-1) : undefined;
 
   return (
     <Card className="min-w-0 p-3">
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <span className="truncate font-mono text-xs" title={name}>
+        <span className="truncate font-mono text-xs" title={panel.key}>
           {title}
         </span>
         {latest && <span className="font-mono text-sm">{formatNumber(latest.v, 4)}</span>}
       </div>
+      {merged && (
+        <div className="mb-2 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
+          {series.map((s) => (
+            <span key={s.key} className="inline-flex items-center gap-1">
+              <span className="size-1.5 rounded-full" style={{ background: s.color }} />
+              {s.label}
+            </span>
+          ))}
+        </div>
+      )}
       <MetricChart
         series={series}
         xAxis={ui.chartXAxis}

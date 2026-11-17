@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { useAccountMap, useEvents } from "@/api/queries";
+import { useAccountMap, useEvents, useJobNames } from "@/api/queries";
 import type { PulseEvent } from "@/api/types";
-import { EventItem } from "@/components/EventItem";
+import { EventStack } from "@/components/EventItem";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
+import { stackEvents } from "@/lib/events";
 
 export const Route = createFileRoute("/activity")({
   head: () => ({ meta: [{ title: "Activity — Pulse" }] }),
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/activity")({
 function ActivityPage() {
   const { data, error, isPending } = useEvents(200);
   const accounts = useAccountMap();
+  const jobNames = useJobNames();
 
   if (isPending) return <LoadingRows rows={5} />;
   if (error) return <ErrorNotice error={error} />;
@@ -29,8 +31,13 @@ function ActivityPage() {
       {groupByDay(data).map(([day, events]) => (
         <Section key={day} title={day}>
           <Card className="space-y-1 p-3">
-            {events.map((e) => (
-              <EventItem key={e.id} event={e} account={accounts.get(e.account_id)} />
+            {stackEvents(events, (id) => jobNames.get(id)).map((stack) => (
+              <EventStack
+                key={stack[0]?.id}
+                events={stack}
+                name={jobNames.get(stack[0]?.job_id ?? -1)}
+                account={accounts.get(stack[0]?.account_id ?? -1)}
+              />
             ))}
           </Card>
         </Section>

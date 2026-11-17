@@ -178,6 +178,12 @@ export function useJobs() {
   });
 }
 
+/** Names of the jobs in the jobs list, by id (for stacking their events). */
+export function useJobNames(): Map<number, string> {
+  const { data = [] } = useJobs();
+  return new Map(data.map((j) => [j.id, j.name]));
+}
+
 export function useJob(id: number) {
   return useQuery({
     queryKey: queryKeys.job(id),

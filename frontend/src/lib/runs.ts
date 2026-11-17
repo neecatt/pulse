@@ -1,4 +1,5 @@
 import type { HparamValue, Job, Run } from "@/api/types";
+import { MINUTE_MS } from "@/config/constants";
 
 /** A column of the runs table (and an axis of the parallel-coordinates chart). */
 export type RunColumn =
@@ -52,22 +53,64 @@ export function varyingHparams(runs: Run[]): string[] {
 }
 
 export interface Sweep {
-  arrayId: string;
+  /** The array id, or for a batch the first job's Slurm id (both go in /runs?sweep=). */
+  id: string;
+  /** A Slurm job array; otherwise a batch: same-named jobs submitted together. */
+  array: boolean;
   name: string;
   tasks: Job[];
 }
 
-/** Job arrays with at least two tasks, in first-seen order. */
+// Same-named jobs submitted this close to each other form one batch, like the
+// eight single-GPU jobs a loop of sbatch calls submits for one experiment.
+const BATCH_GAP_MS = 5 * MINUTE_MS;
+
+/** Job arrays and batches with at least two jobs, in first-seen order. */
 export function groupSweeps(jobs: Job[]): Sweep[] {
+  const keyOf = new Map<number, { key: string; id: string; array: boolean }>();
+  const loose = new Map<string, Job[]>();
+  for (const job of jobs) {
+    if (job.array_id) {
+      const key = `${job.account_id}:a${job.array_id}`;
+      keyOf.set(job.id, { key, id: job.array_id, array: true });
+    } else if (job.submit_time) {
+      const name = `${job.account_id}:${job.name}`;
+      loose.set(name, [...(loose.get(name) ?? []), job]);
+    }
+  }
+  for (const group of loose.values()) {
+    const bySubmit = [...group].sort((a, b) => submitted(a) - submitted(b));
+    let first: Job | undefined;
+    let previous = -Infinity;
+    for (const job of bySubmit) {
+      if (!first || submitted(job) - previous > BATCH_GAP_MS) first = job;
+      previous = submitted(job);
+      keyOf.set(job.id, {
+        key: `${job.account_id}:b${first.slurm_id}`,
+        id: first.slurm_id,
+        array: false,
+      });
+    }
+  }
+
   const sweeps = new Map<string, Sweep>();
   for (const job of jobs) {
-    if (!job.array_id) continue;
-    const key = `${job.account_id}:${job.array_id}`;
-    const sweep = sweeps.get(key) ?? { arrayId: job.array_id, name: job.name, tasks: [] };
+    const group = keyOf.get(job.id);
+    if (!group) continue;
+    const sweep = sweeps.get(group.key) ?? {
+      id: group.id,
+      array: group.array,
+      name: job.name,
+      tasks: [],
+    };
     sweep.tasks.push(job);
-    sweeps.set(key, sweep);
+    sweeps.set(group.key, sweep);
   }
   return [...sweeps.values()].filter((s) => s.tasks.length > 1);
+}
+
+function submitted(job: Job): number {
+  return Date.parse(job.submit_time ?? "");
 }
 
 export type AxisScale =

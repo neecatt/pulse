@@ -19,7 +19,7 @@ const STATE_WORDS: Partial<Record<JobState, string>> = {
   CANCELLED: "cancelled",
 };
 
-/** A job array shown as one collapsible row, with its tasks inside. */
+/** A job array or batch shown as one collapsible row, with its jobs inside. */
 export function SweepRow({ sweep, account }: { sweep: Sweep; account: Account | undefined }) {
   const [open, setOpen] = useState(false);
   const counts = new Map<JobState, number>();
@@ -45,10 +45,16 @@ export function SweepRow({ sweep, account }: { sweep: Sweep; account: Account | 
           <span className="min-w-0">
             <span className="flex items-center gap-2">
               <span className="truncate font-medium">{sweep.name}</span>
-              <span className="font-mono text-xs text-muted-foreground">[{sweep.arrayId}]</span>
+              {sweep.array && (
+                <span className="font-mono text-xs text-muted-foreground">[{sweep.id}]</span>
+              )}
             </span>
             <span className="mt-1 flex flex-wrap gap-x-2 font-mono text-xs">
-              <span className="text-muted-foreground">sweep · {sweep.tasks.length} tasks</span>
+              <span className="text-muted-foreground">
+                {sweep.array
+                  ? `sweep · ${sweep.tasks.length} tasks`
+                  : `${sweep.tasks.length} jobs submitted together`}
+              </span>
               {[...counts].map(([state, n]) => (
                 <span key={state} className={stateTone[state]}>
                   {n} {STATE_WORDS[state] ?? state.toLowerCase()}
@@ -59,7 +65,7 @@ export function SweepRow({ sweep, account }: { sweep: Sweep; account: Account | 
         </button>
         <Link
           to="/runs"
-          search={{ sweep: Number(sweep.arrayId) }}
+          search={{ sweep: Number(sweep.id) }}
           className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
         >
           Analyse →

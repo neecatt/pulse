@@ -1,16 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { useAccountMap, useAccounts, useEvents, useJobs } from "@/api/queries";
+import { useAccountMap, useAccounts, useEvents, useJobNames, useJobs } from "@/api/queries";
 import type { Account, Job } from "@/api/types";
 import { Button } from "@/components/Button";
 import { AccountDot } from "@/components/AccountDot";
-import { EventItem } from "@/components/EventItem";
+import { EventStack } from "@/components/EventItem";
 import { JobRow } from "@/components/JobRow";
 import { Card, EmptyState, ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { Segmented } from "@/components/Segmented";
 import { SweepRow } from "@/components/SweepRow";
 import { accountLabel } from "@/lib/accounts";
+import { stackEvents } from "@/lib/events";
 import { groupSweeps, type Sweep } from "@/lib/runs";
 import { DAY_MS, HOUR_MS, MAX_COMPARE } from "@/config/constants";
 import { useUiSettings } from "@/lib/ui-settings";
@@ -23,10 +24,15 @@ export const Route = createFileRoute("/")({
 
 type View = "active" | "all";
 
+// Recent activity fetches enough events that its rows stay full once repeats stack.
+const RECENT_EVENTS_FETCHED = 40;
+const RECENT_EVENTS_SHOWN = 8;
+
 function JobsPage() {
   const accounts = useAccounts();
   const jobs = useJobs();
-  const events = useEvents(8);
+  const events = useEvents(RECENT_EVENTS_FETCHED);
+  const jobNames = useJobNames();
   const accountMap = useAccountMap();
   const [accountId, setAccountId] = useState<number | null>(null);
   const ui = useUiSettings();
@@ -152,7 +158,7 @@ function JobsPage() {
               {listItems(visible, comparing).map((item) =>
                 item.kind === "sweep" ? (
                   <SweepRow
-                    key={`sweep-${item.sweep.arrayId}-${item.sweep.tasks[0]?.account_id}`}
+                    key={`sweep-${item.sweep.id}-${item.sweep.tasks[0]?.account_id}`}
                     sweep={item.sweep}
                     account={accountMap.get(item.sweep.tasks[0]?.account_id ?? -1)}
                   />
@@ -184,11 +190,17 @@ function JobsPage() {
         >
           {events.data?.length ? (
             <ul className="space-y-2">
-              {events.data.map((e) => (
-                <li key={e.id}>
-                  <EventItem event={e} account={accountMap.get(e.account_id)} />
-                </li>
-              ))}
+              {stackEvents(events.data, (id) => jobNames.get(id))
+                .slice(0, RECENT_EVENTS_SHOWN)
+                .map((stack) => (
+                  <li key={stack[0]?.id}>
+                    <EventStack
+                      events={stack}
+                      name={jobNames.get(stack[0]?.job_id ?? -1)}
+                      account={accountMap.get(stack[0]?.account_id ?? -1)}
+                    />
+                  </li>
+                ))}
             </ul>
           ) : (
             <p className="text-sm text-muted-foreground">No events yet.</p>
@@ -202,28 +214,26 @@ function JobsPage() {
 type ListItem = { kind: "job"; job: Job } | { kind: "sweep"; sweep: Sweep };
 
 /**
- * Jobs in list order, with each job array collapsed into one sweep row where its
- * first task appears. When selecting runs to compare, tasks stay individual.
+ * Jobs in list order, with each job array or batch collapsed into one row where
+ * its first job appears. When selecting runs to compare, jobs stay individual.
  */
 function listItems(jobs: Job[], comparing: boolean): ListItem[] {
   if (comparing) return jobs.map((job) => ({ kind: "job", job }));
-  const sweeps = new Map(groupSweeps(jobs).map((s) => [sweepKey(s.tasks[0]!), s]));
-  const shown = new Set<string>();
+  const sweepOf = new Map<number, Sweep>();
+  for (const sweep of groupSweeps(jobs))
+    for (const task of sweep.tasks) sweepOf.set(task.id, sweep);
+  const shown = new Set<Sweep>();
   const items: ListItem[] = [];
   for (const job of jobs) {
-    const sweep = job.array_id ? sweeps.get(sweepKey(job)) : undefined;
+    const sweep = sweepOf.get(job.id);
     if (!sweep) {
       items.push({ kind: "job", job });
-    } else if (!shown.has(sweepKey(job))) {
-      shown.add(sweepKey(job));
+    } else if (!shown.has(sweep)) {
+      shown.add(sweep);
       items.push({ kind: "sweep", sweep });
     }
   }
   return items;
-}
-
-function sweepKey(job: Job): string {
-  return `${job.account_id}:${job.array_id}`;
 }
 
 function matches(job: Job, search: string, account: Account | undefined): boolean {
