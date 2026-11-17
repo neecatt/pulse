@@ -47,9 +47,9 @@ export function NodeUsage({ job }: { job: JobDetail }) {
         </div>
       )}
       {hasGpus && <GpuGrid nodes={nodes} stats={job.node_stats} />}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
         {charts.map((chart) => (
-          <Card key={chart.key} className="p-4">
+          <Card key={chart.key} className="min-w-0 p-3 sm:p-4">
             <div className="mb-3 font-mono text-xs">{chart.title}</div>
             <MetricChart xAxis="time" domain={[0, 100]} unit="%" series={chart.series} />
           </Card>

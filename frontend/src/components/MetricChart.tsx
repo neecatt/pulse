@@ -63,7 +63,12 @@ export function MetricChart({
   const all = prepared.flatMap((s) => s.xs.map((x, i) => [x, s.raw[i] ?? 0] as const));
   if (all.length < 2) {
     return (
-      <div className={cn("grid h-36 place-items-center text-xs text-muted-foreground", className)}>
+      <div
+        className={cn(
+          "grid h-28 place-items-center sm:h-36 text-xs text-muted-foreground",
+          className,
+        )}
+      >
         Not enough data yet
       </div>
     );
@@ -103,7 +108,7 @@ export function MetricChart({
   return (
     <div className={cn("grid grid-cols-[1fr_auto] gap-x-2 gap-y-1", className)}>
       <div
-        className="relative h-36 touch-pan-y select-none"
+        className="relative h-28 touch-pan-y select-none sm:h-36"
         onPointerMove={onMove}
         onPointerDown={onMove}
         onPointerLeave={() => setHover(null)}
