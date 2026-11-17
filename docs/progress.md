@@ -3,6 +3,21 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-17 — Compact job page (`fix/job-page-density`)
+
+- Metrics logged once (final eval and benchmark scores) are listed in a
+  compact "Final values" table instead of one empty chart each. A real job
+  with 504 metrics (360 of them single values) went from 61,000 px to under
+  4,000 px tall.
+- Metric groups collapse (the first is open, or all when there are few),
+  show 6 charts until "Show all", drop the group prefix from titles and use
+  three columns on wide screens. Filtering opens every matching group.
+- Hyperparameters: lists render as chips instead of JSON, lists the server cut
+  short keep their complete items and end in "…", text wraps at word
+  boundaries, and keys stay beside values on phones.
+- Phones: shorter charts, system charts two per row, and the name column of
+  the compare tables stays pinned while scrolling sideways.
+
 ## 2026-11-14 — Release 0.3.0
 
 - Claude Code and Codex in a built-in chat (model and thinking level, approvals,

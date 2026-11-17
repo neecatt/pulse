@@ -60,3 +60,7 @@ export const ASSISTANT_MAX_ITEMS = 100;
 
 // The project's source, linked from the public site and the docs.
 export const REPO_URL = "https://github.com/neecatt/pulse";
+
+// Longer hyperparameter values are cut by the server. Must match
+// HPARAM_MAX_VALUE_LENGTH in backend/src/pulse/constants.py.
+export const HPARAM_MAX_VALUE_LENGTH = 200;

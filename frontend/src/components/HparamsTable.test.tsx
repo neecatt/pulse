@@ -35,6 +35,11 @@ describe("HparamsTable", () => {
     expect(screen.getByText("seed")).toBeInTheDocument();
   });
 
+  it("shows list values as separate items", () => {
+    render(<HparamsTable runs={[run(1, { seeds: "[0, 1, 2]" })]} />);
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["0", "1", "2"]);
+  });
+
   it("explains how to add hyperparameters when there are none", () => {
     render(<HparamsTable runs={[run(1, {})]} />);
     expect(screen.getByText("No hyperparameters found")).toBeInTheDocument();

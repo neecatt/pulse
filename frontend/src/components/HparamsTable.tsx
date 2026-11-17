@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import type { HparamValue } from "@/api/types";
+import { hparamList } from "@/lib/metrics";
 import { cn } from "@/lib/utils";
 
 import { Card, EmptyState } from "./Section";
@@ -29,43 +30,58 @@ export function HparamsTable({ runs }: { runs: RunHparams[] }) {
     );
   }
 
+  if (!comparing) {
+    const hparams = runs[0]?.hparams ?? {};
+    return (
+      <Card className="divide-y">
+        {keys.map((key) => (
+          <div
+            key={key}
+            className="grid grid-cols-[minmax(0,7rem)_1fr] gap-x-3 px-3 py-2 font-mono text-xs sm:grid-cols-[minmax(0,13rem)_1fr] sm:gap-x-4"
+          >
+            <div className="text-muted-foreground wrap-anywhere">{key}</div>
+            <Value value={hparams[key]} />
+          </div>
+        ))}
+      </Card>
+    );
+  }
+
   const differs = (key: string) =>
     new Set(runs.map((r) => JSON.stringify(r.hparams[key]))).size > 1;
   const rows = onlyDiffs ? keys.filter(differs) : keys;
 
   return (
     <div className="space-y-2">
-      {comparing && (
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Toggle label="Only differences" checked={onlyDiffs} onChange={setOnlyDiffs} />
-          Only differences ({keys.filter(differs).length} of {keys.length})
-        </label>
-      )}
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Toggle label="Only differences" checked={onlyDiffs} onChange={setOnlyDiffs} />
+        Only differences ({keys.filter(differs).length} of {keys.length})
+      </label>
       <Card className="overflow-x-auto">
         <table className="w-full font-mono text-xs">
-          {comparing && (
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                <th className="px-3 py-2 font-normal">parameter</th>
-                {runs.map((r) => (
-                  <th key={r.id} className="px-3 py-2 font-normal whitespace-nowrap">
-                    <span
-                      className="mr-1.5 inline-block size-2 rounded-full"
-                      style={{ background: r.color }}
-                    />
-                    {r.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-          )}
+          <thead>
+            <tr className="border-b text-left text-muted-foreground">
+              <th className="sticky left-0 bg-surface px-3 py-2 font-normal">parameter</th>
+              {runs.map((r) => (
+                <th key={r.id} className="px-3 py-2 font-normal whitespace-nowrap">
+                  <span
+                    className="mr-1.5 inline-block size-2 rounded-full"
+                    style={{ background: r.color }}
+                  />
+                  {r.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
           <tbody className="divide-y">
             {rows.map((key) => (
-              <tr key={key} className={cn(comparing && differs(key) && "bg-pend/5")}>
-                <td className="px-3 py-1.5 text-muted-foreground">{key}</td>
+              <tr key={key} className={cn(differs(key) && "bg-pend/5")}>
+                <td className="sticky left-0 max-w-40 bg-surface px-3 py-1.5 align-top text-muted-foreground wrap-anywhere">
+                  {key}
+                </td>
                 {runs.map((r) => (
-                  <td key={r.id} className="px-3 py-1.5 break-all">
-                    {format(r.hparams[key])}
+                  <td key={r.id} className="min-w-36 px-3 py-1.5 align-top">
+                    <Value value={r.hparams[key]} />
                   </td>
                 ))}
               </tr>
@@ -82,6 +98,23 @@ export function HparamsTable({ runs }: { runs: RunHparams[] }) {
       </Card>
     </div>
   );
+}
+
+/** One value; a list shows its items as chips instead of JSON. */
+function Value({ value }: { value: HparamValue | undefined }) {
+  const items = hparamList(value);
+  if (items?.length) {
+    return (
+      <ul className="flex flex-wrap gap-1">
+        {items.map((item, i) => (
+          <li key={i} className="max-w-full rounded bg-muted px-1.5 wrap-anywhere">
+            {item}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return <div className="wrap-anywhere">{format(value)}</div>;
 }
 
 function format(value: HparamValue | undefined): string {
