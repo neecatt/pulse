@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-17 — Release 0.3.2
+
+- Charts grouped by section with seeds drawn in one chart, same-named jobs
+  submitted together stacked in the jobs list, and stacked activity (#83).
+- Published as `neecat/pulse:0.3.2`, `:0.3`, `:latest` and `:staging`.
+
 ## 2026-11-17 — Grouped charts, job batches, stacked activity (`feat/grouped-charts-and-batches`)
 
 - Job charts are grouped like W&B: collapsible sections by the first two path
