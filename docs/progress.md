@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-23 — Release 0.3.4
+
+- The Runs table folds job batches and arrays into expandable rows, and batch
+  chips show their submit time (#87).
+- Published as `neecat/pulse:0.3.4`, `:0.3`, `:latest` and `:staging`.
+
 ## 2026-11-23 — Grouped runs table (`feat/runs-grouped`)
 
 - The Runs table folds each job array or batch of same-named jobs into one
