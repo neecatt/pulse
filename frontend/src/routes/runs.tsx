@@ -16,6 +16,7 @@ import {
   type RunColumn,
   type SortDirection,
 } from "@/lib/runs";
+import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/runs")({
@@ -106,12 +107,11 @@ function RunsPage() {
             All runs
           </SweepChip>
           {sweeps.map((s) => (
-            <SweepChip
-              key={`${s.tasks[0]?.account_id}-${s.id}`}
-              active={sweep === s.id}
-              search={{ sweep: Number(s.id) }}
-            >
-              {s.name} {s.array && <span className="font-mono opacity-70">[{s.id}]</span>}
+            <SweepChip key={s.key} active={sweep === s.id} search={{ sweep: Number(s.id) }}>
+              {s.name}{" "}
+              <span className="font-mono opacity-70">
+                {s.array ? `[${s.id}]` : formatDateTime(s.tasks[0]?.submit_time ?? null)}
+              </span>
               <span className="opacity-70">· {s.tasks.length}</span>
             </SweepChip>
           ))}
@@ -178,6 +178,8 @@ function RunsPage() {
           <Card>
             <RunsTable
               runs={sorted}
+              // Inside one sweep every run belongs to it, so there is nothing to fold.
+              grouped={sweep === undefined}
               columns={columns}
               sort={activeSort}
               onSort={onSort}

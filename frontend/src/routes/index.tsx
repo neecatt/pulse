@@ -158,7 +158,7 @@ function JobsPage() {
               {listItems(visible, comparing).map((item) =>
                 item.kind === "sweep" ? (
                   <SweepRow
-                    key={`sweep-${item.sweep.id}-${item.sweep.tasks[0]?.account_id}`}
+                    key={item.sweep.key}
                     sweep={item.sweep}
                     account={accountMap.get(item.sweep.tasks[0]?.account_id ?? -1)}
                   />

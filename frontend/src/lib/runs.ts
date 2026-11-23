@@ -52,13 +52,15 @@ export function varyingHparams(runs: Run[]): string[] {
     .map(({ key }) => key);
 }
 
-export interface Sweep {
+export interface Sweep<T extends Job = Job> {
+  /** Unique across accounts, for React keys and expanded state. */
+  key: string;
   /** The array id, or for a batch the first job's Slurm id (both go in /runs?sweep=). */
   id: string;
   /** A Slurm job array; otherwise a batch: same-named jobs submitted together. */
   array: boolean;
   name: string;
-  tasks: Job[];
+  tasks: T[];
 }
 
 // Same-named jobs submitted this close to each other form one batch, like the
@@ -66,7 +68,7 @@ export interface Sweep {
 const BATCH_GAP_MS = 5 * MINUTE_MS;
 
 /** Job arrays and batches with at least two jobs, in first-seen order. */
-export function groupSweeps(jobs: Job[]): Sweep[] {
+export function groupSweeps<T extends Job>(jobs: T[]): Sweep<T>[] {
   const keyOf = new Map<number, { key: string; id: string; array: boolean }>();
   const loose = new Map<string, Job[]>();
   for (const job of jobs) {
@@ -93,11 +95,12 @@ export function groupSweeps(jobs: Job[]): Sweep[] {
     }
   }
 
-  const sweeps = new Map<string, Sweep>();
+  const sweeps = new Map<string, Sweep<T>>();
   for (const job of jobs) {
     const group = keyOf.get(job.id);
     if (!group) continue;
     const sweep = sweeps.get(group.key) ?? {
+      key: group.key,
       id: group.id,
       array: group.array,
       name: job.name,
@@ -107,6 +110,46 @@ export function groupSweeps(jobs: Job[]): Sweep[] {
     sweeps.set(group.key, sweep);
   }
   return [...sweeps.values()].filter((s) => s.tasks.length > 1);
+}
+
+/** A row of the runs table: one run, or a batch/array of runs folded together. */
+export type RunRow = { kind: "run"; run: Run } | { kind: "group"; sweep: Sweep<Run> };
+
+/**
+ * Sorted runs with each batch or array folded into one row, placed where its
+ * first (best-sorted) run is; its runs keep their sorted order inside.
+ */
+export function groupRunRows(sorted: Run[]): RunRow[] {
+  const sweepOf = new Map<number, Sweep<Run>>();
+  for (const sweep of groupSweeps(sorted))
+    for (const run of sweep.tasks) sweepOf.set(run.id, sweep);
+  const shown = new Set<Sweep<Run>>();
+  const rows: RunRow[] = [];
+  for (const run of sorted) {
+    const sweep = sweepOf.get(run.id);
+    if (!sweep) rows.push({ kind: "run", run });
+    else if (!shown.has(sweep)) {
+      shown.add(sweep);
+      rows.push({ kind: "group", sweep });
+    }
+  }
+  return rows;
+}
+
+/** What a folded row shows for a column: the shared value, a numeric range, or a count. */
+export type GroupValue =
+  | { kind: "same"; value: HparamValue }
+  | { kind: "range"; min: number; max: number }
+  | { kind: "mixed"; count: number };
+
+export function groupValue(runs: Run[], column: RunColumn): GroupValue {
+  const values = runs.map((r) => columnValue(r, column)).filter((v) => v !== null);
+  const distinct = new Set(values.map((v) => JSON.stringify(v)));
+  if (distinct.size <= 1) return { kind: "same", value: values[0] ?? null };
+  if (values.every((v) => typeof v === "number")) {
+    return { kind: "range", min: Math.min(...values), max: Math.max(...values) };
+  }
+  return { kind: "mixed", count: distinct.size };
 }
 
 function submitted(job: Job): number {

@@ -3,6 +3,15 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-23 — Grouped runs table (`feat/runs-grouped`)
+
+- The Runs table folds each job array or batch of same-named jobs into one
+  expandable row, placed where its best run sorts. The row shows the state
+  counts and, per column, the shared value, a numeric range or how many
+  values differ. Inside one sweep's view rows stay flat.
+- Batch chips on the Runs page show their submit time, so several batches of
+  one job name can be told apart.
+
 ## 2026-11-17 — Release 0.3.3
 
 - Cache headers so browsers pick up new releases, job stats for jobs without
