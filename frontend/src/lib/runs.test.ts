@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import type { Job, Run } from "@/api/types";
 
-import { axisPosition, axisScale, groupSweeps, sortRuns, varyingHparams } from "./runs";
+import {
+  axisPosition,
+  axisScale,
+  groupRunRows,
+  groupSweeps,
+  groupValue,
+  sortRuns,
+  varyingHparams,
+} from "./runs";
 
 function run(id: number, hparams: Run["hparams"], loss?: number): Run {
   return {
@@ -98,5 +106,43 @@ describe("groupSweeps", () => {
     expect(sweeps).toHaveLength(1);
     expect(sweeps[0]).toMatchObject({ id: "102", array: false, name: "lr-sweep" });
     expect(sweeps[0]?.tasks.map((t) => t.id)).toEqual([3, 2]);
+  });
+});
+
+describe("groupRunRows", () => {
+  const batched = (id: number, name: string, loss: number) =>
+    ({
+      ...run(id, { lr: 0.1 }, loss),
+      name,
+      slurm_id: String(id),
+      account_id: 1,
+      array_id: null,
+      submit_time: "2026-01-01T10:00:00Z",
+    }) as Run;
+
+  it("folds a batch into one row where its best run sorts", () => {
+    const sorted = [batched(1, "a", 0.1), batched(2, "b", 0.2), batched(3, "a", 0.3)];
+    const rows = groupRunRows(sorted);
+    expect(rows.map((r) => (r.kind === "run" ? r.run.id : r.sweep.tasks.map((t) => t.id)))).toEqual(
+      [[1, 3], 2],
+    );
+  });
+});
+
+describe("groupValue", () => {
+  const runs = [
+    run(1, { lr: 0.1, opt: "adam", bs: 32 }, 0.5),
+    run(2, { lr: 0.3, opt: "sgd", bs: 32 }),
+  ];
+
+  it("shows a shared value, a numeric range, or how many values differ", () => {
+    expect(groupValue(runs, { kind: "hparam", key: "bs" })).toEqual({ kind: "same", value: 32 });
+    expect(groupValue(runs, { kind: "hparam", key: "lr" })).toEqual({
+      kind: "range",
+      min: 0.1,
+      max: 0.3,
+    });
+    expect(groupValue(runs, { kind: "hparam", key: "opt" })).toEqual({ kind: "mixed", count: 2 });
+    expect(groupValue(runs, { kind: "metric", key: "loss" })).toEqual({ kind: "same", value: 0.5 });
   });
 });
