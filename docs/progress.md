@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-24 — Release 0.3.5
+
+- Failed jobs show why they failed, in alerts and on the job page, and
+  hyperparameters are grouped into searchable cards (#89).
+- Published as `neecat/pulse:0.3.5`, `:0.3`, `:latest` and `:staging`.
+
 ## 2026-11-24 — Failure reasons and grouped hyperparameters (`feat/failure-reasons`)
 
 - A job that fails gets its output read once more, stderr included, right
