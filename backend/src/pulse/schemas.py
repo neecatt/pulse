@@ -323,6 +323,9 @@ class AgentJob(BaseModel):
         default=[], max_length=200
     )
     log_mtime: int | None = None
+    err_tail: list[Annotated[str, StringConstraints(max_length=4096)]] = Field(
+        default=[], max_length=200
+    )
     node_stats: str | None = Field(default=None, max_length=65536)  # NODE_STATS_SCRIPT output
     files: list[AgentFile] = Field(default=[], max_length=16)
 
@@ -340,6 +343,8 @@ class AgentReportAck(BaseModel):
     next_report_in: int
     # Offsets already ingested per job and file; the agent sends only newer bytes.
     cursors: dict[str, dict[str, int]] = {}
+    # Failed jobs whose final output is already read; the agent skips them.
+    ended: list[str] = []
 
 
 class SetupInfo(BaseModel):
@@ -394,6 +399,8 @@ class MetricPoint(BaseModel):
 
 class JobDetailOut(JobOut):
     log_tail: list[str]
+    err_tail: list[str]
+    error: str | None
     log_updated_at: datetime | None
     note: str | None
     hparams: dict[str, Any]

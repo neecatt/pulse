@@ -3,7 +3,10 @@ from datetime import UTC, datetime
 import pytest
 
 from pulse.domain import JobState
+from pulse.slurm.base import SlurmJob
 from pulse.slurm.parsing import (
+    failure_summary,
+    failures_to_read,
     mean_gpu_usage,
     parse_gpus,
     parse_node_stats,
@@ -112,3 +115,49 @@ def test_parse_node_stats() -> None:
     assert nodes["gpu002"] == {"cpu": 12.0, "mem": None, "gpus": []}
     assert mean_gpu_usage(nodes) == (80.0, 37.5)
     assert mean_gpu_usage({}) == (None, None)
+
+
+@pytest.mark.parametrize(
+    ("lines", "summary"),
+    [
+        (
+            [
+                "Traceback (most recent call last):",
+                '  File "train.py", line 3, in <module>',
+                "[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2 GiB",
+                "torch.distributed.elastic.multiprocessing.errors.ChildFailedError: ",
+                "srun: error: gpu012: task 0: Exited with exit code 1",
+            ],
+            "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2 GiB",
+        ),
+        (["epoch 1/3\r\x1b[2Kepoch 2/3", "AssertionError"], "AssertionError"),
+        (
+            ["slurmstepd: error: Detected 1 oom_kill event in StepId=7.batch."],
+            "Ran out of memory and was killed",
+        ),
+        (["loading data", "Killed"], "Killed by the system, often for using too much memory"),
+        (["ok", "bash: python: command not found"], "bash: python: command not found"),
+        (["step 10 loss=0.5", "srun: error: gpu01: task 0: Exited with exit code 2"], None),
+        ([], None),
+    ],
+)
+def test_failure_summary(lines: list[str], summary: str | None) -> None:
+    assert failure_summary(lines) == summary
+
+
+def test_failure_summary_is_one_short_line() -> None:
+    summary = failure_summary(["ValueError: " + "x" * 1000])
+    assert summary is not None
+    assert len(summary) == 300
+    assert summary.endswith("…")
+
+
+def test_failures_to_read_skips_known_and_takes_newest() -> None:
+    def failed(n: int) -> SlurmJob:
+        end = datetime(2026, 1, 1, n % 24, tzinfo=UTC)
+        return SlurmJob(str(n), "j", "gpu", JobState.FAILED, end_time=end)
+
+    jobs = [failed(n) for n in range(12)]
+    jobs.append(SlurmJob("99", "ok", "gpu", JobState.COMPLETED))
+    picked = [j.slurm_id for j in failures_to_read(jobs, {"11"})]
+    assert picked == ["10", "9", "8", "7", "6", "5", "4", "3"]

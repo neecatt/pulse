@@ -9,7 +9,7 @@ enough to exercise the poller, events and push notifications locally.
 import json
 import math
 import zlib
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -27,7 +27,7 @@ from pulse.slurm.base import (
     SlurmError,
     SlurmJob,
 )
-from pulse.slurm.parsing import mean_gpu_usage
+from pulse.slurm.parsing import failure_summary, failures_to_read, mean_gpu_usage
 
 SWEEP_PERIOD_S = 15 * 60
 LOOKBACK = timedelta(hours=24)
@@ -128,7 +128,9 @@ class MockSlurmClient:
     async def close(self) -> None:
         return None
 
-    async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
+    async def snapshot(
+        self, account: AccountRef, cursors: Cursors, ended: Collection[str] = ()
+    ) -> AccountSnapshot:
         await self.check(account)
         now = self._clock()
         # A demo account's story starts when it was created, so every visitor sees
@@ -150,6 +152,8 @@ class MockSlurmClient:
             if job.state is JobState.RUNNING:
                 files = _metric_files(account, script, job, cursors.get(slurm_id, {}))
                 telemetry[slurm_id] = self._telemetry(script, job, now, seed, files)
+        for job in failures_to_read(jobs, ended):
+            telemetry[job.slurm_id] = _final_output(job)
         return AccountSnapshot(jobs=jobs, telemetry=telemetry)
 
     def _scripts(self, now: datetime, epoch: datetime) -> list[_ScriptedJob]:
@@ -228,6 +232,30 @@ class MockSlurmClient:
             log_updated_at=job.start_time + timedelta(seconds=live_s) if frozen else now,
             files=files,
         )
+
+
+def _final_output(job: SlurmJob) -> JobTelemetry:
+    """How a failed demo job ends: a CUDA out-of-memory traceback on stderr."""
+    log_tail = [f"[step {9000 + 30 * i}] eval batch {300 + i}/512" for i in range(6)]
+    err_tail = [
+        "Traceback (most recent call last):",
+        '  File "/scratch/demo/eval.py", line 214, in <module>',
+        "    main(cfg)",
+        '  File "/scratch/demo/eval.py", line 188, in main',
+        "    logits = model(batch).logits",
+        '  File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", '
+        "line 1736, in _call_impl",
+        "    return forward_call(*args, **kwargs)",
+        "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.91 GiB. GPU 0 has "
+        "a total capacity of 79.15 GiB of which 1.20 GiB is free.",
+        f"srun: error: {job.node_list}: task 0: Exited with exit code 1",
+    ]
+    return JobTelemetry(
+        log_tail=log_tail,
+        log_updated_at=job.end_time,
+        err_tail=err_tail,
+        error=failure_summary([*log_tail, *err_tail]),
+    )
 
 
 def _node_base(slurm_id: str) -> int:

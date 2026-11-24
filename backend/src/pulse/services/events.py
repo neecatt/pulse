@@ -25,10 +25,13 @@ _TERMINAL_EVENTS: dict[JobState, EventKind] = {
 }
 
 
-def state_change_event(prev: JobState | None, job: SlurmJob) -> DetectedEvent | None:
+def state_change_event(
+    prev: JobState | None, job: SlurmJob, error: str | None = None
+) -> DetectedEvent | None:
     """Event for a state transition, or None if the change isn't worth announcing.
 
-    ``prev`` is None for a job seen for the first time. Moves out of a terminal
+    ``prev`` is None for a job seen for the first time; ``error`` is what a
+    failed job's output says went wrong. Moves out of a terminal
     state (e.g. a requeue) are silent; the following start is announced instead.
     """
     if prev == job.state or (prev is not None and prev.is_terminal):
@@ -39,10 +42,10 @@ def state_change_event(prev: JobState | None, job: SlurmJob) -> DetectedEvent | 
     kind = _TERMINAL_EVENTS.get(job.state)
     if kind is None:
         return None
-    return DetectedEvent(job.slurm_id, kind, _terminal_message(job))
+    return DetectedEvent(job.slurm_id, kind, _terminal_message(job, error))
 
 
-def _terminal_message(job: SlurmJob) -> str:
+def _terminal_message(job: SlurmJob, error: str | None) -> str:
     match job.state:
         case JobState.COMPLETED:
             return f"{job.name} completed in {format_duration(job.elapsed_s)}"
@@ -51,7 +54,7 @@ def _terminal_message(job: SlurmJob) -> str:
         case JobState.TIMEOUT:
             return f"{job.name} ran until its time limit ({format_duration(job.elapsed_s)})"
         case _:
-            detail = job.reason or (f"exit code {job.exit_code}" if job.exit_code else "")
+            detail = error or job.reason or (f"exit code {job.exit_code}" if job.exit_code else "")
             return f"{job.name} failed" + (f" — {detail}" if detail else "")
 
 

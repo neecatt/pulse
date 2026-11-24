@@ -272,6 +272,9 @@ class Job(Base):
     gpu_util: Mapped[float | None]
     gpu_mem: Mapped[float | None]
     log_tail: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Set when a job fails: the end of stderr (if separate) and why it failed.
+    err_tail: Mapped[list[str]] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column(String(512))
     log_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # Metric used for last_loss and the list sparkline ("loss", "train/loss", ...).
     primary_metric: Mapped[str | None] = mapped_column(String(128))

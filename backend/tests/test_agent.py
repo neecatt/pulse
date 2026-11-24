@@ -113,6 +113,10 @@ def test_agent_finds_the_same_files_as_the_server() -> None:
         "SEARCH_DEPTH",
         "PRUNE_DIRS",
         "CONFIG_NAMES",
+        "LOG_TAIL_BYTES",
+        "LOG_TAIL_LINES",
+        "FAILURE_LOG_LINES",
+        "FAILURE_READS_PER_POLL",
     ):
         assert getattr(agent, name) == getattr(constants, name), name
     for path in (
@@ -159,6 +163,32 @@ def test_collect_sends_raw_output_for_running_jobs(agent: ModuleType) -> None:
     assert isinstance(job["log_mtime"], int)
     assert "gpu07\tgpu\t0\t60" in job["node_stats"]
     assert "node_stats" not in agent.collect(False, {}, {})["jobs"]["77"]
+
+
+def fail_job_78(agent: ModuleType, tmp_path: Path) -> None:
+    """Make the fake cluster report one failed job, with its own stderr file."""
+    (tmp_path / "eval-78.out").write_text("loading /home/alice/data\n")
+    (tmp_path / "eval-78.err").write_text(
+        "Traceback (most recent call last):\nFileNotFoundError: /home/alice/data/x.pt\n"
+    )
+    write_exe(
+        tmp_path / "bin",
+        "sacct",
+        'echo "78|eval|gpu|FAILED|1||cpu=4|gpu07|1767268800|1767269400|1767270000|60|600|1:0"',
+    )
+    write_exe(
+        tmp_path / "bin",
+        "scontrol",
+        f'echo "JobId=78 StdOut={tmp_path}/eval-78.out StdErr={tmp_path}/eval-78.err"',
+    )
+
+
+def test_collect_sends_final_output_of_failed_jobs_once(agent: ModuleType, tmp_path: Path) -> None:
+    fail_job_78(agent, tmp_path)
+    job = agent.collect(False, {}, {})["jobs"]["78"]
+    assert job["log_tail"] == ["loading /home/alice/data"]
+    assert job["err_tail"][-1] == "FileNotFoundError: /home/alice/data/x.pt"
+    assert agent.collect(False, {}, {}, ["78"])["jobs"] == {}
 
 
 def test_collect_reports_slurm_failures(agent: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -366,3 +396,22 @@ def test_agent_skips_symlinked_metric_files(agent: ModuleType, tmp_path: Path) -
 def test_agent_install_needs_a_web_address(agent: ModuleType) -> None:
     assert agent.install("file:///etc", "token") == 2
     assert not Path(agent.CONFIG_PATH).exists()
+
+
+async def test_failure_reasons_from_agent_reports(
+    client: AsyncClient, agent: ModuleType, tmp_path: Path
+) -> None:
+    _, token = await create_agent_account(client)
+    auth = {"Authorization": f"Bearer {token}"}
+    await client.post("/api/agent/report", json=agent.collect(False, {}, {}), headers=auth)
+    fail_job_78(agent, tmp_path)
+
+    reply = await client.post("/api/agent/report", json=agent.collect(False, {}, {}), headers=auth)
+    assert reply.json()["ended"] == ["78"]
+    job = next(j for j in (await client.get("/api/jobs")).json() if j["slurm_id"] == "78")
+    detail = (await client.get(f"/api/jobs/{job['id']}")).json()
+    assert detail["error"] == "FileNotFoundError: /home/alice/data/x.pt"
+    assert detail["err_tail"][0] == "Traceback (most recent call last):"
+    (event,) = [e for e in (await client.get("/api/events")).json() if e["kind"] == "job_failed"]
+    # Alerts can reach teammates, so the cluster login is hidden in them.
+    assert event["message"] == "eval failed — FileNotFoundError: /home/…/data/x.pt"

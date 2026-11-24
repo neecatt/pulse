@@ -1,7 +1,7 @@
 """A public site (PULSE_DEMO): demo guests on simulated clusters next to real
 accounts, and sign-up with just a passkey."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from datetime import timedelta
 
 import pytest
@@ -35,7 +35,9 @@ class RealClusters:
         self.reached.append(account.host)
         return HostKeys()
 
-    async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
+    async def snapshot(
+        self, account: AccountRef, cursors: Cursors, ended: Collection[str] = ()
+    ) -> AccountSnapshot:
         self.reached.append(account.host)
         return AccountSnapshot(jobs=[], telemetry={})
 

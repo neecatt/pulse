@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, TypedDict
@@ -92,7 +92,8 @@ class FileChunk:
 
 @dataclass(frozen=True, slots=True)
 class JobTelemetry:
-    """Best-effort live data for a running job. Any field may be unknown."""
+    """Best-effort live data for a running job, or the last output of one that
+    just failed. Any field may be unknown."""
 
     loss: float | None = None
     epoch: str | None = None
@@ -102,6 +103,8 @@ class JobTelemetry:
     log_updated_at: datetime | None = None
     files: list[FileChunk] = field(default_factory=list)
     nodes: dict[str, NodeStats] = field(default_factory=dict)  # latest per-node usage
+    err_tail: list[str] = field(default_factory=list)  # stderr, when it has its own file
+    error: str | None = None  # what the output says went wrong (failed jobs)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,10 +128,14 @@ class SlurmClient(Protocol):
         Raises SlurmError if it isn't reachable.
         """
 
-    async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
+    async def snapshot(
+        self, account: AccountRef, cursors: Cursors, ended: Collection[str] = ()
+    ) -> AccountSnapshot:
         """Active and recently finished jobs, plus telemetry for running ones.
 
         For files listed in ``cursors``, only bytes after the offset are needed.
+        Failed jobs not in ``ended`` (already recorded as failed) get their final
+        output read once (see ``parsing.failures_to_read``).
         """
 
     async def close(self) -> None:

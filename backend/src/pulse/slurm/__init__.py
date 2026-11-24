@@ -1,3 +1,5 @@
+from collections.abc import Collection
+
 from pulse.config import Settings
 from pulse.slurm.base import (
     AccountRef,
@@ -54,8 +56,10 @@ class WithSimulated:
     async def check(self, account: AccountRef) -> HostKeys:
         return await self._for(account).check(account)
 
-    async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
-        return await self._for(account).snapshot(account, cursors)
+    async def snapshot(
+        self, account: AccountRef, cursors: Cursors, ended: Collection[str] = ()
+    ) -> AccountSnapshot:
+        return await self._for(account).snapshot(account, cursors, ended)
 
     async def close(self) -> None:
         await self._real.close()

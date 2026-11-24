@@ -69,6 +69,11 @@ async def test_poll_populates_jobs_then_emits_events(
     failed = next(j for j in (await client.get("/api/jobs")).json() if j["name"] == "mixtral-eval")
     assert failed["state"] == "FAILED"
     assert failed["reason"] == "OUT_OF_MEMORY"
+    failed_detail = (await client.get(f"/api/jobs/{failed['id']}")).json()
+    assert failed_detail["error"].startswith("torch.OutOfMemoryError: CUDA out of memory")
+    assert failed_detail["err_tail"][0] == "Traceback (most recent call last):"
+    message = next(e["message"] for e in events if e["kind"] == "job_failed")
+    assert message.startswith("mixtral-eval failed — torch.OutOfMemoryError")
 
     running = next(j for j in (await client.get("/api/jobs")).json() if j["name"] == "llama-7b-sft")
     detail = (await client.get(f"/api/jobs/{running['id']}")).json()

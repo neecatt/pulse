@@ -144,7 +144,8 @@ Run lint, types, and tests for every package you touched before committing.
 - Accounts connect either `direct` (Pulse polls over SSH) or via `agent`:
   `pulse/agent/pulse_agent.py` is a single-file, **Python 3.6+ stdlib-only**
   script that users install on the login node of clusters that require 2FA.
-  Keep it dumb: it ships raw `sacct`/`scontrol`/log/`nvidia-smi` output to
+  Keep it dumb: it ships raw `sacct`/`scontrol`/log/`nvidia-smi` output (and,
+  once, the final stdout/stderr of each newly failed job) to
   `POST /api/agent/report` and the server does all the parsing (`SACCT_FIELDS`
   must match `slurm/parsing.py`; a test enforces this). Don't use syntax or
   stdlib features newer than 3.6 in that file.

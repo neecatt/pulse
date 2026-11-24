@@ -25,7 +25,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 VERSION = "1"
 CONFIG_DIR = os.path.expanduser("~/.config/pulse-agent")
@@ -47,6 +47,10 @@ LOG_TAIL_BYTES = 16384
 # (pulse.constants.MAX_AGENT_REPORT_BYTES); jobs that don't fit go in a later one.
 REPORT_BUDGET_BYTES = 12 * 1024 * 1024
 LOG_TAIL_LINES = 40
+# A failed job's output is read once more, stderr included (as on the server).
+FAILURE_LOG_LINES = 80
+FAILURE_READS_PER_POLL = 8
+FAILED_STATES = ("FAILED", "OUT_OF_MEMORY", "NODE_FAIL", "BOOT_FAIL", "SPECIAL_EXIT")
 LOOKBACK = "now-48hours"
 
 # Must match pulse.slurm.parsing.SACCT_FIELDS; the backend tests check this.
@@ -188,7 +192,13 @@ def report(
     discovered: Optional[Dict[str, Tuple[float, List[str]]]] = None,
 ) -> int:
     """Send one snapshot; returns the server's requested delay before the next."""
-    payload = collect(include_stats, load_cursors(), {} if discovered is None else discovered)
+    state = load_state()
+    payload = collect(
+        include_stats,
+        state.get("cursors", {}),
+        {} if discovered is None else discovered,
+        state.get("ended", []),
+    )
     body = json.dumps(payload).encode()
     request = urllib.request.Request(
         config["server"] + "/api/agent/report",
@@ -212,7 +222,7 @@ def report(
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise AgentError("Can't reach Pulse at {}: {}".format(config["server"], exc)) from exc
     if isinstance(reply.get("cursors"), dict):
-        save_json(STATE_PATH, {"cursors": reply["cursors"]})
+        save_json(STATE_PATH, {"cursors": reply["cursors"], "ended": reply.get("ended", [])})
     return max(MIN_INTERVAL, int(reply.get("next_report_in", DEFAULT_INTERVAL)))
 
 
@@ -220,6 +230,7 @@ def collect(
     include_stats: bool,
     cursors: Dict[str, Dict[str, int]],
     discovered: Dict[str, Tuple[float, List[str]]],
+    ended: Sequence[str] = (),
 ) -> Dict[str, object]:
     """Raw Slurm output for the server to parse; the agent stays deliberately dumb."""
     payload = {"agent_version": VERSION, "sacct": "", "jobs": {}, "error": None}  # type: Dict[str, object]
@@ -256,6 +267,8 @@ def collect(
             continue  # unread bytes stay unread; the next report picks them up
         used += size
         jobs[job_id] = telemetry
+    for job_id in failed_jobs(sacct, ended):
+        jobs[job_id] = final_output(job_id)
     payload["jobs"] = jobs
     return payload
 
@@ -274,6 +287,38 @@ def running_jobs(sacct: str) -> List[Tuple[str, int]]:
             nodes = cols[nodes_col]
             jobs.append((cols[0], int(nodes) if nodes.isdigit() else 1))
     return jobs
+
+
+def failed_jobs(sacct: str, ended: Sequence[str]) -> List[str]:
+    """Failed jobs the server hasn't seen fail yet, newest first."""
+    jobs = []
+    state_col = SACCT_FIELDS.index("State")
+    end_col = SACCT_FIELDS.index("End")
+    for line in sacct.splitlines():
+        cols = line.split("|")
+        if len(cols) != len(SACCT_FIELDS) or cols[0] in ended:
+            continue
+        if (cols[state_col].split() or [""])[0] in FAILED_STATES:
+            end = cols[end_col]
+            jobs.append((int(end) if end.isdigit() else 0, cols[0]))
+    jobs.sort(reverse=True)
+    return [job_id for _, job_id in jobs[:FAILURE_READS_PER_POLL]]
+
+
+def final_output(job_id: str) -> Dict[str, object]:
+    """The end of a failed job's stdout and stderr, where it usually says why."""
+    try:
+        info = run_command(["scontrol", "show", "job", "-o", job_id])
+    except AgentError:
+        return {}
+    telemetry = {}  # type: Dict[str, object]
+    stdout_path = scontrol_field(info, "StdOut")
+    stderr_path = scontrol_field(info, "StdErr")
+    if stdout_path:
+        telemetry["log_tail"], telemetry["log_mtime"] = read_tail(stdout_path, FAILURE_LOG_LINES)
+    if stderr_path and stderr_path != stdout_path:
+        telemetry["err_tail"] = read_tail(stderr_path, FAILURE_LOG_LINES)[0]
+    return telemetry
 
 
 def job_telemetry(
@@ -317,14 +362,14 @@ def job_telemetry(
     return telemetry
 
 
-def read_tail(path: str) -> Tuple[List[str], Optional[int]]:
+def read_tail(path: str, lines: int = LOG_TAIL_LINES) -> Tuple[List[str], Optional[int]]:
     try:
         with open(path, "rb") as handle:
             handle.seek(0, os.SEEK_END)
             size = handle.tell()
             handle.seek(max(0, size - LOG_TAIL_BYTES))
             text = handle.read().decode("utf-8", "replace")
-        return text.splitlines()[-LOG_TAIL_LINES:], int(os.stat(path).st_mtime)
+        return text.splitlines()[-lines:], int(os.stat(path).st_mtime)
     except OSError:
         return [], None
 
@@ -444,13 +489,15 @@ def save_config(config: Dict[str, str]) -> None:
     save_json(CONFIG_PATH, config)
 
 
-def load_cursors() -> Dict[str, Dict[str, int]]:
+def load_state() -> Dict[str, Any]:
+    """What the server last acknowledged: file offsets ("cursors") and the
+    failed jobs it has already read ("ended")."""
     try:
         with open(STATE_PATH) as handle:
-            cursors = json.load(handle).get("cursors", {})  # type: Dict[str, Dict[str, int]]
-            return cursors
-    except (OSError, ValueError, AttributeError):
+            state = json.load(handle)
+    except (OSError, ValueError):
         return {}
+    return state if isinstance(state, dict) else {}
 
 
 def save_json(path: str, data: object) -> None:

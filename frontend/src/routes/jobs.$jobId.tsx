@@ -11,8 +11,10 @@ import { ShareSwitches } from "@/components/ShareSwitches";
 import { Meter } from "@/components/Meter";
 import { ErrorNotice, LoadingRows, Section } from "@/components/Section";
 import { accountLabel } from "@/lib/accounts";
+import { FAILURE_REASONS } from "@/lib/labels";
 import { latestStep, usageSummary } from "@/lib/metrics";
 import { StateBadge } from "@/components/StateBadge";
+import { cn } from "@/lib/utils";
 import {
   formatAgo,
   formatDateTime,
@@ -89,6 +91,8 @@ function JobDetailView({ job }: { job: JobDetail }) {
         <StateBadge state={job.state} />
       </header>
 
+      {job.state === "FAILED" && <FailureCard job={job} />}
+
       {account?.owner ? <SharedJobNotes job={job} /> : <JobNotes key={job.id} job={job} />}
       {account && !account.owner && <ShareJob job={job} account={account} />}
 
@@ -148,7 +152,58 @@ function JobDetailView({ job }: { job: JobDetail }) {
           {job.log_tail.length ? job.log_tail.join("\n") : "No output captured yet."}
         </pre>
       </Section>
+
+      {job.err_tail.length > 0 && (
+        <Section title="Errors · tail">
+          <pre className="overflow-x-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs leading-relaxed text-muted-foreground">
+            {job.err_tail.join("\n")}
+          </pre>
+        </Section>
+      )}
     </>
+  );
+}
+
+// Lines of output shown around the error in the failure card.
+const FAILURE_CONTEXT_LINES = 8;
+
+/** Why a job failed, first: the error from its output, else what Slurm says. */
+function FailureCard({ job }: { job: JobDetail }) {
+  const fallback =
+    (job.reason && FAILURE_REASONS[job.reason]) ??
+    job.reason ??
+    (job.exit_code ? `Exited with code ${job.exit_code}` : "Failed");
+  const output = job.err_tail.length ? job.err_tail : job.log_tail;
+  // The lines leading up to the error. The summary may be shortened or have a
+  // launcher prefix removed, so match on its start.
+  const needle = job.error?.slice(0, 40);
+  let end = output.length;
+  while (needle && end > 0 && !output[end - 1]?.includes(needle)) end--;
+  const context = end > 0 ? output.slice(Math.max(0, end - FAILURE_CONTEXT_LINES), end) : [];
+  return (
+    <section className="space-y-3 rounded-lg border border-fail/40 bg-fail/5 p-4">
+      <div>
+        <h2 className="text-xs tracking-wider text-fail uppercase">Why it failed</h2>
+        <p className="mt-1 font-mono text-sm wrap-anywhere">{job.error ?? fallback}</p>
+        {job.error && fallback !== "Failed" && (
+          <p className="mt-1 text-xs text-muted-foreground">{fallback}</p>
+        )}
+        {!job.error && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            The end of its output doesn't say why.
+          </p>
+        )}
+      </div>
+      {context.length > 0 && (
+        <pre className="overflow-x-auto rounded-md border bg-background/60 p-3 font-mono text-xs leading-relaxed text-muted-foreground">
+          {context.map((line, i) => (
+            <div key={i} className={cn(i === context.length - 1 && "text-fail")}>
+              {line || " "}
+            </div>
+          ))}
+        </pre>
+      )}
+    </section>
   );
 }
 

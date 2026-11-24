@@ -2,11 +2,12 @@
 
 import asyncio
 import base64
+import contextlib
 import logging
 import shlex
 import socket
 import time
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,7 +20,9 @@ from pulse.constants import (
     CHUNK_BYTES,
     CONFIG_MAX_BYTES,
     CONFIG_NAMES,
+    FAILURE_LOG_LINES,
     FIRST_USER_ID,
+    LOG_TAIL_BYTES,
     LOG_TAIL_LINES,
     MAX_CONFIG_FILES,
     MAX_METRIC_FILES,
@@ -47,6 +50,8 @@ from pulse.slurm.parsing import (
     NODE_STATS_SCRIPT,
     SACCT_FIELDS,
     SAFE_JOB_ID,
+    failure_summary,
+    failures_to_read,
     mean_gpu_usage,
     parse_node_stats,
     parse_sacct,
@@ -111,7 +116,9 @@ class SshSlurmClient:
             raise SlurmError("Demo clusters cannot open an SSH connection.")
         return await self._connect(account)
 
-    async def snapshot(self, account: AccountRef, cursors: Cursors) -> AccountSnapshot:
+    async def snapshot(
+        self, account: AccountRef, cursors: Cursors, ended: Collection[str] = ()
+    ) -> AccountSnapshot:
         conn, keys = await self._connect(account)
         jobs = parse_sacct(await self._run(conn, self._sacct_command(account.username)))
         running = [j for j in jobs if j.state is JobState.RUNNING]
@@ -123,10 +130,17 @@ class SshSlurmClient:
             async with limit:
                 return await self._telemetry(conn, scope, job, cursors.get(job.slurm_id, {}))
 
-        results = await asyncio.gather(*(telemetry(j) for j in running))
+        async def final_output(job: SlurmJob) -> JobTelemetry:
+            async with limit:
+                return await self._final_output(conn, job)
+
+        failed = failures_to_read(jobs, ended)
+        results = await asyncio.gather(
+            *(telemetry(j) for j in running), *(final_output(j) for j in failed)
+        )
         return AccountSnapshot(
             jobs=jobs,
-            telemetry={j.slurm_id: t for j, t in zip(running, results, strict=True)},
+            telemetry={j.slurm_id: t for j, t in zip([*running, *failed], results, strict=True)},
             host_keys=keys,
         )
 
@@ -181,6 +195,32 @@ class SshSlurmClient:
             log_tail=log_tail,
             log_updated_at=log_mtime,
             files=files,
+        )
+
+    async def _final_output(
+        self, conn: asyncssh.SSHClientConnection, job: SlurmJob
+    ) -> JobTelemetry:
+        """The end of a failed job's output, where it usually says why. Slurm
+        forgets finished jobs after a few minutes, so this runs right away."""
+        if not SAFE_JOB_ID.match(job.slurm_id):
+            return JobTelemetry()
+        try:
+            info = await self._run(conn, f"scontrol show job -o {shlex.quote(job.slurm_id)}")
+            stdout = _absolute(parse_scontrol_field(info, "StdOut"))
+            log_tail, log_mtime = await self._log_tail(conn, stdout, FAILURE_LOG_LINES)
+        except SlurmError as exc:
+            logger.info("no final output for job %s: %s", job.slurm_id, exc)
+            return JobTelemetry()
+        stderr = _absolute(parse_scontrol_field(info, "StdErr"))
+        err_tail: list[str] = []
+        if stderr != stdout:
+            with contextlib.suppress(SlurmError):
+                err_tail, _ = await self._log_tail(conn, stderr, FAILURE_LOG_LINES)
+        return JobTelemetry(
+            log_tail=log_tail,
+            log_updated_at=log_mtime,
+            err_tail=err_tail,
+            error=failure_summary([*log_tail, *err_tail]),
         )
 
     async def _metric_files(
@@ -253,12 +293,14 @@ class SshSlurmClient:
         return sizes
 
     async def _log_tail(
-        self, conn: asyncssh.SSHClientConnection, path: str | None
+        self, conn: asyncssh.SSHClientConnection, path: str | None, lines: int = LOG_TAIL_LINES
     ) -> tuple[list[str], datetime | None]:
         if not path:
             return [], None
         quoted = shlex.quote(path)
-        out = await self._run(conn, f"stat -c %Y {quoted} && tail -n {LOG_TAIL_LINES} {quoted}")
+        out = await self._run(
+            conn, f"stat -c %Y {quoted} && tail -c {LOG_TAIL_BYTES} {quoted} | tail -n {lines}"
+        )
         first, _, rest = out.partition("\n")
         mtime = datetime.fromtimestamp(int(first), UTC) if first.strip().isdigit() else None
         return rest.splitlines(), mtime

@@ -5,6 +5,7 @@ import base64
 import re
 import shlex
 import socket
+import sys
 import tempfile
 import time
 from collections.abc import AsyncIterator
@@ -38,7 +39,8 @@ def fake_slurm(process: asyncssh.SSHServerProcess[str]) -> None:
         process.stdout.write(SACCT_OUTPUT)
     elif command.startswith("scontrol show job"):
         process.stdout.write(
-            f"JobId=4242 JobName=train StdOut=/scratch/train-4242.out WorkDir={WORK_DIR}\n"
+            "JobId=4242 JobName=train StdOut=/scratch/train-4242.out "
+            f"StdErr=/scratch/train-4242.err WorkDir={WORK_DIR}\n"
         )
     elif " find " in f" {command}":
         # GNU find -printf isn't on macOS; answer from the fake work dir instead.
@@ -53,6 +55,9 @@ def fake_slurm(process: asyncssh.SSHServerProcess[str]) -> None:
         for start, path, limit in CHUNK_READ.findall(command):
             data = Path(shlex.split(path)[0]).read_bytes()[int(start) - 1 :][: int(limit)]
             process.stdout.write(f"{CHUNK_MARKER}\n{base64.encodebytes(data).decode()}")
+    elif command.startswith("stat -c %Y") and ".err" in command:
+        process.stdout.write(f"{int(time.time())}\nTraceback (most recent call last):\n")
+        process.stdout.write("KeyError: 'labels'\n")
     elif command.startswith("stat -c %Y"):
         process.stdout.write(f"{int(time.time())}\n[step 10] epoch 2/5 loss=0.512\n")
     elif "srun" in command:
@@ -149,6 +154,21 @@ async def test_snapshot_parses_jobs_and_telemetry(
     assert telemetry.gpu_util == 85.0
     assert telemetry.gpu_mem == 50.0
     assert snapshot.host_keys.target == cluster.host_key
+
+
+async def test_failed_jobs_get_their_final_output_read_once(
+    client: SshSlurmClient, cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    failed = SACCT_OUTPUT.replace("RUNNING", "FAILED").replace("|Unknown|", "|1767271200|")
+    monkeypatch.setattr(sys.modules[__name__], "SACCT_OUTPUT", failed)
+
+    telemetry = (await client.snapshot(cluster.account(), {})).telemetry["4242"]
+    assert telemetry.log_tail == ["[step 10] epoch 2/5 loss=0.512"]
+    assert telemetry.err_tail[-1] == "KeyError: 'labels'"
+    assert telemetry.error == "KeyError: 'labels'"
+    assert telemetry.nodes == {}  # no job step on a finished job
+
+    assert (await client.snapshot(cluster.account(), {}, {"4242"})).telemetry == {}
 
 
 async def test_connection_is_reused_across_polls(
