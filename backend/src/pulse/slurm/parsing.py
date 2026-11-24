@@ -1,8 +1,10 @@
 """Parsers for Slurm CLI output. Pure functions; no I/O."""
 
 import re
+from collections.abc import Collection, Iterable
 from datetime import UTC, datetime
 
+from pulse.constants import FAILURE_READS_PER_POLL, FAILURE_SUMMARY_LENGTH
 from pulse.domain import JobState
 from pulse.slurm.base import NodeStats, SlurmJob
 
@@ -145,6 +147,54 @@ def parse_training_log(lines: list[str]) -> tuple[float | None, str | None]:
         if m := _EPOCH.search(line):
             epoch = f"{m.group(1)}/{m.group(2)}"
     return loss, epoch
+
+
+def failures_to_read(jobs: Iterable[SlurmJob], ended: Collection[str]) -> list[SlurmJob]:
+    """Failed jobs whose final output hasn't been read yet, newest first."""
+    failed = [j for j in jobs if j.state is JobState.FAILED and j.slurm_id not in ended]
+    failed.sort(key=lambda j: j.end_time or datetime.max.replace(tzinfo=UTC), reverse=True)
+    return failed[:FAILURE_READS_PER_POLL]
+
+
+# What a failed job's output says went wrong. Distributed launchers prefix lines
+# ("[rank0]: ..."), and progress bars overwrite themselves with carriage returns.
+_LINE_PREFIX = re.compile(r"^(?:\[(?:rank|default)\d+\]:|\d+:)\s*")
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_EXCEPTION = re.compile(
+    r"^(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*(?:Error|Exception|Interrupt)(?::\s*\S.*)?$"
+)
+# Launchers and subprocess wrappers re-raise with their own exception; the
+# original one, printed earlier, says more.
+_WRAPPERS = ("ChildFailedError", "CalledProcessError")
+_OOM_KILL = re.compile(r"oom[-_ ]?kill", re.IGNORECASE)
+_ERROR = re.compile(r"\berror\b|\bfatal\b|command not found|no such file", re.IGNORECASE)
+# Slurm's own notes about the ending: true, but they don't say why.
+_NOISE = re.compile(r"exited with exit code|^srun: (?:error: )?(?:job step|launch failed)", re.I)
+
+
+def failure_summary(lines: Iterable[str]) -> str | None:
+    """One line saying why a job failed, from the end of its output (stdout
+    then stderr): the exception it raised, an out-of-memory kill or the last
+    error message. None when the output doesn't say."""
+    clean = [
+        _LINE_PREFIX.sub("", _ANSI.sub("", line.rsplit("\r", 1)[-1])).strip() for line in lines
+    ]
+    exceptions = [line for line in clean if _EXCEPTION.match(line)]
+    if exceptions:
+        original = [e for e in exceptions if not e.split(":")[0].endswith(_WRAPPERS)]
+        return _shorten((original or exceptions)[-1])
+    if any(_OOM_KILL.search(line) for line in clean):
+        return "Ran out of memory and was killed"
+    if "Killed" in clean:
+        return "Killed by the system, often for using too much memory"
+    errors = [line for line in clean if _ERROR.search(line) and not _NOISE.search(line)]
+    return _shorten(errors[-1]) if errors else None
+
+
+def _shorten(text: str) -> str:
+    if len(text) <= FAILURE_SUMMARY_LENGTH:
+        return text
+    return text[: FAILURE_SUMMARY_LENGTH - 1].rstrip() + "…"
 
 
 def _mean(values: list[float]) -> float | None:

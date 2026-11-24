@@ -76,6 +76,8 @@ async def get_job(job_id: int, session: SessionDep, user: CurrentUser) -> JobDet
     else:  # a teammate: no share list, and no cluster login in paths
         private = {
             "log_tail": hide_username(detail.log_tail, account.username),
+            "err_tail": hide_username(detail.err_tail, account.username),
+            "error": hide_username(detail.error, account.username),
             "hparams": hide_username(detail.hparams, account.username),
         }
     return detail.model_copy(

@@ -3,6 +3,23 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-24 — Failure reasons and grouped hyperparameters (`feat/failure-reasons`)
+
+- A job that fails gets its output read once more, stderr included, right
+  after Pulse sees it fail (at most 8 per poll; the server tells the agent which
+  failures it already has). `failure_summary` picks the reason from the end:
+  the exception raised (skipping launcher wrappers like `ChildFailedError`), an
+  out-of-memory kill, or the last error line.
+- The failed-job notification and event say why ("eval failed —
+  torch.OutOfMemoryError: CUDA out of memory…", cluster login hidden), and the
+  job page opens with a "Why it failed" card showing the lines before the
+  error, plus an "Errors" tail when stderr has its own file. The demo's failing
+  job ends with a CUDA OOM traceback.
+- Hyperparameters are grouped by their first key segment (`trainer`, `model`,
+  …) into compact cards in config order, with short keys, dimmed nested paths,
+  long values and lists under their key, "Show all" past 10 rows and a search
+  over keys and values. Comparisons get the same groups as table headings.
+
 ## 2026-11-23 — Release 0.3.4
 
 - The Runs table folds job batches and arrays into expandable rows, and batch

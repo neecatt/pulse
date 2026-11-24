@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from pulse.config import Settings
-from pulse.constants import POLL_TICK_SECONDS, SYSTEM_PREFIX
+from pulse.constants import FAILURES_REMEMBERED_HOURS, POLL_TICK_SECONDS, SYSTEM_PREFIX
 from pulse.domain import Clock, EventKind, JobState
 from pulse.metrics.ingest import ingest_files, load_cursors, store_points
 from pulse.metrics.logs import parse_log_metrics
@@ -31,7 +31,13 @@ from pulse.services.events import (
     state_change_event,
 )
 from pulse.services.notifier import Notifier
-from pulse.services.teams import alert_recipients, audience, audiences, partial_viewers
+from pulse.services.teams import (
+    alert_recipients,
+    audience,
+    audiences,
+    hide_username,
+    partial_viewers,
+)
 from pulse.slurm import AccountSnapshot, JobTelemetry, SlurmClient, SlurmError, SlurmJob
 from pulse.slurm.base import NodeStats
 from pulse.slurm.parsing import mean_gpu_usage
@@ -168,8 +174,11 @@ class Poller:
             owner = await session.get(User, account.user_id)
             ref = account.ref(public_only=not (owner and owner.is_admin))
             cursors = await load_cursors(session, account_id)
+            ended = await load_ended(session, account_id, self._clock())
         try:
-            snapshot: AccountSnapshot | SlurmError = await self._client.snapshot(ref, cursors)
+            snapshot: AccountSnapshot | SlurmError = await self._client.snapshot(
+                ref, cursors, ended
+            )
         except SlurmError as exc:
             logger.info("account %s unreachable: %s", account_id, exc)
             snapshot = exc
@@ -278,7 +287,9 @@ class Poller:
             if telemetry is not None:
                 new_points.append((row, _record_telemetry(row, telemetry)))
 
-            detected = self._detect(row, slurm_job, previous_state, telemetry, now, monitoring)
+            detected = self._detect(
+                row, slurm_job, previous_state, telemetry, now, monitoring, account.username
+            )
             if announce:
                 events.extend(
                     Event(account=account, job=row, kind=d.kind, message=d.message)
@@ -335,9 +346,12 @@ class Poller:
         telemetry: JobTelemetry | None,
         now: datetime,
         monitoring: Monitoring,
+        username: str,
     ) -> list[DetectedEvent]:
         detected: list[DetectedEvent] = []
-        if change := state_change_event(previous_state, job):
+        # Alerts may reach teammates, who never see the owner's cluster login.
+        error = hide_username(telemetry.error, username) if telemetry else None
+        if change := state_change_event(previous_state, job, error):
             detected.append(change)
 
         warn_ratio = monitoring.time_limit_warning_percent / 100
@@ -353,7 +367,8 @@ class Poller:
                 )
             )
 
-        if telemetry is not None and telemetry.log_updated_at is not None:
+        running = job.state is JobState.RUNNING
+        if running and telemetry is not None and telemetry.log_updated_at is not None:
             stall_minutes = monitoring.stall_minutes
             stalled = is_stalled(telemetry, now, timedelta(minutes=stall_minutes))
             if stalled and not row.warned_stall:
@@ -366,6 +381,19 @@ class Poller:
                 )
             row.warned_stall = stalled
         return detected
+
+
+async def load_ended(session: AsyncSession, account_id: int, now: datetime) -> list[str]:
+    """Recently failed jobs that already had their final output read."""
+    since = now - timedelta(hours=FAILURES_REMEMBERED_HOURS)
+    rows = await session.scalars(
+        select(Job.slurm_id).where(
+            Job.account_id == account_id,
+            Job.state == JobState.FAILED,
+            (Job.end_time >= since) | Job.end_time.is_(None),
+        )
+    )
+    return list(rows)
 
 
 def _copy_job_fields(row: Job, job: SlurmJob) -> None:
@@ -412,6 +440,10 @@ def _record_telemetry(row: Job, t: JobTelemetry) -> list[Point]:
     row.gpu_mem = t.gpu_mem if t.gpu_mem is not None else row.gpu_mem
     if t.log_tail:
         row.log_tail = t.log_tail
+    if t.err_tail:
+        row.err_tail = t.err_tail
+    if t.error:
+        row.error = t.error
     row.log_updated_at = t.log_updated_at
     return points
 

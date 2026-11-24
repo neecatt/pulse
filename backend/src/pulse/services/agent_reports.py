@@ -3,10 +3,12 @@
 import binascii
 from datetime import UTC, datetime
 
+from pulse.domain import JobState
 from pulse.metrics.ingest import decode_chunk_data
 from pulse.schemas import AgentFile, AgentReport
 from pulse.slurm.base import AccountSnapshot, FileChunk, JobTelemetry, SlurmError
 from pulse.slurm.parsing import (
+    failure_summary,
     mean_gpu_usage,
     parse_node_stats,
     parse_sacct,
@@ -19,6 +21,7 @@ def snapshot_from_report(report: AgentReport) -> AccountSnapshot | SlurmError:
         return SlurmError(f"Agent: {report.error}")
     jobs = parse_sacct(report.sacct)
     telemetry: dict[str, JobTelemetry] = {}
+    failed = {j.slurm_id for j in jobs if j.state is JobState.FAILED}
     for slurm_id, raw in report.jobs.items():
         loss, epoch = parse_training_log(raw.log_tail)
         nodes = parse_node_stats(raw.node_stats) if raw.node_stats else {}
@@ -32,6 +35,8 @@ def snapshot_from_report(report: AgentReport) -> AccountSnapshot | SlurmError:
             log_tail=raw.log_tail,
             log_updated_at=datetime.fromtimestamp(raw.log_mtime, UTC) if raw.log_mtime else None,
             files=[c for c in map(_chunk, raw.files) if c is not None],
+            err_tail=raw.err_tail,
+            error=failure_summary([*raw.log_tail, *raw.err_tail]) if slurm_id in failed else None,
         )
     return AccountSnapshot(jobs=jobs, telemetry=telemetry)
 

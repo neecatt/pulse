@@ -45,6 +45,13 @@ def test_failure_message_includes_reason() -> None:
     assert event.message == "train failed — OUT_OF_MEMORY"
 
 
+def test_failure_message_prefers_what_the_output_says() -> None:
+    failed = job(JobState.FAILED, reason="OUT_OF_MEMORY", exit_code=1)
+    event = state_change_event(JobState.RUNNING, failed, "ValueError: bad shape")
+    assert event is not None
+    assert event.message == "train failed — ValueError: bad shape"
+
+
 def test_near_time_limit() -> None:
     assert is_near_time_limit(job(JobState.RUNNING, elapsed_s=90, time_limit_s=100), 0.9)
     assert not is_near_time_limit(job(JobState.RUNNING, elapsed_s=89, time_limit_s=100), 0.9)

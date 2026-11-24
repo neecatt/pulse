@@ -11,6 +11,7 @@ from pulse.metrics.ingest import load_cursors
 from pulse.models import Account, User
 from pulse.schemas import AgentReport, AgentReportAck
 from pulse.services.agent_reports import snapshot_from_report
+from pulse.services.poller import load_ended
 from pulse.services.teams import audience
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -48,4 +49,5 @@ async def agent_report(
     await services.poller.ingest_and_publish(account_id, snapshot_from_report(body))
     async with services.sessions() as fresh:
         cursors = await load_cursors(fresh, account_id)
-    return AgentReportAck(next_report_in=next_report_in, cursors=cursors)
+        ended = await load_ended(fresh, account_id, services.clock())
+    return AgentReportAck(next_report_in=next_report_in, cursors=cursors, ended=ended)

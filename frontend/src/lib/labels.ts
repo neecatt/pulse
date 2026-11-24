@@ -46,3 +46,11 @@ export const EVENT_STATE: Record<EventKind, JobState> = {
   job_diverging: "FAILED",
   job_plateau: "PENDING",
 };
+
+/** Slurm's reason for a failure, when its output doesn't say more. */
+export const FAILURE_REASONS: Record<string, string> = {
+  OUT_OF_MEMORY: "Ran out of memory (Slurm stopped it)",
+  NODE_FAIL: "A node it ran on failed",
+  BOOT_FAIL: "Its node failed to start",
+  SPECIAL_EXIT: "Exited in a way Slurm marks as special",
+};

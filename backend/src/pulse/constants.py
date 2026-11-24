@@ -56,6 +56,13 @@ MIN_POINTS_FOR_ALERTS = 20  # don't judge a curve on its first few points
 
 # Job output
 LOG_TAIL_LINES = 40
+LOG_TAIL_BYTES = 16384  # progress bars can make one "line" megabytes long
+# A job that fails gets its output read once more, stderr included: it usually
+# ends with the reason. At most this many per poll, newest first.
+FAILURE_LOG_LINES = 80
+FAILURE_READS_PER_POLL = 8
+FAILURE_SUMMARY_LENGTH = 300
+FAILURES_REMEMBERED_HOURS = 7 * 24  # failed jobs already read, sent back to the agent
 
 # API response sizes
 TREND_POINTS = 40  # sparkline in the jobs list

@@ -35,6 +35,23 @@ describe("HparamsTable", () => {
     expect(screen.getByText("seed")).toBeInTheDocument();
   });
 
+  it("groups dotted keys and searches keys and values", () => {
+    const hparams: Record<string, string | number> = { seed: 7, "model.target": "unet" };
+    for (let i = 0; i < 12; i++) hparams[`trainer.opt_${i}`] = i;
+    render(<HparamsTable runs={[run(1, hparams)]} />);
+    expect(screen.getByRole("button", { name: /trainer\s*12/ })).toBeInTheDocument();
+    expect(screen.getByText("opt_9")).toBeInTheDocument();
+    expect(screen.queryByText("opt_10")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Show all 12"));
+    expect(screen.getByText("opt_10")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search 14 parameters"), {
+      target: { value: "unet" },
+    });
+    expect(screen.getByText("target")).toBeInTheDocument();
+    expect(screen.queryByText("seed")).not.toBeInTheDocument();
+  });
+
   it("shows list values as separate items", () => {
     render(<HparamsTable runs={[run(1, { seeds: "[0, 1, 2]" })]} />);
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["0", "1", "2"]);

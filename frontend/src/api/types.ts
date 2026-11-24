@@ -115,6 +115,10 @@ export interface Run extends Job {
 
 export interface JobDetail extends Job {
   log_tail: string[];
+  /** stderr, when the job writes it to its own file; read once it fails. */
+  err_tail: string[];
+  /** What a failed job's output says went wrong. */
+  error: string | null;
   log_updated_at: string | null;
   note: string | null;
   hparams: Record<string, HparamValue>;
