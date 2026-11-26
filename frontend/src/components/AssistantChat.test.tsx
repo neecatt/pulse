@@ -99,6 +99,7 @@ describe("cluster conversation UI", () => {
               title: "Run this command?",
               detail: "sbatch train.sh",
               questions: [],
+              can_always: true,
             },
           ],
         }}
@@ -109,6 +110,8 @@ describe("cluster conversation UI", () => {
     expect(decide).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Approve once"));
     await waitFor(() => expect(decide).toHaveBeenCalledWith(2, "claude", "request", "accept", {}));
+    fireEvent.click(screen.getByText("Always allow"));
+    await waitFor(() => expect(decide).toHaveBeenCalledWith(2, "claude", "request", "always", {}));
   });
 
   it("sends the model and thinking level picked under the prompt", async () => {
@@ -124,17 +127,21 @@ describe("cluster conversation UI", () => {
     );
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "sonnet" } });
     fireEvent.change(screen.getByLabelText("Thinking"), { target: { value: "low" } });
+    fireEvent.change(screen.getByLabelText("Permissions"), { target: { value: "auto" } });
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "sonnet" } });
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "train" } });
     fireEvent.click(screen.getByText("Send"));
     await waitFor(() =>
       expect(turn).toHaveBeenCalledWith(2, "claude", "chat", "train", {
         model: "sonnet",
         effort: "low",
+        mode: "auto",
       }),
     );
     expect(JSON.parse(localStorage.getItem("pulse.assistant-choice.claude") ?? "{}")).toEqual({
       model: "sonnet",
       effort: "low",
+      mode: "auto",
     });
   });
 });

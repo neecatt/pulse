@@ -13,6 +13,7 @@ import type {
   AssistantConnection,
   AssistantLogin,
   AssistantChoice,
+  AssistantDecision,
   AssistantLive,
   AssistantModel,
   AssistantProvider,
@@ -167,7 +168,7 @@ export const api = {
       account: number,
       provider: AssistantProvider,
       id: string,
-      decision: "accept" | "decline",
+      decision: AssistantDecision,
       answers: Record<string, string[]>,
     ) =>
       request<void>(

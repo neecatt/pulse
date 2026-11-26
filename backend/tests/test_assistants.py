@@ -402,6 +402,14 @@ async def scripted_claude(process: asyncssh.SSHServerProcess[str], state: dict[s
                         "tool_name": "Bash",
                         "input": command,
                         "description": "Submit training",
+                        "permission_suggestions": [
+                            {
+                                "type": "addRules",
+                                "rules": [{"toolName": "Bash", "ruleContent": "sbatch:*"}],
+                                "behavior": "allow",
+                                "destination": "localSettings",
+                            }
+                        ],
                     },
                 }
             )
@@ -457,6 +465,7 @@ async def test_sign_in_history_resume_approval_and_disconnect(
     assert response.status_code == 204, response.text
     turn = next(params for method, params in cluster["calls"] if method == "turn/start")
     assert turn["model"] == "gpt-test" and turn["effort"] == "high"
+    assert "approvalPolicy" not in turn  # no mode chosen: the thread's own policy
     # Wait for the remote server request, without needing a browser to stay open.
     for _ in range(50):
         if conn.approvals:
@@ -478,6 +487,24 @@ async def test_sign_in_history_resume_approval_and_disconnect(
     ).status_code == 409
     audit = (await client.get("/api/assistants/audit")).json()
     assert any(item["action"] == "approval_accepted" for item in audit)
+    # Permission modes map to Codex's approval policies; "always" lasts the session.
+    cluster["completed"].clear()
+    response = await client.post(
+        base + "/threads/old-chat/turn", json={"prompt": "again", "mode": "edits"}
+    )
+    assert response.status_code == 204, response.text
+    turns = [params for method, params in cluster["calls"] if method == "turn/start"]
+    assert turns[-1]["approvalPolicy"] == "on-request"
+    for _ in range(50):
+        if conn.approvals:
+            break
+        await asyncio.sleep(0.01)
+    approval = next(iter(conn.approvals.values())).item
+    assert approval.can_always
+    result = await client.post(base + f"/approvals/{approval.id}", json={"decision": "always"})
+    assert result.status_code == 204, result.text
+    await asyncio.wait_for(cluster["completed"].wait(), 2)
+    assert cluster["decisions"][-1]["result"] == {"decision": "acceptForSession"}
     assert "train on 4 GPUs" not in json.dumps(audit)
     assert (await client.post(base + "/disconnect")).status_code == 204
     assert services.assistants.get("codex", 1, account) is None

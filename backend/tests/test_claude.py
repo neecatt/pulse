@@ -182,6 +182,74 @@ async def test_claude_models_and_thinking_level_restart_the_same_conversation(
     assert "--effort" not in command
 
 
+async def test_claude_permission_mode_and_always_allow(
+    client: AsyncClient, services: Services, cluster: dict[str, Any]
+) -> None:
+    account = await linked(client, cluster["port"])
+    base = f"/api/assistants/{account}"
+    claude = "?provider=claude"
+    assert (await client.post(base + "/connect" + claude)).status_code == 200
+    assert (await client.post(base + f"/threads/{SESSION}/resume" + claude)).status_code == 200
+    assert (
+        await client.post(
+            base + f"/threads/{SESSION}/turn" + claude, json={"prompt": "go", "mode": "root"}
+        )
+    ).status_code == 422
+    sent = await client.post(
+        base + f"/threads/{SESSION}/turn" + claude, json={"prompt": "go", "mode": "edits"}
+    )
+    assert sent.status_code == 204, sent.text
+    # The mode is fixed when Claude starts: the same conversation restarts in it.
+    command = cluster["native_commands"][-1]
+    assert f"--resume {SESSION}" in command and "--permission-mode acceptEdits" in command
+    conn = services.assistants.get("claude", 1, account)
+    assert conn is not None
+    for _ in range(100):
+        if conn.approvals:
+            break
+        await asyncio.sleep(0.01)
+    approval = next(iter(conn.approvals.values())).item
+    assert approval.can_always
+    always = await client.post(
+        base + f"/approvals/{approval.id}" + claude, json={"decision": "always"}
+    )
+    assert always.status_code == 204, always.text
+    await asyncio.wait_for(cluster["claude_done"].wait(), 2)
+    await asyncio.sleep(0.05)
+    # Claude's own suggested rule is applied, as its terminal prompt would.
+    assert cluster["claude_decisions"][-1]["response"]["updatedPermissions"] == [
+        {
+            "type": "addRules",
+            "rules": [{"toolName": "Bash", "ruleContent": "sbatch:*"}],
+            "behavior": "allow",
+            "destination": "localSettings",
+        }
+    ]
+    audit = json.dumps((await client.get("/api/assistants/audit")).json())
+    assert "approval_always" in audit
+
+    async def finish_turn() -> None:
+        for _ in range(200):
+            for key in list(conn.approvals):
+                await client.post(base + f"/approvals/{key}" + claude, json={"decision": "decline"})
+            if SESSION not in conn.active:
+                return
+            await asyncio.sleep(0.01)
+        raise AssertionError("the turn never finished")
+
+    await finish_turn()
+    count = len(cluster["native_commands"])
+    again = await client.post(base + f"/threads/{SESSION}/turn" + claude, json={"prompt": "more"})
+    assert again.status_code == 204  # no mode sent: keeps the chat's mode, no restart
+    assert len(cluster["native_commands"]) == count
+    await finish_turn()
+    auto = await client.post(
+        base + f"/threads/{SESSION}/turn" + claude, json={"prompt": "go", "mode": "auto"}
+    )
+    assert auto.status_code == 204, auto.text
+    assert "--permission-mode bypassPermissions" in cluster["native_commands"][-1]
+
+
 async def test_claude_owner_only_and_requires_confirmation(
     client: AsyncClient, anon: AsyncClient, services: Services, cluster: dict[str, Any]
 ) -> None:
