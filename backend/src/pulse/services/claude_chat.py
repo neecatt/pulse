@@ -2,7 +2,8 @@
 
 Each opened conversation runs the cluster's unmodified CLI (``claude -p``) in its
 project directory, with Pulse as its permission prompt: every tool request that the
-user's own Claude rules don't already allow becomes an approval card. Sign-in, tokens
+user's own Claude rules and the chat's permission mode don't already allow becomes an
+approval card. Sign-in, tokens
 and transcripts stay with the CLI on the cluster; Pulse never reads credentials.
 """
 
@@ -52,6 +53,9 @@ from pulse.slurm.base import SlurmError
 SESSION_ID = re.compile(r"^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
 FILE_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 DECLINED = "The user declined this in Pulse."
+# Pulse's modes as Claude Code names them; "ask" is Claude's own default.
+PERMISSION_MODES = {"ask": "default", "edits": "acceptEdits", "auto": "bypassPermissions"}
+MAX_SUGGESTIONS = 10
 STDERR_CHARS = 2000
 
 
@@ -78,6 +82,7 @@ def chat_command(
     resume: bool,
     model: str | None = None,
     effort: str | None = None,
+    mode: str = "ask",
 ) -> str:
     argv = [
         *HEADLESS,
@@ -86,7 +91,7 @@ def chat_command(
         "--permission-prompt-tool",
         "stdio",
         "--permission-mode",
-        "default",
+        PERMISSION_MODES[mode],
         "--resume" if resume else "--session-id",
         session_id,
         "--append-system-prompt",
@@ -227,6 +232,7 @@ class _Run:
     process: asyncssh.SSHClientProcess[str]
     model: str | None = None
     effort: str | None = None
+    mode: str = "ask"
     resumed: bool = False  # started with --resume; or a prompt was sent, so it can be
     transcript: Transcript = field(default_factory=Transcript)
     message_id: str = ""
@@ -379,6 +385,7 @@ class ClaudeChat(ChatConnection):
         resume: bool,
         model: str | None = None,
         effort: str | None = None,
+        mode: str = "ask",
     ) -> None:
         if thread.id in self._runs:
             self.allow(thread.id)
@@ -390,14 +397,14 @@ class ClaudeChat(ChatConnection):
             await self._stop(idle)
         try:
             command = chat_command(
-                thread.work_dir, thread.id, resume=resume, model=model, effort=effort
+                thread.work_dir, thread.id, resume=resume, model=model, effort=effort, mode=mode
             )
             process = await self.conn.create_process(
                 login_command(command), encoding="utf-8", errors="replace"
             )
         except (asyncssh.Error, OSError) as exc:
             raise SlurmError("Couldn't start Claude on the cluster. Check the connection.") from exc
-        run = _Run(process, model=model, effort=effort, resumed=resume)
+        run = _Run(process, model=model, effort=effort, mode=mode, resumed=resume)
         self._runs[thread.id] = run
         self._threads[thread.id] = thread
         run.tasks = [
@@ -410,18 +417,24 @@ class ClaudeChat(ChatConnection):
         self.changed()
 
     async def send_turn(
-        self, thread_id: str, prompt: str, model: str | None = None, effort: str | None = None
+        self,
+        thread_id: str,
+        prompt: str,
+        model: str | None = None,
+        effort: str | None = None,
+        mode: str | None = None,
     ) -> None:
         run = self._runs.get(thread_id)
         if run is None:
             raise SlurmError("This chat closed. Open it again to continue.")
         model = None if model == "default" else model  # Claude's default is no flag
-        if (model, effort) != (run.model, run.effort):
-            # The thinking level is fixed when Claude starts, so restart this chat's
-            # CLI with the new choice; --resume keeps the whole conversation.
+        mode = mode or run.mode
+        if (model, effort, mode) != (run.model, run.effort, run.mode):
+            # The thinking level and permission mode are fixed when Claude starts, so
+            # restart this chat's CLI with the new choice; --resume keeps the conversation.
             await self._stop(thread_id)
             thread = self._threads[thread_id]
-            await self._open(thread, resume=run.resumed, model=model, effort=effort)
+            await self._open(thread, resume=run.resumed, model=model, effort=effort, mode=mode)
             run = self._runs[thread_id]
         run.resumed = True
         item_id = str(uuid.uuid4())  # Claude keeps it, so saved history matches this item
@@ -609,6 +622,13 @@ class ClaudeChat(ChatConnection):
             }.get(summary_kind, ("tool", f"Allow {request.get('display_name') or name}?"))
             if kind == "command" and request.get("description"):
                 detail = f"# {request['description']}\n{detail}"
+        # Claude's own "don't ask again" rules for this request, applied as given.
+        suggestions = request.get("permission_suggestions")
+        always = (
+            [s for s in suggestions[:MAX_SUGGESTIONS] if isinstance(s, dict)]
+            if isinstance(suggestions, list) and kind in {"command", "files", "tool"}
+            else []
+        )
         key = secrets.token_urlsafe(16)
         item = AssistantApproval(
             id=key,
@@ -617,12 +637,15 @@ class ClaudeChat(ChatConnection):
             title=title,
             detail=detail[-ASSISTANT_MAX_TEXT:],
             questions=questions,
+            can_always=bool(always),
         )
         self.approvals[key] = PendingApproval(
-            request_id, name, item, time.monotonic() + APPROVAL_SECONDS, tool_input
+            request_id, name, item, time.monotonic() + APPROVAL_SECONDS, tool_input, always
         )
 
-    async def decide(self, key: str, accept: bool, answers: dict[str, list[str]]) -> str:
+    async def decide(
+        self, key: str, accept: bool, answers: dict[str, list[str]], always: bool = False
+    ) -> str:
         pending = self.approvals.pop(key, None)
         if pending is None:
             raise SlurmError("That request is no longer waiting for a response.")
@@ -641,6 +664,8 @@ class ClaudeChat(ChatConnection):
                     for q in pending.item.questions
                 }
             response = {"behavior": "allow", "updatedInput": updated}
+            if always and pending.always:
+                response["updatedPermissions"] = pending.always
         await run.send(
             {
                 "type": "control_response",

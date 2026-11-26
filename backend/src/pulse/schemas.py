@@ -66,6 +66,9 @@ class AssistantTurn(BaseModel):
     # chat's pickers show them; unset leaves the choice to the CLI.
     model: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._:\[\]/-]{1,128}$")
     effort: str | None = Field(default=None, pattern=r"^[a-z]{1,16}$")
+    # How much the assistant may do without asking, like Claude Code's own modes:
+    # ask first, accept file edits, or ask nothing. Unset keeps the chat's mode.
+    mode: Literal["ask", "edits", "auto"] | None = None
 
 
 class AssistantModel(BaseModel):
@@ -78,7 +81,8 @@ class AssistantModel(BaseModel):
 
 
 class AssistantDecision(BaseModel):
-    decision: Literal["accept", "decline"]
+    # "always" also stops asking for requests like this one in the conversation.
+    decision: Literal["accept", "always", "decline"]
     answers: dict[str, list[str]] = Field(default_factory=dict, max_length=10)
 
 
@@ -125,6 +129,7 @@ class AssistantApproval(BaseModel):
     title: str
     detail: str
     questions: list[dict[str, Any]] = Field(default_factory=list)
+    can_always: bool = False
 
 
 class AssistantLive(BaseModel):

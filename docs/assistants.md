@@ -31,8 +31,11 @@ anything. **New chat** asks for an absolute project path already on the cluster.
 
 Send a prompt such as “Review the training script and submit it on 4 GPUs for
 12 hours.” Replies and tool output stream into the chat. Codex's command and
-file-change approval requests appear as cards with **Approve once** and
-**Decline**; questions can be answered in place. Unsupported request types fail
+file-change approval requests appear as cards with **Approve once**, **Always
+allow** and **Decline**; questions can be answered in place. **Always allow**
+approves and stops asking about requests like that one: Codex accepts it for the
+rest of the session, and Claude saves the rule its own terminal prompt would
+offer ("don't ask again for `sbatch` commands in this project"). Unsupported request types fail
 closed. Approval requests expire after ten minutes and are declined.
 
 Under the prompt, pick the **model** and **thinking level** for the next message.
@@ -42,6 +45,16 @@ your choice per assistant on that device. Codex applies it from the next turn.
 Claude fixes the thinking level when it starts, so changing either restarts
 that conversation's CLI with `--resume` and the new `--model`/`--effort`; the
 conversation and its context carry on.
+
+Next to them, pick how much the assistant does without asking, like Claude
+Code's own modes: **Ask first** (the default) asks before commands and file
+changes, **Accept edits** changes files in the project without asking but still
+asks before commands, and **Don't ask** runs everything without asking. Codex
+maps these to its `untrusted`, `on-request` and `never` approval policies, inside
+the same `workspace-write` sandbox. Claude starts in `default`, `acceptEdits` or
+`bypassPermissions`; changing the mode restarts its CLI with `--resume`, like a
+model change. **Don't ask** acts as your cluster login with no review, so use it
+for projects you trust.
 
 Pulse resumes threads with `untrusted` command approvals, a `workspace-write`
 sandbox and the user as reviewer. Normal safe reads and permitted workspace
@@ -96,9 +109,10 @@ The chat, approvals and audit log work as described above for Codex.
 Each open conversation runs the unmodified CLI on the cluster in headless mode
 (`claude -p` with stream-json input and output), resumed with `--resume` or
 started with a new session id, in the conversation's project directory. Pulse is
-its permission prompt (`--permission-prompt-tool stdio`, `--permission-mode
-default`): every tool use that your own Claude permission rules don't already
-allow becomes an approval card. Commands and file edits show what will run or
+its permission prompt (`--permission-prompt-tool stdio`, `--permission-mode`
+from the chosen mode, `default` unless you pick another): every tool use that
+your own Claude permission rules and the mode don't already allow becomes an
+approval card. Commands and file edits show what will run or
 change; Claude's multiple-choice questions and plans can be answered in place.
 Declining tells Claude you declined. Pulse appends the same HPC guidance as for
 Codex; Claude's project instructions and settings still apply. Claude's private

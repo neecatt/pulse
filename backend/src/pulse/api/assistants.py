@@ -326,7 +326,7 @@ async def turn(
                 409, f"Wait for an active {connection.name} task to finish before starting another."
             )
         await connection.check_choice(body.model, body.effort)
-        await connection.send_turn(thread_id, body.prompt, body.model, body.effort)
+        await connection.send_turn(thread_id, body.prompt, body.model, body.effort, body.mode)
     session.add(AssistantAudit(user_id=user.id, session_id=thread_id, action="prompt_sent"))
     await session.commit()
 
@@ -378,11 +378,20 @@ async def decide(
             AssistantAudit(
                 user_id=user.id,
                 session_id=pending.item.thread_id,
-                action="approval_accepted" if body.decision == "accept" else "approval_declined",
+                action={
+                    "accept": "approval_accepted",
+                    "always": "approval_always",
+                    "decline": "approval_declined",
+                }[body.decision],
             )
         )
         await session.commit()  # record the decision before letting the command proceed
-        await connection.decide(approval_id, body.decision == "accept", body.answers)
+        await connection.decide(
+            approval_id,
+            body.decision != "decline",
+            body.answers,
+            always=body.decision == "always" and pending.item.can_always,
+        )
 
 
 @router.get("/{account_id}/stream")

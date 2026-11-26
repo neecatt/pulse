@@ -72,6 +72,8 @@ class PendingApproval:
     expires: float
     # The provider's original request, for answers that must echo it back.
     payload: dict[str, Any] = field(default_factory=dict)
+    # What the provider applies when the user picks "Always allow".
+    always: list[Any] = field(default_factory=list)
 
 
 class ChatConnection:
@@ -203,7 +205,12 @@ class ChatConnection:
             raise SlurmError("That thinking level isn't available for this model.")
 
     async def send_turn(
-        self, thread_id: str, prompt: str, model: str | None = None, effort: str | None = None
+        self,
+        thread_id: str,
+        prompt: str,
+        model: str | None = None,
+        effort: str | None = None,
+        mode: str | None = None,
     ) -> None:
         raise NotImplementedError
 
@@ -211,7 +218,9 @@ class ChatConnection:
         """Stop the running turn; False if nothing was running."""
         raise NotImplementedError
 
-    async def decide(self, key: str, accept: bool, answers: dict[str, list[str]]) -> str:
+    async def decide(
+        self, key: str, accept: bool, answers: dict[str, list[str]], always: bool = False
+    ) -> str:
         raise NotImplementedError
 
     async def close(self) -> None:

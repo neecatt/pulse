@@ -2,6 +2,7 @@ import type {
   AssistantChoice,
   AssistantLive,
   AssistantMessage,
+  AssistantMode,
   AssistantModel,
   AssistantProvider,
 } from "@/api/types";
@@ -63,6 +64,21 @@ export const EFFORT_LABELS: Record<string, string> = {
   max: "Max",
 };
 
+/** Permission modes, as Claude Code's own picker offers them. */
+export const MODES: { id: AssistantMode; label: string; hint: string }[] = [
+  { id: "ask", label: "Ask first", hint: "Asks before running commands or changing files." },
+  {
+    id: "edits",
+    label: "Accept edits",
+    hint: "Changes files without asking; asks before commands.",
+  },
+  {
+    id: "auto",
+    label: "Don't ask",
+    hint: "Runs commands and changes files without asking, as your cluster login.",
+  },
+];
+
 const CHOICE_KEY = "pulse.assistant-choice.";
 
 /** The model and thinking level last picked for a provider, on this device. */
@@ -70,10 +86,12 @@ export function loadChoice(provider: AssistantProvider): AssistantChoice {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(CHOICE_KEY + provider) ?? "{}");
     if (!value || typeof value !== "object") return {};
-    const { model, effort } = value as Record<string, unknown>;
+    const { model, effort, mode } = value as Record<string, unknown>;
+    const known = MODES.find((m) => m.id === mode);
     return {
       ...(typeof model === "string" ? { model } : {}),
       ...(typeof effort === "string" ? { effort } : {}),
+      ...(known ? { mode: known.id } : {}),
     };
   } catch {
     return {};
@@ -91,16 +109,17 @@ export function saveChoice(provider: AssistantProvider, choice: AssistantChoice)
 /**
  * What the pickers show, as sent with a prompt: the chosen model (or the CLI's
  * default) and the chosen thinking level (or that model's default), limited to
- * what this cluster's CLI offers.
+ * what this cluster's CLI offers, and the chosen mode.
  */
 export function choiceToSend(
   choice: AssistantChoice,
   models: AssistantModel[] | undefined,
 ): AssistantChoice {
+  const mode = choice.mode ? { mode: choice.mode } : {};
   const model =
     models?.find((m) => m.id === choice.model) ?? models?.find((m) => m.is_default) ?? models?.[0];
-  if (!model) return {};
+  if (!model) return mode;
   const effort =
     choice.effort && model.efforts.includes(choice.effort) ? choice.effort : model.default_effort;
-  return { model: model.id, ...(effort ? { effort } : {}) };
+  return { model: model.id, ...(effort ? { effort } : {}), ...mode };
 }

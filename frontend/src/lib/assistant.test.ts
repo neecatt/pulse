@@ -103,5 +103,10 @@ describe("model and thinking sent with a prompt", () => {
       effort: "high",
     });
     expect(choiceToSend({ model: "gpt" }, undefined)).toEqual({});
+    expect(choiceToSend({ mode: "auto" }, undefined)).toEqual({ mode: "auto" });
+    expect(choiceToSend({ model: "haiku", mode: "edits" }, models)).toEqual({
+      model: "haiku",
+      mode: "edits",
+    });
   });
 });

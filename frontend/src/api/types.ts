@@ -384,6 +384,8 @@ export interface AssistantApproval {
   title: string;
   detail: string;
   questions: AssistantQuestion[];
+  /** Offers "Always allow": the assistant stops asking about requests like this one. */
+  can_always: boolean;
 }
 export interface AssistantLive {
   connection: AssistantConnection;
@@ -416,10 +418,17 @@ export interface AssistantModel {
   is_default: boolean;
 }
 
-/** Model and thinking level for a prompt; unset keeps the conversation's last choice. */
+/** "always" also stops asking about requests like this one in the conversation. */
+export type AssistantDecision = "accept" | "always" | "decline";
+
+/** How much the assistant does without asking: ask first, accept file edits, or ask nothing. */
+export type AssistantMode = "ask" | "edits" | "auto";
+
+/** Model, thinking level and mode for a prompt; unset keeps the conversation's last choice. */
 export interface AssistantChoice {
   model?: string;
   effort?: string;
+  mode?: AssistantMode;
 }
 
 /** Claude Code's native sign-in on the cluster. */

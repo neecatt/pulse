@@ -3,6 +3,18 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-26 — Assistant permission modes (`feat/assistant-permission-modes`)
+
+- Approving every command one by one was tiring, so the chat gets Claude Code's
+  own controls. A **Permissions** picker under the prompt offers Ask first,
+  Accept edits and Don't ask; Claude restarts with `--resume` in `default`,
+  `acceptEdits` or `bypassPermissions`, and Codex gets the matching approval
+  policy (`untrusted`, `on-request`, `never`) in the same sandbox. The choice is
+  remembered per assistant on the device, and the default is still Ask first.
+- Approval cards get **Always allow**: Claude applies the rule its terminal
+  prompt suggests (for example `Bash(sbatch:*)` in the project's local
+  settings), and Codex accepts for the session. Audited as `approval_always`.
+
 ## 2026-11-24 — Release 0.3.5
 
 - Failed jobs show why they failed, in alerts and on the job page, and

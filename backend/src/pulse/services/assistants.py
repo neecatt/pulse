@@ -56,6 +56,8 @@ PERMISSIONS: dict[str, Any] = {
     "approvalsReviewer": "user",
     "sandbox": "workspace-write",
 }
+# Pulse's permission modes as Codex approval policies; the sandbox stays the same.
+APPROVAL_POLICIES = {"ask": "untrusted", "edits": "on-request", "auto": "never"}
 
 
 def thread_info(raw: dict[str, Any]) -> AssistantThread:
@@ -307,13 +309,16 @@ class CodexConnection(ChatConnection):
             }[kind],
             detail=detail[-ASSISTANT_MAX_TEXT:],
             questions=params.get("questions", [])[:10],
+            can_always=kind != "question",
         )
         self.approvals[key] = PendingApproval(
             request_id, method, item, time.monotonic() + APPROVAL_SECONDS
         )
         self.changed()
 
-    async def decide(self, key: str, accept: bool, answers: dict[str, list[str]]) -> str:
+    async def decide(
+        self, key: str, accept: bool, answers: dict[str, list[str]], always: bool = False
+    ) -> str:
         pending = self.approvals.pop(key, None)
         if pending is None:
             raise SlurmError("That request is no longer waiting for a response.")
@@ -327,7 +332,9 @@ class CodexConnection(ChatConnection):
                 }
             }
         else:
-            result = {"decision": "accept" if accept else "decline"}
+            result = {
+                "decision": ("acceptForSession" if always else "accept") if accept else "decline"
+            }
         await self.send({"id": pending.rpc_id, "result": result})
         self.changed()
         return pending.item.thread_id
@@ -400,10 +407,19 @@ class CodexConnection(ChatConnection):
         return self._models
 
     async def send_turn(
-        self, thread_id: str, prompt: str, model: str | None = None, effort: str | None = None
+        self,
+        thread_id: str,
+        prompt: str,
+        model: str | None = None,
+        effort: str | None = None,
+        mode: str | None = None,
     ) -> None:
         self.active[thread_id] = ""
-        options = {"model": model, "effort": effort}
+        options = {
+            "model": model,
+            "effort": effort,
+            "approvalPolicy": APPROVAL_POLICIES.get(mode or ""),
+        }
         try:
             result = await self.rpc(
                 "turn/start",

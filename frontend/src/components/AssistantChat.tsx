@@ -5,8 +5,10 @@ import { api } from "@/api/client";
 import type {
   AssistantApproval,
   AssistantChoice,
+  AssistantDecision,
   AssistantLive,
   AssistantMessage,
+  AssistantMode,
   AssistantModel,
   AssistantProvider,
 } from "@/api/types";
@@ -21,6 +23,7 @@ import {
   EFFORT_LABELS,
   loadChoice,
   mergeAssistantMessages,
+  MODES,
   PROVIDER_NAMES,
   saveChoice,
   toolSummary,
@@ -45,6 +48,10 @@ export function AssistantChat({
   const opened = live.opened.includes(id);
   const models = useAssistantModels(account, provider, opened);
   const [choice, setChoice] = useState<AssistantChoice>(() => loadChoice(provider));
+  const choose = (next: AssistantChoice) => {
+    setChoice(next);
+    saveChoice(provider, next);
+  };
   const send = useAssistantAction(account, (prompt: string) =>
     api.assistants.turn(account, provider, id, prompt, choiceToSend(choice, models.data)),
   );
@@ -175,16 +182,31 @@ export function AssistantChat({
               disabled={working}
               className="block max-h-48 w-full resize-none rounded-xl border bg-background px-3 py-2 text-sm field-sizing-content"
             />
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-x-1 gap-y-2">
+              <select
+                aria-label="Permissions"
+                title={MODES.find((m) => m.id === (choice.mode ?? "ask"))?.hint}
+                className={cn(PICKER, choice.mode === "auto" && "text-pend")}
+                value={choice.mode ?? "ask"}
+                disabled={working}
+                onChange={(event) =>
+                  choose({ ...choice, mode: event.target.value as AssistantMode })
+                }
+              >
+                {MODES.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
               {models.data && (
                 <ChoicePicker
                   models={models.data}
                   choice={choice}
                   disabled={working}
-                  onChange={(next) => {
-                    setChoice(next);
-                    saveChoice(provider, next);
-                  }}
+                  onChange={(next) =>
+                    choose({ ...next, ...(choice.mode ? { mode: choice.mode } : {}) })
+                  }
                 />
               )}
               <Button
@@ -326,7 +348,7 @@ function ApprovalCard({
   approval: AssistantApproval;
 }) {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
-  const decide = useAssistantAction(account, (decision: "accept" | "decline") =>
+  const decide = useAssistantAction(account, (decision: AssistantDecision) =>
     api.assistants.decide(account, provider, approval.id, decision, answers),
   );
   return (
@@ -373,7 +395,7 @@ function ApprovalCard({
           )}
         </label>
       ))}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           disabled={
             decide.isPending ||
@@ -387,6 +409,16 @@ function ApprovalCard({
               ? "Approve plan"
               : "Approve once"}
         </Button>
+        {approval.can_always && (
+          <Button
+            variant="ghost"
+            disabled={decide.isPending}
+            title="Approve, and stop asking about requests like this one"
+            onClick={() => decide.mutate("always")}
+          >
+            Always allow
+          </Button>
+        )}
         <Button
           variant="ghost"
           disabled={decide.isPending}
