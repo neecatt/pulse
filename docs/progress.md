@@ -3,6 +3,12 @@
 Running log of what has been built, newest first. Each entry names the branch
 it landed on.
 
+## 2026-11-26 — Release 0.3.6
+
+- Assistant chats get a Permissions picker (Ask first, Accept edits, Don't ask)
+  and an Always allow button on approvals (#91).
+- Published as `neecat/pulse:0.3.6`, `:0.3`, `:latest` and `:staging`.
+
 ## 2026-11-26 — Assistant permission modes (`feat/assistant-permission-modes`)
 
 - Approving every command one by one was tiring, so the chat gets Claude Code's
